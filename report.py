@@ -461,7 +461,6 @@ def gated_vs_ungated(conn: sqlite3.Connection, clk: Clock, settings: Settings,
                      week_start: str) -> list[GatedRow]:
     """How much consumption passed through the queue versus bypassed it, per group."""
     split = allowance.gated_split(conn, settings, week_start)
-    provs = _counted_provenances(conn, settings, week_start)
     prov_order = {p: i for i, p in enumerate(T.PROVENANCES)}
     out = []
     for group in T.REPORT_GROUPS:
@@ -470,27 +469,12 @@ def gated_vs_ungated(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         out.append(GatedRow(group, s.gated_min, s.ungated_min,
                             (s.ungated_min / total) if total > 0 else None,
                             s.wasteful_ungated_min,
-                            tuple(sorted(provs.get(group, ()), key=lambda p: prov_order.get(p, 99)))))
-    return out
-
-
-def _counted_provenances(conn: sqlite3.Connection, settings: Settings, week_start: str) -> dict[str, set[str]]:
-    """Per group, the provenances of the rows `allowance.gated_split` counts this week."""
-    out: dict[str, set[str]] = {}
-    if allowance._spotify_rows(conn, settings, week_start):
-        out.setdefault(T.GROUP_PODCASTS, set()).add(T.PROV_API)
-    go_live = getattr(settings, "go_live", "") or ""
-    for r in allowance._measurement_rows(conn, settings, week_start):
-        if r["status"] != "ok" or T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"])):
-            continue
-        if go_live and r["period_end"] < go_live:
-            continue
-        out.setdefault(T.report_group(r["kind"], r["device"]), set()).add(r["provenance"])
+                            tuple(sorted(s.provenances, key=lambda p: prov_order.get(p, 99)))))
     return out
 
 
 def latest_imports(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[ImportSummary]:
-    """The most recent import of every kind, including failures, oldest kind order.
+    """The most recent import of every kind (in `IMPORT_KINDS` order), failures included.
 
     Read-only and verbatim: status, error and warnings exactly as stored, so a
     failed import is as visible on the dashboard as it was in the bot reply.

@@ -758,21 +758,23 @@ def _run(conn, clk, settings, raw_path, raw_sha, images, received_at, images_key
     rec.meta.update(parsed.meta)
     written = 0
     try:
-        if replaces is not None:
-            conn.execute("DELETE FROM measurements WHERE import_id = ?", (replaces,))
-            conn.execute("DELETE FROM category_measurements WHERE import_id = ?", (replaces,))
         if parsed.is_full_past_week and not parsed.app_rows:
             # A complete past week, but no Most Used row was read at all (the
             # list was missing, showed categories, or no row had a name). The
             # warnings already say what to resend. Recording the week's period
             # would mark it covered and report a clean zero for the iPhone, so
             # this stays evidence only: the prompt keeps asking, and nothing
-            # reads the structure failure as "no usage".
+            # reads the structure failure as "no usage". It is checked before a
+            # reparse deletes anything, so a worse re-read never wipes the
+            # facts an earlier, better read recorded.
             rec.warnings.append("No app rows were read, so this capture was kept as evidence only and does "
                                 "not count as Screen Time for " + f"{parsed.period_start} – {parsed.period_end}.")
             status = evidence.finish_import(conn, clk, settings, rec, period_start=None, period_end=None,
                                             status=T.IMPORT_PARTIAL)
             return evidence.Outcome(rec.id, status, 0, tuple(rec.warnings))
+        if replaces is not None:
+            conn.execute("DELETE FROM measurements WHERE import_id = ?", (replaces,))
+            conn.execute("DELETE FROM category_measurements WHERE import_id = ?", (replaces,))
         if parsed.is_full_past_week:
             for app in parsed.app_rows:
                 source = labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, app.name)

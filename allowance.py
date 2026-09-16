@@ -93,6 +93,9 @@ class GatedSplit:
     gated_min: float = 0.0
     ungated_min: float = 0.0
     wasteful_ungated_min: float = 0.0
+    #: Where the counted minutes came from, so a mixed group (X: OCR and
+    #: export) can say so. Collected in the same pass as the minutes.
+    provenances: frozenset = field(default=frozenset(), compare=False)
 
 
 # --------------------------------------------------------------------------
@@ -347,7 +350,7 @@ def gated_split(conn: sqlite3.Connection, settings: Settings,
     Spotify/YouTube consumption never promoted first — is ungated.
     Covered-elsewhere rows and unmeasured rows contribute nothing.
     """
-    out = {g: {"gated_min": 0.0, "ungated_min": 0.0, "wasteful_ungated_min": 0.0}
+    out = {g: {"gated_min": 0.0, "ungated_min": 0.0, "wasteful_ungated_min": 0.0, "provenances": set()}
            for g in T.REPORT_GROUPS}
 
     for row in _spotify_rows(conn, settings, week_start):
@@ -359,6 +362,7 @@ def gated_split(conn: sqlite3.Connection, settings: Settings,
         ).fetchone()
         _add_split(out[T.GROUP_PODCASTS], minutes, promoted is not None,
                    spotify_label(conn, row).label)
+        out[T.GROUP_PODCASTS]["provenances"].add(T.PROV_API)
 
     go_live = getattr(settings, "go_live", "") or ""
     for row in _measurement_rows(conn, settings, week_start):
@@ -371,8 +375,9 @@ def gated_split(conn: sqlite3.Connection, settings: Settings,
         if row["kind"] == T.KIND_YOUTUBE_CHANNEL and row["item_key"]:
             gated = _youtube_promoted_by(conn, settings, row["item_key"], row["period_start"])
         _add_split(out[group], float(row["minutes"]), gated, measurement_label(conn, row).label)
+        out[group]["provenances"].add(row["provenance"])
 
-    return {g: GatedSplit(**v) for g, v in out.items()}
+    return {g: GatedSplit(**{**v, "provenances": frozenset(v["provenances"])}) for g, v in out.items()}
 
 
 def _add_split(acc: dict, minutes: float, gated: bool, label: str) -> None:

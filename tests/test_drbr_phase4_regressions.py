@@ -192,3 +192,26 @@ def test_vision_is_blocked_suite_wide(conn, clk, settings):
     out = screentime.ingest_batch(conn, clk, settings, [(b"not-an-image", "a.png")],
                                   received_at="2026-09-16T10:00:00+00:00")
     assert out.status == "failed" and "reached Apple Vision" in (out.error or "")
+
+
+# --------------------------------------------------------------------------
+# Audit check (no defect): day -> allowance week agrees with POP's instant
+# boundary for every day across both Warsaw DST changes
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("first,last", [("2026-10-18", "2026-11-01"), ("2027-03-21", "2027-04-04")])
+def test_every_day_maps_to_the_pop_week_opening_on_its_sunday_across_dst(first, last):
+    from datetime import date, datetime, time, timedelta
+    from zoneinfo import ZoneInfo
+
+    day, end = date.fromisoformat(first), date.fromisoformat(last)
+    while day <= end:
+        start = T.allowance_week_start_for_day(day, TZ)
+        sunday = T.week_sunday(day)
+        evening = datetime.combine(sunday, time(18, 30), tzinfo=ZoneInfo(TZ))
+        assert start == clock.iso(clock.week_start_for(evening, TZ)), day
+        assert clock.parse(start).astimezone(ZoneInfo(TZ)).strftime("%a %H:%M") == "Sun 18:00", day
+        assert day in T.measurement_week_for_allowance_week(start, TZ).days(), day
+        nxt = clock.next_week_start(clock.parse(start), TZ)
+        assert nxt.astimezone(ZoneInfo(TZ)).strftime("%a %H:%M") == "Sun 18:00", day
+        day += timedelta(days=1)

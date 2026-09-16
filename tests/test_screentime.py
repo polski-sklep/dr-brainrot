@@ -362,6 +362,20 @@ def test_full_week_with_no_readable_most_used_is_evidence_only_not_a_zero_week(c
     assert evidence.get_meta(conn, "diagnostic_start") is None
 
 
+def test_reparse_that_reads_no_app_rows_does_not_wipe_the_earlier_facts(conn, clk, settings):
+    """Phase 4: an evidence-only re-read is decided before the reparse deletes anything."""
+    first = ingest(conn, clk, settings)
+    assert first.measurements_written == 39
+    pages, _ = load("last_week.json")
+    no_most_used = [[o for o in page if o.y < 0.2 or st._key(o.text) in ("total screen time", "daily average")
+                     or st.parse_duration(o.text) is None or o.x > 0.5] for page in pages]
+    no_most_used = [[o for o in page if st._key(o.text) != "most used"] for page in no_most_used]
+    again = st.reparse(conn, clk, settings, first.import_id, ocr=fake_ocr(no_most_used), region_ocr=no_region)
+    assert (again.status, again.measurements_written) == ("partial", 0)
+    assert len(measurement_rows(conn)) == 39
+    assert {r["import_id"] for r in measurement_rows(conn)} == {first.import_id}
+
+
 def test_all_devices_ingest_writes_nothing(conn, clk, settings):
     out = ingest(conn, clk, settings, "all_devices.json")
     assert (out.status, out.measurements_written) == ("partial", 0)
