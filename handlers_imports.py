@@ -314,6 +314,8 @@ def send_due_prompts(conn: sqlite3.Connection, clk: Clock, settings: Settings, b
     week = T.measurement_week(T.week_sunday(today) - timedelta(days=7))
     if today < week.saturday + timedelta(days=2):      # Sunday: the Monday after hasn't come yet
         return []
+    if settings.go_live and week.end < settings.go_live:
+        return []                                     # a week before DRBR existed is not asked for (DR2.2)
     sent: list[str] = []
     for kind in PROMPT_KINDS:
         if _covered(conn, kind, week, settings.tz):

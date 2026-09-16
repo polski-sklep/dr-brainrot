@@ -186,13 +186,19 @@ async def on_label_callback(update, context) -> None:
     if not m:
         await query.answer(UNRECOGNISED)
         return
-    conn, clk, _ = _deps(context)
+    conn, clk, settings = _deps(context)
     source_id = int(m.group(2))
     try:
         source = labels.set_source_label(conn, clk, source_id, _CODE_TO_LABEL[m.group(1)])
     except labels.LabelError:
         await query.answer(STALE)
         return
+    # Debt is computed from labels as they are now. A relabel changes which
+    # past minutes were wasteful, so recompute at once rather than waiting for
+    # the next import to trigger it (DECISIONS DR2.7).
+    import allowance  # noqa: PLC0415
+
+    allowance.on_measurements_changed(conn, clk, settings)
     await query.answer(f"Labelled {source.label}.")
     try:
         await query.edit_message_text(_labelled_text(source))
