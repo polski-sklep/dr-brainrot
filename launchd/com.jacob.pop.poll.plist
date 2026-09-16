@@ -23,12 +23,12 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Jacob/Projects/POP/.venv/bin/python</string>
-        <string>/Users/Jacob/Projects/POP/poll.py</string>
+        <string>/Users/Jacob/Projects/drbr/.venv/bin/python</string>
+        <string>/Users/Jacob/Projects/drbr/poll.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Jacob/Projects/POP</string>
+    <string>/Users/Jacob/Projects/drbr</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -42,8 +42,8 @@
     <false/>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/poll.log</string>
+    <string>/Users/Jacob/Projects/drbr/logs/poll.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/poll.log</string>
+    <string>/Users/Jacob/Projects/drbr/logs/poll.log</string>
 </dict>
 </plist>

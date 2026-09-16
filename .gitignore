@@ -16,3 +16,6 @@ venv/
 
 # Runtime logs
 logs/
+
+# DRBR: real personal inputs (screenshots, exports, history page) — never commit
+inputs/

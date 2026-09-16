@@ -30,12 +30,12 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Jacob/Projects/POP/.venv/bin/python</string>
-        <string>/Users/Jacob/Projects/POP/triage.py</string>
+        <string>/Users/Jacob/Projects/drbr/.venv/bin/python</string>
+        <string>/Users/Jacob/Projects/drbr/triage.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Jacob/Projects/POP</string>
+    <string>/Users/Jacob/Projects/drbr</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -51,8 +51,8 @@
     <false/>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/triage.log</string>
+    <string>/Users/Jacob/Projects/drbr/logs/triage.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/triage.log</string>
+    <string>/Users/Jacob/Projects/drbr/logs/triage.log</string>
 </dict>
 </plist>

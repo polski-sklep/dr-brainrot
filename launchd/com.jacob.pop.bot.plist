@@ -22,12 +22,12 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Jacob/Projects/POP/.venv/bin/python</string>
-        <string>/Users/Jacob/Projects/POP/bot.py</string>
+        <string>/Users/Jacob/Projects/drbr/.venv/bin/python</string>
+        <string>/Users/Jacob/Projects/drbr/bot.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Jacob/Projects/POP</string>
+    <string>/Users/Jacob/Projects/drbr</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -40,8 +40,8 @@
     <integer>30</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/bot.log</string>
+    <string>/Users/Jacob/Projects/drbr/logs/bot.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/bot.log</string>
+    <string>/Users/Jacob/Projects/drbr/logs/bot.log</string>
 </dict>
 </plist>

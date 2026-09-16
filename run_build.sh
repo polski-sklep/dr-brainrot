@@ -10,7 +10,7 @@
 # before arming the launchd job.
 
 set -u
-PROJECT=/Users/Jacob/Projects/POP
+PROJECT=/Users/Jacob/Projects/drbr
 CLAUDE=/Users/Jacob/.local/bin/claude
 export PATH="/Users/Jacob/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
@@ -45,8 +45,8 @@ echo "--- launching build agent ---"
 You are executing the unattended POP build. You start with no memory of any prior conversation.
 
 Do this in order:
-1. Read /Users/Jacob/Projects/POP/BUILD-PROMPT.md in full. It contains the operating rules, current status, and Phases 1 through 5.
-2. Read /Users/Jacob/Projects/POP/pop-build-brief.md in full. It is the complete specification.
+1. Read /Users/Jacob/Projects/drbr/BUILD-PROMPT.md in full. It contains the operating rules, current status, and Phases 1 through 5.
+2. Read /Users/Jacob/Projects/drbr/pop-build-brief.md in full. It is the complete specification.
 3. Execute Phases 1, 2, 3, 4 and 5 in sequence, exactly as BUILD-PROMPT.md specifies.
 
 Hard constraints, repeated here because they matter most:

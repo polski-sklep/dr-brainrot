@@ -19,11 +19,11 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/zsh</string>
-        <string>/Users/Jacob/Projects/POP/run_build.sh</string>
+        <string>/Users/Jacob/Projects/drbr/run_build.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Jacob/Projects/POP</string>
+    <string>/Users/Jacob/Projects/drbr</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -39,8 +39,8 @@
     <false/>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/launchd.out</string>
+    <string>/Users/Jacob/Projects/drbr/logs/launchd.out</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/launchd.err</string>
+    <string>/Users/Jacob/Projects/drbr/logs/launchd.err</string>
 </dict>
 </plist>
