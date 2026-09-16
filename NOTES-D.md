@@ -46,6 +46,45 @@ changes to lose).
    should diff `weeks.debt_min` on a copy of the real DB before and after one
    `on_measurements_changed` call.
 
+## Coordinator integration update (applied in the second commit)
+
+1. **Several rows per source/day** (X via Cold Turkey keyed by domain): nothing
+   assumed one row per (source, period); every aggregate sums rows. Tested with
+   x.com + twitter.com on one day, and records shows both rows.
+2. **Non-ok rows** already counted only as `unmeasured_items`, never as 0.
+3. **Coverage** (`report._covering_import(conn, settings, kind, week)`):
+   YouTube = any ok/partial `youtube_history` import *received* on/after the
+   local Sunday following the week's Saturday (periods are watch-date ranges).
+   Screen Time/Cold Turkey = ok/partial import with non-NULL period overlapping
+   the week; a NULL-period "This Week"/all-devices capture never covers.
+   `weekly_totals` now reports `import_status='incomplete'` when rows exist but
+   no import covers the week yet (e.g. a mid-week YouTube sync), `'missing'`
+   when neither rows nor a covering import exist.
+4. **Diagnostic window**: `report.window_start` = `evidence.diagnostic().start`,
+   else `getattr(settings, "go_live", "")`. Applied to `label_split` (weeks
+   ending before it omitted), `cost_per_keeper` (default and clamp of `since`),
+   `funnels` (POP `funnel_stats(since=...)` and vault captures by
+   `captured_at`), `blind_spots` (first week checked), `records` (clamped
+   `start`). `weekly_totals`/`gated_vs_ungated`/`allowance_status` take an
+   explicit or current week and are not clamped; the gate itself
+   (`allowance`, `db`) is live behaviour and ignores the window. Measurements
+   now match a date bound by **period overlap** (`period_end >= start`), so a
+   Screen Time week straddling the start counts whole rather than vanishing.
+   The go_live fallback is untested here (field absent in this worktree's
+   `Settings`); integration should add one test on branch drbr.
+5. **Unknown YouTube channel** (key `"unknown"`, or
+   `drbr_types.UNKNOWN_YOUTUBE_CHANNEL_KEY` when present): its source label is
+   ignored, so it resolves unlabelled → wasteful; a per-video capture override
+   still applies. Tested.
+6. **Cold Turkey partial imports** still count as coverage for the days they
+   hold (status `partial`); nothing else needed.
+
+Test assertions I changed in my *own* new tests for this: YouTube
+`import_status` in `test_weekly_totals…` is now `incomplete`; the records
+date-filter test now includes the overlapping Screen Time week; the
+label-split, YouTube-funnel and end-to-end integration tests set the diagnostic
+start explicitly before their captures (as go-live would be).
+
 ## Decisions
 
 - **Gate** (`db.promote`): lock re-check first (unchanged, every label), then

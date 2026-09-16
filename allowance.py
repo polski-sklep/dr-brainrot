@@ -241,12 +241,31 @@ def _measurement_rows(conn: sqlite3.Connection, settings: Settings, week_start: 
     ]
 
 
+#: The YouTube source for videos whose channel could not be identified
+#: (drbr_types.UNKNOWN_YOUTUBE_CHANNEL_KEY on branch drbr). It is a bucket,
+#: not a channel, so a label on it would label unrelated channels at once.
+UNKNOWN_YOUTUBE_CHANNEL_KEY = getattr(T, "UNKNOWN_YOUTUBE_CHANNEL_KEY", "unknown")
+
+
 def measurement_label(conn: sqlite3.Connection, row: sqlite3.Row) -> labels.ResolvedLabel:
-    """Label for one measurement row. YouTube videos honour a capture-time override."""
+    """Label for one measurement row. YouTube videos honour a capture-time override.
+
+    Several rows may exist for one source and day (Cold Turkey stores x.com and
+    twitter.com under the one X source, keyed by domain); each is labelled and
+    summed on its own, never assumed unique.
+
+    The unknown-channel placeholder always resolves as unlabelled (wasteful by
+    default): its source label is ignored, though an explicit per-video
+    override at capture still applies.
+    """
     ref = None
-    if row["kind"] == T.KIND_YOUTUBE_CHANNEL and row["item_key"]:
-        ref = T.item_ref("youtube", row["item_key"])
-    return labels.resolve(conn, source_id=row["source_id"], item_ref=ref)
+    source_id = row["source_id"]
+    if row["kind"] == T.KIND_YOUTUBE_CHANNEL:
+        if row["item_key"]:
+            ref = T.item_ref("youtube", row["item_key"])
+        if row["source_key"] == UNKNOWN_YOUTUBE_CHANNEL_KEY:
+            source_id = None
+    return labels.resolve(conn, source_id=source_id, item_ref=ref)
 
 
 def spotify_label(conn: sqlite3.Connection, row: sqlite3.Row) -> labels.ResolvedLabel:

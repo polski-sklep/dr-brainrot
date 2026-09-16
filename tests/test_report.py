@@ -17,8 +17,10 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+import allowance  # noqa: E402
 import clock  # noqa: E402
 import db  # noqa: E402
+import labels  # noqa: E402
 import drbr_types as T  # noqa: E402
 import evidence  # noqa: E402
 import report  # noqa: E402
@@ -115,7 +117,7 @@ def test_weekly_totals_carry_provenance_device_and_import_status(conn, clk, sett
     yt = by_key[(T.GROUP_YOUTUBE, T.PROV_PAGE, T.DEVICE_ACCOUNT)]
     assert yt.minutes == pytest.approx(40)            # worthwhile still counted in totals
     assert yt.unmeasured_items == 1
-    assert yt.import_status == "ok"
+    assert yt.import_status == report.IMPORT_INCOMPLETE   # synced mid-week: not covered yet
 
     ios = by_key[(T.GROUP_IPHONE, T.PROV_SCREENSHOT, T.DEVICE_IPHONE)]
     assert ios.minutes == pytest.approx(90)           # screenshot stays screenshot
@@ -129,6 +131,88 @@ def test_weekly_totals_carry_provenance_device_and_import_status(conn, clk, sett
     desktop = by_key[(T.GROUP_DESKTOP, T.PROV_EXPORT, T.DEVICE_DESKTOP)]
     assert desktop.minutes == 0.0 and desktop.import_status == "ok"
     assert all(r.provenance in T.PROVENANCES for r in rows)
+
+
+def test_youtube_week_is_covered_by_any_sync_received_after_its_saturday(conn, clk, settings):
+    clk.set(WED)
+    measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCa", day="2026-09-08",
+            minutes=5.0, item_key="aaaaaaaaaaa")
+    mweek = T.measurement_week_for_allowance_week(WEEK, settings.tz)
+    assert report._covering_import(conn, settings, "youtube_history", mweek) is None
+
+    # Received Sunday after the week, with a watch-date range that is not the week.
+    clk.set("2026-09-13T08:00:00+00:00")
+    rec = evidence.begin_import(conn, clk, kind="youtube_history", parser_version="t")
+    evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-12", period_end="2026-09-13")
+    yt = next(r for r in report.weekly_totals(conn, clk, settings, WEEK) if r.group == T.GROUP_YOUTUBE)
+    assert yt.import_status == "ok" and yt.minutes == pytest.approx(5)
+
+
+def test_a_this_week_screen_time_capture_never_covers_a_week(conn, clk, settings):
+    clk.set("2026-09-14T08:00:00+00:00")
+    rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="t")
+    rec.warnings.append("This Week view: resend Last Week")
+    evidence.finish_import(conn, clk, settings, rec, period_start=None, period_end=None)
+    ios = next(r for r in report.weekly_totals(conn, clk, settings, WEEK) if r.group == T.GROUP_IPHONE)
+    assert (ios.minutes, ios.import_status) == (None, report.IMPORT_MISSING)
+    assert "Screen Time for the week 2026-09-06 to 2026-09-12 has not been received." in \
+        report.blind_spots(conn, clk, settings)
+
+
+def test_x_from_two_domains_on_one_day_is_summed_not_collapsed(conn, clk, settings):
+    clk.set(WED)
+    x = labels.ensure_source(conn, clk, T.KIND_WEB_DOMAIN, "x.com")
+    conn.commit()
+    rec = evidence.begin_import(conn, clk, kind="coldturkey", parser_version="t")
+    for domain, minutes in (("x.com", 12.5), ("twitter.com", 7.5)):
+        evidence.upsert_measurement(conn, rec, source_id=x.id, device="desktop", provenance="manual_export",
+                                    period_start="2026-09-08", period_end="2026-09-08",
+                                    minutes=minutes, item_key=domain)
+    rec.warnings.append("days on or after the export date skipped")
+    evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-06", period_end="2026-09-08")
+
+    pooled = allowance.pooled_minutes(conn, settings, WEEK)
+    assert pooled.by_group[T.GROUP_X].wasteful_min == pytest.approx(20)
+    x_rows = [r for r in report.weekly_totals(conn, clk, settings, WEEK) if r.group == T.GROUP_X]
+    assert x_rows[0].minutes == pytest.approx(20) and x_rows[0].import_status == "partial"
+    assert len(report.records(conn, clk, settings, group=T.GROUP_X)) == 2
+
+
+def test_unknown_youtube_channel_counts_as_unlabelled_even_if_labelled(conn, clk, settings):
+    clk.set(WED)
+    label_source(conn, clk, T.KIND_YOUTUBE_CHANNEL, "unknown", T.WORTHWHILE)
+    measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="unknown", day="2026-09-08",
+            minutes=30.0, item_key="unknownvid1")
+    rows = report.records(conn, clk, settings, group=T.GROUP_YOUTUBE)
+    assert (rows[0].label, rows[0].label_basis) == (T.WASTEFUL, T.BASIS_DEFAULT)
+    assert allowance.pooled_minutes(conn, settings, WEEK).wasteful_min == pytest.approx(30)
+
+    # An explicit per-video override at capture still wins.
+    labels.set_item_override(conn, clk, "youtube:unknownvid1", T.WORTHWHILE)
+    conn.commit()
+    assert allowance.pooled_minutes(conn, settings, WEEK).worthwhile_min == pytest.approx(30)
+
+
+def test_report_windows_start_at_the_diagnostic_start(conn, clk, settings):
+    clk.set("2026-08-25T10:00:00+00:00")
+    old = spotify_item(conn, clk, settings, "PreLiveEpisode00000000", show="Pod", minutes=300)
+    listen(conn, clk, old.spotify_id, 100)                              # before go-live
+    vault_capture(conn, clk, group="podcasts", outcome="kept", captured_at="2026-08-25T10:00:00+00:00")
+    evidence.ensure_diagnostic_start(conn, "2026-09-06")
+    clk.set(WED)
+    listen(conn, clk, old.spotify_id, 40)
+    vault_capture(conn, clk, group="podcasts", outcome="kept", captured_at=WED)
+
+    assert report.window_start(conn, clk, settings) == "2026-09-06"
+    pod = next(r for r in report.cost_per_keeper(conn, clk, settings) if r.group == T.GROUP_PODCASTS)
+    assert (pod.minutes, pod.keepers) == (pytest.approx(40), 1)
+    early = next(r for r in report.cost_per_keeper(conn, clk, settings, since="2026-08-01")
+                 if r.group == T.GROUP_PODCASTS)
+    assert early.minutes == pytest.approx(40)                           # clamped, not widened
+    assert [s.week_start for s in report.label_split(conn, clk, settings, weeks=4)] == [WEEK]
+    assert {r.day for r in report.records(conn, clk, settings)} == {"2026-09-09"}
+    f = report.funnels(conn, clk, settings)
+    assert f.vault.kept == 1 and f.pop.captured == 0                    # captured before go-live
 
 
 def test_weekly_totals_mark_missing_evidence_as_none_not_zero(conn, clk, settings):
@@ -146,9 +230,11 @@ def test_weekly_totals_mark_missing_evidence_as_none_not_zero(conn, clk, setting
 # ==========================================================================
 
 def test_label_split_is_weekly_oldest_first(conn, clk, settings):
+    evidence.ensure_diagnostic_start(conn, "2026-08-30")
     seed_week(conn, clk, settings)
     clk.set("2026-09-15T10:00:00+00:00")           # the following week
-    splits = report.label_split(conn, clk, settings, weeks=3)
+    splits = report.label_split(conn, clk, settings, weeks=4)
+    # The week of 23 Aug ends before the diagnostic start and is left out.
     assert [s.week_start for s in splits] == ["2026-08-30T16:00:00+00:00", WEEK, NEXT_WEEK]
     assert splits[1].wasteful_min == pytest.approx(30 + 90 + 12)
     assert splits[1].worthwhile_min == pytest.approx(40)
@@ -287,6 +373,7 @@ def test_vault_funnel_leaves_excluded_out_of_the_denominator(conn, clk, settings
 
 
 def test_pop_funnel_counts_youtube_played_as_measured_watching(conn, clk, settings):
+    evidence.ensure_diagnostic_start(conn, "2026-08-30")         # go-live before the captures
     watched = youtube_item(conn, clk, settings, "WatchedVid1", channel="UCw")
     unwatched = youtube_item(conn, clk, settings, "SkippedVid1", channel="UCw")
     early = youtube_item(conn, clk, settings, "EarlyVideo1", channel="UCw")
@@ -358,7 +445,9 @@ def test_records_filter_by_group_label_and_date(conn, clk, settings):
     assert worthwhile[0].label_basis == T.BASIS_SOURCE_LABEL
 
     day = report.records(conn, clk, settings, start="2026-09-09", end="2026-09-09")
-    assert {(r.group, r.day) for r in day} == {(T.GROUP_PODCASTS, "2026-09-09"), (T.GROUP_X, "2026-09-09")}
+    # Period overlap: the Screen Time week (6..12 Sep) contains 9 Sep.
+    assert {(r.group, r.day) for r in day} == {(T.GROUP_PODCASTS, "2026-09-09"), (T.GROUP_X, "2026-09-09"),
+                                               (T.GROUP_IPHONE, "2026-09-06")}
 
     covered = [r for r in everything if r.covered_elsewhere]
     assert len(covered) == 1 and covered[0].source == "YouTube"

@@ -61,7 +61,8 @@ EXPECTED_WEEKLY = (
     ("coldturkey", T.GROUP_DESKTOP, T.PROV_EXPORT, T.DEVICE_DESKTOP, "Cold Turkey"),
 )
 
-IMPORT_MISSING = "missing"
+IMPORT_MISSING = "missing"          # no rows and no import covering the week
+IMPORT_INCOMPLETE = "incomplete"    # rows exist, but no import covers the whole week yet
 
 #: Standing per-group caveats shown on the cost-per-keeper table.
 GROUP_BLIND_SPOTS: dict[str, tuple[str, ...]] = {
@@ -222,14 +223,56 @@ def _since_bounds(since: str | None, tz: str) -> tuple[str | None, str | None]:
     return clock.iso(clock.parse(since)), T.iso_date(T.local_date(since, tz))
 
 
-def _covering_import(conn: sqlite3.Connection, kind: str, start: str, end: str) -> sqlite3.Row | None:
-    """The latest ok/partial import of `kind` whose period overlaps [start, end]."""
+def _covering_import(conn: sqlite3.Connection, settings: Settings, kind: str,
+                     week: T.MeasurementWeek) -> sqlite3.Row | None:
+    """The latest ok/partial import of `kind` that covers a measurement week.
+
+    * YouTube history: import periods are watch-date ranges, not weeks, and a
+      sync walks back to the previous cursor. So any ok/partial sync
+      *received after* the week's Saturday (local) covers that week.
+    * Screen Time / Cold Turkey: the import's period overlaps the week. A
+      "This Week" or all-devices Screen Time capture has a NULL period and
+      writes nothing, so it never counts as coverage. A Cold Turkey export
+      that skipped days on/after its export date is 'partial' and still
+      covers the days it holds.
+    """
+    if kind == "youtube_history":
+        after_saturday = _local_midnight(week.saturday + timedelta(days=1), settings.tz)
+        return conn.execute(
+            "SELECT * FROM imports WHERE kind = ? AND status IN ('ok','partial') "
+            "AND received_at >= ? ORDER BY id DESC LIMIT 1",
+            (kind, after_saturday),
+        ).fetchone()
     return conn.execute(
         "SELECT * FROM imports WHERE kind = ? AND status IN ('ok','partial') "
-        "AND period_start IS NOT NULL AND period_start <= ? AND period_end >= ? "
+        "AND period_start IS NOT NULL AND period_end IS NOT NULL "
+        "AND period_start <= ? AND period_end >= ? "
         "ORDER BY id DESC LIMIT 1",
-        (kind, end, start),
+        (kind, week.end, week.start),
     ).fetchone()
+
+
+def window_start(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> str | None:
+    """The local date report windows start at, or None for "all data".
+
+    Data before the diagnostic start is not diagnostic data. The start is
+    `evidence.diagnostic(...).start` once set; before the first import it
+    falls back to `settings.go_live` when configured (read defensively: the
+    field is new on the integration branch).
+    """
+    diag = evidence.diagnostic(conn, clk, settings)
+    if diag.started and diag.start:
+        return diag.start
+    return getattr(settings, "go_live", "") or None
+
+
+def _clamp_start(requested: str | None, floor: str | None) -> str | None:
+    """The later of a requested local start date and the diagnostic window start."""
+    if floor is None:
+        return requested
+    if requested is None:
+        return floor
+    return max(requested, floor)
 
 
 def _last_complete_measurement_week(clk: Clock, settings: Settings) -> T.MeasurementWeek:
@@ -287,8 +330,10 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         status = None
         kind = IMPORT_KIND_FOR_PROVENANCE.get(provenance)
         if kind is not None:
-            imp = _covering_import(conn, kind, mweek.start, mweek.end)
-            status = imp["status"] if imp else IMPORT_MISSING
+            imp = _covering_import(conn, settings, kind, mweek)
+            # Rows exist but no import covers the whole week yet (e.g. a
+            # YouTube sync made mid-week): the figure is honest but incomplete.
+            status = imp["status"] if imp else IMPORT_INCOMPLETE
         out.append(SourceTotal(group, provenance, device, v["minutes"], v["unmeasured_items"],
                                v["covered_excluded_min"], status))
 
@@ -296,7 +341,7 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
     for kind, group, provenance, device, _name in EXPECTED_WEEKLY:
         if (group, provenance, device) in present:
             continue
-        imp = _covering_import(conn, kind, mweek.start, mweek.end)
+        imp = _covering_import(conn, settings, kind, mweek)
         if imp is None:
             out.append(SourceTotal(group, provenance, device, None, 0, 0.0, IMPORT_MISSING))
         else:
@@ -311,12 +356,19 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
 
 def label_split(conn: sqlite3.Connection, clk: Clock, settings: Settings,
                 weeks: int = 8) -> list[WeekSplit]:
-    """Wasteful vs worthwhile per allowance week, oldest first, ending with the current week."""
+    """Wasteful vs worthwhile per allowance week, oldest first, ending with the current week.
+
+    Weeks that end before the diagnostic window start are left out: they are
+    not diagnostic data, and showing them as empty bars would read as zero.
+    """
+    floor = window_start(conn, clk, settings)
     starts = [_current_week_start(clk, settings)]
     for _ in range(max(0, weeks - 1)):
         starts.append(_previous_week_start(starts[-1], settings))
     out = []
     for start in reversed(starts):
+        if floor is not None and T.measurement_week_for_allowance_week(start, settings.tz).end < floor:
+            continue
         pooled = allowance.pooled_minutes(conn, settings, start)
         out.append(WeekSplit(start, pooled.wasteful_min, pooled.worthwhile_min))
     return out
@@ -376,9 +428,15 @@ def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
     Minutes are every label's consumption (excluding covered-elsewhere rows),
     because a keeper is what the time *yielded*, whatever it was labelled.
     Keepers are captures whose latest scan outcome is `kept`. `since` is a
-    local date or an instant; `None` means all time.
+    local date or an instant; `None` means the whole diagnostic window, and an
+    earlier `since` is clamped to the window start. A measurement counts when
+    its period ends on or after the start (a Screen Time week that opens the
+    window counts whole; it cannot be split).
     """
-    since_instant, since_day = _since_bounds(since, settings.tz)
+    floor = window_start(conn, clk, settings)
+    if since is not None and len(since) != 10:
+        since = T.iso_date(T.local_date(since, settings.tz))
+    since_instant, since_day = _since_bounds(_clamp_start(since, floor), settings.tz)
 
     minutes: dict[str, float] = {g: 0.0 for g in T.REPORT_GROUPS}
     provenances: dict[str, set[str]] = {g: set() for g in T.REPORT_GROUPS}
@@ -397,7 +455,7 @@ def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
            "JOIN sources s ON s.id = m.source_id WHERE m.status = 'ok'")
     params = []
     if since_day is not None:
-        sql += " AND m.period_start >= ?"
+        sql += " AND m.period_end >= ?"
         params.append(since_day)
     for r in conn.execute(sql, params).fetchall():
         if T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"])):
@@ -442,9 +500,16 @@ def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
 
 
 def funnels(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Funnels:
-    """POP's capture funnel, and capture → kept in the vault (excluded out of the denominator)."""
+    """POP's capture funnel, and capture → kept in the vault (excluded out of the denominator).
+
+    Both count captures made from the diagnostic window start onwards.
+    """
+    floor = window_start(conn, clk, settings)
+    since = _local_midnight(T.parse_date(floor), settings.tz) if floor else None
     unprocessed = kept = excluded = edited_kept = 0
     for r in _latest_vault_outcomes(conn):
+        if since is not None and r["captured_at"] < since:
+            continue
         if r["outcome"] == "kept":
             kept += 1
             if r["edited"]:
@@ -454,7 +519,7 @@ def funnels(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Funnels
         else:
             excluded += 1
     return Funnels(
-        pop=db.funnel_stats(conn, clk, settings),
+        pop=db.funnel_stats(conn, clk, settings, since=since),
         vault=VaultFunnel(unprocessed + kept, unprocessed, kept, excluded, edited_kept),
     )
 
@@ -482,14 +547,14 @@ def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> lis
         out.append(f"{r['n']} YouTube video(s) with {what} are left out of minutes (not counted as zero).")
 
     last = _last_complete_measurement_week(clk, settings)
-    diag = evidence.diagnostic(conn, clk, settings)
-    first = T.measurement_week(T.parse_date(diag.start)).sunday if diag.started else last.sunday
+    floor = window_start(conn, clk, settings)
+    first = T.measurement_week(T.parse_date(floor)).sunday if floor else last.sunday
     names = {kind: name for kind, _g, _p, _d, name in EXPECTED_WEEKLY}
     sunday = first
     while sunday <= last.sunday:
         week = T.measurement_week(sunday)
         for kind in ("screentime", "coldturkey", "youtube_history"):
-            if _covering_import(conn, kind, week.start, week.end) is None:
+            if _covering_import(conn, settings, kind, week) is None:
                 out.append(f"{names[kind]} for the week {week.start} to {week.end} has not been received.")
         sunday += timedelta(days=7)
     return out
@@ -502,13 +567,19 @@ def records(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, group: 
 
     Covered-elsewhere rows are included and say so; unmeasured rows are
     included with `minutes=None`. Vault captures are not minute records and
-    appear in `funnels` instead.
+    appear in `funnels` instead. Several rows may share a source and day (X
+    from Cold Turkey is one row per domain); each is its own record.
+
+    `start` is clamped to the diagnostic window start. A measurement matches
+    the date range when its period overlaps it, so a Screen Time week shows
+    up for any day inside it.
     """
     if group is not None and group not in T.REPORT_GROUPS:
         raise ValueError(f"unknown group {group!r}")
     if label is not None and label not in T.LABELS:
         raise ValueError(f"unknown label {label!r}")
     tz = settings.tz
+    start = _clamp_start(start, window_start(conn, clk, settings))
     out: list[RecordRow] = []
 
     if group in (None, T.GROUP_PODCASTS):
@@ -540,7 +611,7 @@ def records(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, group: 
     """
     params = []
     if start is not None:
-        sql += " AND m.period_start >= ?"
+        sql += " AND m.period_end >= ?"
         params.append(start)
     if end is not None:
         sql += " AND m.period_start <= ?"

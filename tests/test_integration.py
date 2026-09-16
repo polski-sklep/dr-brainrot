@@ -662,6 +662,7 @@ def test_drbr_pooled_label_aware_week_end_to_end(tmp_path):
     db.migrate(conn)
     week = "2026-09-06T16:00:00+00:00"            # Sunday 18:00 Warsaw
     next_week = "2026-09-13T16:00:00+00:00"
+    evidence.ensure_diagnostic_start(conn, "2026-08-31")   # go-live, before the captures
 
     spotify = FakeSpotify({A_ID: A})
     video = T.VideoInfo("TalkVideo01", "The Talk", "UCtalks", "Talks", 40 * 60)
