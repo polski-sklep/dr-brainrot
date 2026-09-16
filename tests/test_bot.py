@@ -689,7 +689,8 @@ def test_build_app_registers_handlers_without_touching_the_network(settings, clk
     assert app.bot_data["spotify"] is spotify
 
     registered = [h for group in app.handlers.values() for h in group]
-    assert len(registered) == 5
+    pop_handlers = [h for h in registered if getattr(h.callback, "__module__", "") == "bot"]
+    assert len(pop_handlers) == 5
     callbacks = {h.callback for h in registered}
     assert {bot.cmd_start, bot.cmd_queue, bot.cmd_stats, bot.on_callback, bot.on_message} <= callbacks
 

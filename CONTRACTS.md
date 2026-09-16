@@ -1,5 +1,13 @@
 # CONTRACTS
 
+**Part I** (below, unchanged) is POP's original contract. **Part II**, at the
+end of this file, is DRBR's. Where Part II changes a Part I behaviour it says
+so explicitly; otherwise Part I still holds.
+
+---
+
+# Part I — POP
+
 Phase 1 output. Every module in Phases 2 and 3 implements exactly these
 signatures and imports other modules only through them. Do not widen a
 signature without updating this file first.
@@ -471,3 +479,349 @@ Both send before writing their bookkeeping row, so a Telegram outage is retried
 by tomorrow's poll rather than swallowed (D3.5).
 
 Crontab lines go in `README.md`. They are not installed.
+
+
+---
+
+# Part II — DRBR
+
+Phase 1 output for the DRBR extension (`drbr-build-brief.md`). Binding on every
+Phase 2 agent. **No agent changes a shared contract privately.** If a contract
+must change, stop, write the change here centrally, and apply it to every
+affected component. Agents record everything else in `NOTES-<agent>.md` for the
+integration pass.
+
+Governing rule for all of it: **the user labels, the system counts.** No
+heuristic may infer value (dwell time, length, session length, engagement,
+folder, completion, duration, or anything else). If you are tempted, don't,
+and write the temptation down in your notes.
+
+## §0 File ownership (Phase 2)
+
+No two agents modify the same file. Paths not listed are reserved for the
+integration pass and must not be edited in Phase 2.
+
+| Agent | Owns (may create/modify) |
+|---|---|
+| **A — YouTube** | `sources/youtube.py`, `ingest_api.py`, `extension/**`, `tests/test_youtube*.py`, `tests/test_ingest_api.py`, `tests/fixtures/youtube/**`, `NOTES-A.md` |
+| **B — Screen Time + Cold Turkey** | `sources/screentime.py`, `sources/ocr_vision.py`, `sources/coldturkey.py`, `handlers_imports.py`, `tests/test_screentime*.py`, `tests/test_coldturkey*.py`, `tests/test_handlers_imports.py`, `tests/fixtures/screentime/**`, `tests/fixtures/coldturkey/**`, `NOTES-B.md` |
+| **C — Vault + labels** | `sources/vault.py`, `labels.py`, `handlers_labels.py`, `tests/test_vault*.py`, `tests/test_labels*.py`, `tests/test_handlers_labels.py`, `tests/fixtures/vault/**`, `NOTES-C.md`; **and** the separate repo `/Users/Jacob/Projects/obsidian-ingest` on a branch `drbr-capture-id` |
+| **D — Gate + reporting** | `allowance.py`, `report.py`, `db.py`, `bot.py`, `poll.py`, `triage.py`, `tests/test_allowance*.py`, `tests/test_report*.py`, `tests/test_db.py`, `tests/test_bot.py`, `tests/test_poll.py`, `tests/test_triage.py`, `tests/test_integration.py`, `NOTES-D.md` |
+| **Integration only** | `schema.sql`, `migrations/**`, `config.py`, `clock.py`, `drbr_types.py`, `evidence.py`, `conftest.py`, `check_env.py`, `jobs.py`, `dashboard/**`, `drbr` (launcher), `launchd/**`, `requirements.txt`, `.env*`, `README.md`, `CONTRACTS.md`, `DECISIONS.md`, `EXISTING.md`, `REVIEW.md`, `tests/test_drbr_*.py` |
+
+Agents run tests with `/Users/Jacob/Projects/drbr/.venv/bin/python -m pytest -q`
+from their own worktree root. Real personal inputs are read-only at
+`/Users/Jacob/Projects/drbr/inputs/` (gitignored; never copy them into the
+repo unsanitised).
+
+## §1 Conventions
+
+- **Instants:** ISO-8601 UTC via `clock.iso()`, as in POP.
+- **Local days:** `'YYYY-MM-DD'` in `settings.tz` (`POP_TZ`, `Europe/Warsaw`). Convert only with `drbr_types.local_date`.
+- **Measurement week:** local Sunday..Saturday (`drbr_types.measurement_week`). It is charged to the POP allowance week opening **18:00 on that same Sunday** (`drbr_types.allowance_week_start_for_day`). A local day is never split between two allowance weeks. Spotify deltas keep POP's instant-based attribution (`clock.week_start_for(polled_at)`).
+- **Time is injected:** every function that needs "now" takes a `Clock`. Tests use `clock.FrozenClock`.
+- **Settings:** `config.Settings` gains `youtube_api_key`, `vault_path`, `vault_inbox`, `capture_outbox`, `raw_dir`, `diagnostic_weeks`, `dashboard_port`, `ingest_token` (defaults keep `config.test_settings()` valid). Tests pass `raw_dir=tmp_path/...` and `vault_path=tmp_path/...` explicitly.
+- **No network in tests**, enforced by `conftest.py`. Every external client is injected.
+- **Secrets** never appear in logs, exceptions shown to the user, fixtures, or notes.
+
+## §2 Schema (migration `0002_drbr.sql`, schema_version 2)
+
+Authoritative DDL is `migrations/0002_drbr.sql`; semantics:
+
+| Table | Purpose / invariants |
+|---|---|
+| `episodes` + `platform` ('spotify' default / 'youtube'), `source_key` | Queue item metadata. A YouTube row has `spotify_id = 'youtube:<videoId>'`, `show` = channel title, `source_key` = channel id, `duration_ms` from the Data API. |
+| `sources` | Labelled things. `UNIQUE(kind, source_key)`, key normalised by `labels.normalise_key`. `label` NULL = unlabelled. X pre-seeded wasteful. |
+| `item_labels` | Per-item override, `item_ref` = `'spotify:<id>'`/`'youtube:<id>'`, origin `'capture'`. |
+| `imports` | One row per ingestion attempt, including failures. `raw_path` relative to `settings.raw_dir`. |
+| `measurements` | Non-Spotify minutes. Natural key `(provenance, source_id, item_key, period_start, period_end)`; later import replaces the fact. `minutes IS NULL` ⇔ `status != 'ok'`. |
+| `category_measurements` | Screen Time category totals (reported only; not labelled, not gated). |
+| `vault_captures` | Obsidian captures from the outbox, identity = `capture_id`. |
+| `vault_observations` | One row per capture per scan; latest scan per capture is current. |
+| `prompts_sent` | Dedup bookkeeping for bot prompts (like POP's `alerts_sent`). |
+
+## §3 Canonical constants — `drbr_types.py`
+
+Labels `WASTEFUL`/`WORTHWHILE`, `DEFAULT_LABEL = WASTEFUL`; bases
+`BASIS_ITEM_OVERRIDE` > `BASIS_SOURCE_LABEL` > `BASIS_DEFAULT`; source kinds
+`podcast_show | youtube_channel | iphone_app | web_domain | x`; report groups
+`podcasts | youtube | x | iphone_apps | desktop_web` (+ keeper-only `web`,
+`other`); provenance `api | page_extraction | screenshot_ocr | manual_export |
+vault_scan | user_label` with `PROVENANCE_TEXT`; devices `iphone | desktop |
+account`; measurement statuses `ok | progress_missing | duration_missing |
+unreadable`; import kinds `youtube_history | screentime | coldturkey |
+vault_scan`; `COVERED_ELSEWHERE` (double-count exclusions);
+`VideoInfo(video_id, title, channel_id, channel_title, duration_s|None)`;
+`VideoLookupError`; `item_ref()`; week helpers.
+
+## §4 Evidence — `evidence.py`
+
+```python
+store_raw(settings, kind, data: bytes, ext) -> (rel_path, sha256)      # content-addressed, 0600, idempotent
+raw_file(settings, rel_path) -> Path
+find_import_by_sha(conn, kind, sha) -> Row | None                        # latest non-failed
+begin_import(conn, clk, *, kind, parser_version, raw_path=None, raw_sha256=None) -> ImportRecord   # row starts 'failed'
+upsert_measurement(conn, rec, *, source_id, device, provenance, period_start, period_end,
+                   minutes, status='ok', item_key='', item_title=None, detail=None) -> None       # no commit
+finish_import(conn, clk, settings, rec, *, period_start, period_end, status=None) -> 'ok'|'partial'
+fail_import(conn, rec, error: str) -> None                              # rolls back uncommitted writes
+get_meta / set_meta / ensure_diagnostic_start(conn, first_data_date)
+diagnostic(conn, clk, settings) -> Diagnostic(started, start, end, days_remaining, week_number, ended)
+class ParseError(Exception)          # base for every source parse error
+class Outcome(import_id, status, measurements_written, warnings, error, period_start, period_end, duplicate_of)
+```
+
+**Every ingest function has this shape and these semantics:**
+
+1. Store the raw bytes first (`store_raw`).
+2. If `find_import_by_sha` returns a prior non-failed import, return `Outcome(..., duplicate_of=that_id)` and write nothing. Re-parsing is explicit (`reparse`).
+3. `begin_import`, parse, `upsert_measurement` per fact, `finish_import`.
+4. Any `ParseError` (or a dependency failure such as `VideoLookupError`) → `fail_import(conn, rec, message)` and return a failed `Outcome`. Never raise to a handler for bad evidence; never write zeros for what could not be read.
+5. `rec.warnings` for anything partially unreadable ⇒ status `partial`.
+6. `finish_import` fixes the diagnostic start (first import with a period) and calls `allowance.on_measurements_changed`.
+
+Each source module exposes `PARSER_VERSION: str` and
+`reparse(conn, clk, settings, import_id, ...) -> Outcome`, which reads the raw
+file again and writes a **new** import row.
+
+## §5 Labels — `labels.py` (Agent C extends; signatures fixed)
+
+```python
+normalise_key(kind, raw) -> (kind, key)       # X app / x.com / twitter.com fold into ('x','x')
+ensure_source(conn, clk, kind, raw_key, display_name=None) -> Source           # no commit
+get_source(conn, source_id) -> Source | None
+is_covered_elsewhere(source) -> str | None
+set_source_label(conn, clk, source_id, label) -> Source                         # commits
+set_item_override(conn, clk, item_ref, label) -> None                           # no commit
+parse_override_token(text) -> (note, label | None)    # '#worthwhile|#worth|#wasteful|#waste'
+item_override(conn, item_ref) -> str | None
+resolve(conn, *, source_id, item_ref=None) -> ResolvedLabel(label, basis)       # THE resolver
+# Agent C adds:
+sources_needing_label(conn, clk, settings, *, limit=8) -> list[Source]
+mark_prompted(conn, clk, source_ids) -> None
+list_sources(conn, *, kind=None, label=None | 'unlabelled') -> list[Source]
+```
+
+Precedence is exactly: item override → source label → wasteful default.
+`sources_needing_label` returns only unlabelled, not-covered sources that have
+at least one measurement, listening row (via a queue episode) or vault capture,
+and were not prompted in the last 7 days; oldest `first_seen_at` first.
+
+## §6 Sources
+
+### §6.1 YouTube — `sources/youtube.py`, `ingest_api.py`, `extension/` (Agent A)
+
+The real saved history page (`inputs/Watch history - YouTube.html`) carries the
+data in `ytInitialData`; scrolling fetches more via POST `/youtubei/v1/browse`
+continuation JSON. The extension captures those JSON objects **from the page's
+own data** and posts them; parsing happens server-side in Python so it is
+testable against the real fixture.
+
+```python
+PARSER_VERSION = "youtube-1"
+class YouTubeParseError(evidence.ParseError)
+@dataclass WatchEntry(video_id, title, channel_id|None, channel_name|None, watch_date: str,
+                      is_short: bool, percent: float|None, order: int)
+parse_pages(pages: list[dict], *, captured_at: str, tz: str) -> ParsedHistory(entries, warnings)
+resolve_date_header(text: str, captured_local: date) -> date      # 'Today','Yesterday',weekday,'Sep 9','Aug 30, 2025'
+class DataApiClient(settings, *, transport=None):                 # httpx, videos.list part=contentDetails,snippet, 50 ids/call
+    videos(video_ids) -> dict[str, VideoInfo]                     # missing ids simply absent; raises VideoLookupError
+    video_info(video_id) -> VideoInfo | None
+class FakeYouTubeApi                                              # test double, same surface
+ingest(conn, clk, settings, payload: bytes, api) -> Outcome
+reparse(conn, clk, settings, import_id, api) -> Outcome
+current_cursor(conn) -> str | None                                # meta 'youtube_cursor'
+```
+
+Payload (JSON bytes) from the extension:
+`{"schema": 1, "captured_at": "<UTC ISO>", "extension_version": "...", "cursor": "<videoId>|null", "cursor_reached": bool, "pages": [<ytInitialData or browse response>, ...]}`
+
+Rules:
+- Walk the JSON generically for `itemSectionRenderer` sections; date = the section header. A section whose header cannot be resolved, or a page with zero sections, is a `YouTubeParseError` — loud, never an empty week.
+- Regular videos: `lockupViewModel` (contentType VIDEO), percent from `thumbnailOverlayProgressBarViewModel.startPercent`. Absent progress on a regular video → measurement `status='progress_missing'`, `minutes=None`, and a warning. Never dropped, never 0.
+- Shorts: `shortsLockupViewModel` inside `reelShelfRenderer`. **Assumed fully watched**: `minutes = duration_s/60` from the Data API, `detail.assumed_full = true`. Never an assumed average length.
+- `minutes = percent/100 * duration_s/60`. Missing API duration → `status='duration_missing'`.
+- Source = `youtube_channel` keyed by the API's `channel_id` (display = channel title); device `account`; provenance `page_extraction`; `item_key` = video id; period = the watch date (one day).
+- Entries at or after the stored cursor (the cursor video and everything older) are skipped. On `ok`/`partial`, the cursor becomes the newest video id of this payload. A failed import never moves the cursor.
+- `VideoLookupError` → failed import (raw kept; `reparse` later).
+- No time of day, no sittings, no rewatch correction are fabricated.
+
+`ingest_api.py`: `make_blueprint(*, get_conn, clk, settings, api_factory) -> flask.Blueprint` with
+`GET /api/youtube/cursor` and `POST /api/youtube/history`. Both require header
+`X-DRBR-Token == settings.ingest_token` (constant-time compare), else 401.
+Body limit 25 MB. Responds JSON with the `Outcome` fields. Mounted by the
+dashboard app (Phase 3) on `127.0.0.1:settings.dashboard_port`.
+
+`extension/`: Manifest V3, unpacked, works in Chrome and Brave. Content script
+on `https://www.youtube.com/feed/history*` reads the page's initial data and
+the browse responses (MAIN-world fetch/XHR observation), a popup button runs
+the weekly sync: get cursor → scroll until the cursor video id has been seen,
+there is no further continuation, or a page cap → POST payload → show the
+Outcome (including failures, prominently). A missing `ytInitialData` or zero
+sections is reported as a failure in the popup, never as "0 videos".
+
+### §6.2 Screen Time — `sources/screentime.py`, `sources/ocr_vision.py` (Agent B)
+
+Real evidence: `inputs/IMG_5223..5232.PNG`, one scrolled sequence on the
+iPhone's per-device view. Sections: summary (daily average, top-3 category
+totals, total), Limits, **Most Used** (app + duration like `1h 17m`, `23m`,
+`53s`), Pickups (counts), First Used After Pickup (counts), Notifications
+(counts). Header shows the device name and a week label.
+
+```python
+# ocr_vision.py — the only module importing pyobjc
+@dataclass TextObservation(text, confidence, x, y, w, h)   # normalised 0..1, origin top-left
+recognize(image_bytes) -> list[TextObservation]             # Apple Vision VNRecognizeTextRequest, accurate, on-device
+
+# screentime.py
+PARSER_VERSION = "screentime-1"
+class ScreenTimeParseError(evidence.ParseError)
+parse_duration(text) -> float | None                        # minutes; '1h 17m'->77, '53s'->0.883; None if not a duration
+parse_observations(pages: list[list[TextObservation]], *, received_at: str, tz: str) -> ScreenTimeParse(
+    device_name, week_label, period_start|None, period_end|None, apps: list[(name, minutes)],
+    categories: list[(name, minutes)], total_minutes|None, warnings, is_full_past_week: bool)
+ingest_batch(conn, clk, settings, images: list[tuple[bytes, str]], *, received_at, ocr=recognize) -> Outcome
+reparse(conn, clk, settings, import_id, *, ocr=recognize) -> Outcome
+```
+
+Rules:
+- Raw: each image via `store_raw('screentime', ...)`, plus a JSON manifest (image rel paths in order, received_at) stored the same way; `imports.raw_path` = the manifest. Duplicate detection uses the manifest sha.
+- Only per-app minutes from **Most Used** and category totals from the summary are measurements. Counts (pickups, notifications) are ignored and never read as minutes.
+- Overlapping screenshots repeat rows: dedupe by app name; the same app with two different durations is a warning, not a guess.
+- A row whose name or duration cannot be read → warning (import `partial`); nothing invented.
+- **Only a complete past week writes measurements** (`is_full_past_week`: label "Last Week" or an explicit date range entirely before `received_at`'s week). "This Week" or an all-devices view is stored as evidence with a warning explaining what to resend, status `partial`, zero measurements.
+- Measurement: source `iphone_app` via `labels.ensure_source` (X folds automatically), device `iphone`, provenance `screenshot_ocr`, period = that Sunday..Saturday. `detail` holds the raw OCR text for the row and the confidence.
+- Tests never call Vision: they feed recorded `TextObservation` fixtures. Committed fixtures are sanitised (see §12). A local-only test may run real OCR on `inputs/` and must `skip` when the files are absent.
+
+### §6.3 Cold Turkey — `sources/coldturkey.py` (Agent B)
+
+Real evidence: `inputs/Cold Turkey Blocker Website Statistics.json` —
+`[{"label": "<domain>", "data": [[<UTC-midnight epoch ms>, <minutes float>], ...]}, ...]`.
+The sibling "Websites Blocked" export is a *count* chart and must be rejected.
+
+```python
+PARSER_VERSION = "coldturkey-1"
+class ColdTurkeyParseError(evidence.ParseError)
+parse(data: bytes) -> ColdTurkeyParse(rows: list[(label, date, minutes)], days: list[date], warnings)
+ingest(conn, clk, settings, data: bytes, *, filename: str | None = None) -> Outcome
+reparse(conn, clk, settings, import_id) -> Outcome
+```
+
+Rules: day = the UTC calendar date of the timestamp (Cold Turkey encodes local
+days at UTC midnight). Minutes are taken as given (float). Source `web_domain`
+(X folds), device `desktop`, provenance `manual_export`, period = that day.
+Only fields observed in the real file are assumed. Malformed/missing/
+unexpected shapes raise `ColdTurkeyParseError`; duplicated (label, day) pairs
+are a warning with a documented rule. Import `meta` records the listed domain
+count and the note that unlisted domains are unmeasured.
+
+### §6.4 Vault — `sources/vault.py` + obsidian-ingest (Agent C)
+
+**Outbox line** (JSONL, appended by obsidian-ingest to `DRBR_CAPTURE_OUTBOX`, one object per line):
+`{"v": 1, "capture_id": "<uuid4 hex, 32 chars>", "captured_at": "<UTC ISO>", "capture_type": "<ingest input type/format, verbatim>", "url": str|null, "title": str, "author": str|null, "rel_path": "<path relative to vault>", "body_sha256": "<hex>"}`
+
+**Frontmatter key:** `drbr_capture_id: <capture_id>` in the note's first frontmatter block.
+
+**Body hash** (identical in both repos, shared test vector): the text after the
+first frontmatter block's closing `---` line, `.strip()`ped, UTF-8, SHA-256.
+
+```python
+PARSER_VERSION = "vault-1"
+FRONTMATTER_KEY = "drbr_capture_id"
+body_sha256(note_text: str) -> str
+read_outbox(conn, clk, settings) -> OutboxResult(new: int, malformed: list[str])     # idempotent by capture_id
+scan(conn, clk, settings) -> Outcome        # kind 'vault_scan', raw_path None, meta = counts
+latest_outcomes(conn) -> dict[capture_id, VaultOutcome(outcome, rel_path, edited, copies, scanned_at)]
+keeper_group_for(capture_type) -> str       # x-post/x-article -> x; youtube -> youtube; article -> web; else other
+```
+
+Rules:
+- Identity is `capture_id` only. Paths are recorded, never matched on.
+- Outcomes, exactly: `unprocessed` (every copy under `settings.vault_inbox/`), `kept` (a copy anywhere else in the vault), `excluded` (no file carries the id, or only in `.trash/`). Excluded never counts as failure and leaves the denominator.
+- `edited` = current body hash ≠ `body_sha256` at capture. Secondary flag only.
+- Skip `.obsidian/`, `.git/`, `.trash/` when looking for kept/unprocessed copies.
+- Two files with one id: `copies=2`, outcome by the rule above, plus a warning.
+- obsidian-ingest (branch `drbr-capture-id`): generate the id and append the outbox line **before** writing the note (a logged capture whose note never appears is excluded, which is harmless; a note the log never heard of would be invisible); write the id into frontmatter; outbox failure is logged loudly and the bot reply says the DRBR log failed. Add tests there (pytest, no network). Do **not** restart its launchd agent; integration does.
+
+### §6.5 Spotify
+
+Unchanged except where Part II §7 says. Podcast source = `podcast_show` keyed by
+normalised `episodes.show`.
+
+## §7 Gate and allowance — `allowance.py`, `db.py`, `poll.py`, `triage.py`, `bot.py` (Agent D)
+
+```python
+item_label(conn, item: db.QueueItem) -> labels.ResolvedLabel
+    # source: podcast_show(show) for spotify rows, youtube_channel(source_key) for youtube rows;
+    # item_ref: spotify:<id> / youtube:<videoId>
+promotion_cost(conn, item) -> tuple[int, labels.ResolvedLabel]    # worthwhile -> 0
+pooled_minutes(conn, settings, week_start: str) -> PooledMinutes(
+    wasteful_min: float, worthwhile_min: float, by_group: dict[str, GroupMinutes],
+    covered_excluded_min: float, unmeasured_items: int)
+gated_split(conn, settings, week_start: str) -> dict[group, GatedSplit(gated_min, ungated_min, wasteful_ungated_min)]
+on_measurements_changed(conn, clk, settings) -> None     # recompute debt_min of every week that has a predecessor
+debt_for(closed: db.Week, pooled: PooledMinutes) -> int  # clamp(wasteful - effective, 0, allowance)
+```
+
+Behaviour:
+- **Lock stays intact for every item**, worthwhile or wasteful. Triage flow unchanged.
+- **Worthwhile items never spend the allowance**: promotion cost 0, no refusal, and their consumption is excluded from allowance, debt and alerts.
+- **Wasteful** (including unlabelled-default) promotions go through POP's gate exactly as before.
+- **Pooled consumption** for an allowance week = wasteful Spotify minutes (clamped deltas in the week window, labelled per episode) + wasteful `measurements` minutes (status ok, not `COVERED_ELSEWHERE`) whose day maps to the week. `weeks.listened_min` keeps its POP meaning (raw Spotify minutes).
+- **Debt** at rollover = `clamp(pooled wasteful − effective allowance, 0, allowance_min)`. Late imports recompute it (`on_measurements_changed`). Alerts in `poll.check_alerts` compare pooled wasteful minutes.
+- **Gated** consumption: Spotify delta whose queue item was promoted at or before the poll instant; YouTube measurement whose `youtube:<id>` queue item was promoted on or before that local day. Everything else (all Screen Time, Cold Turkey, unpromoted YouTube/Spotify) is ungated.
+- **YouTube capture:** a YouTube link sent to the POP bot captures into the queue through `bot_data["youtube"]` (any object with `video_info(video_id) -> VideoInfo | None`, raising `VideoLookupError`). `duration_s is None` refuses capture with a message. YouTube rows are excluded from Spotify polling and never auto-`played`.
+- **Override at capture:** the why-note goes through `labels.parse_override_token` (and POP's deadline parse). An override is stored with `labels.set_item_override`. The confirmation shows the resolved label and basis. The triage post shows the label and "costs 0 min" for worthwhile.
+- Labels are always read through `labels.resolve` via `allowance.item_label`; nothing caches a label.
+
+## §8 Telegram integration hooks
+
+- `bot.build_app` registers POP handlers, then calls `handlers_imports.register(app)` and `handlers_labels.register(app)`.
+- Callback data prefix `d:` is reserved for DRBR. `d:imp:...` (B), `d:lbl:...` (C). POP's handler ignores `d:`; malformed non-`d:` data is still answered "Unrecognised button.". Data ≤ 64 bytes.
+- Extension modules must not add a plain TEXT handler. Photos, image documents and JSON documents belong to B; label commands/callbacks to C; links and notes to D (`bot.py`).
+- Every handler is wrapped in `bot.authorised_only` and reads `settings`, `conn`, `clk` from `context.bot_data`.
+- Jobs call, and never duplicate, these functions (all return a list of sent-message summaries, send via `triage.send`, dedupe via `prompts_sent`, and do nothing once `evidence.diagnostic(...).ended`):
+  - B: `handlers_imports.send_due_prompts(conn, clk, settings, bot) -> list[str]` — for the most recent complete measurement week, prompt once per day (from the Monday after it) for each of screentime / coldturkey / youtube that has no ok/partial import covering it.
+  - C: `handlers_labels.send_label_batch(conn, clk, settings, bot) -> list[str]` — only once the diagnostic has run ≥ 7 days; one message per source with two buttons.
+- User-facing replies for imports state the Outcome honestly: counts written, warnings, or the failure reason and what to resend.
+
+## §9 Reporting — `report.py` (Agent D)
+
+All functions are read-only and take `(conn, clk, settings, ...)`.
+
+```python
+diagnostic_banner(...) -> evidence.Diagnostic
+weekly_totals(..., week_start: str) -> list[SourceTotal(group, provenance: str, device, minutes, unmeasured_items, covered_excluded_min, import_status)]
+label_split(..., weeks: int = 8) -> list[WeekSplit(week_start, wasteful_min, worthwhile_min)]
+allowance_status(...) -> AllowanceStatus(week_start, allowance_min, debt_min, effective_min, spent_wasteful_min, remaining_min, promoted_min)
+gated_vs_ungated(..., week_start: str) -> list[GatedRow(group, gated_min, ungated_min, share_ungated|None)]
+cost_per_keeper(..., since: str | None = None) -> list[KeeperRow(group, minutes, keepers, minutes_per_keeper|None, provenances, blind_spots)]   # ranked; None price sorts last
+funnels(...) -> Funnels(pop: db.FunnelStats, vault: VaultFunnel(captured, unprocessed, kept, excluded, edited_kept))
+blind_spots(...) -> list[str]
+records(..., *, group=None, label=None, start=None, end=None, limit=500) -> list[RecordRow]
+```
+
+- Cost per keeper = group minutes (all labels, excluding covered duplicates) ÷ vault captures from that group currently `kept`. Zero keepers → `minutes_per_keeper=None` ("no keepers yet"), never infinity or zero.
+- Vault figures are **counts**. No function converts a capture into minutes.
+- Every row carries provenance; screenshot-derived rows keep `screenshot_ocr` all the way to the UI.
+- `blind_spots` includes at least: podcast listening outside the queue is invisible; Cold Turkey lists only its top domains; only one desktop machine is exported; YouTube rewatches undercount and dates have no time of day; YouTube progress-missing items; Screen Time weeks not yet received.
+- No targets, scores or streaks.
+
+## §10 Dashboard (Phase 3, integration)
+
+Flask + HTMX, server-rendered, bound to `127.0.0.1:settings.dashboard_port`,
+mounts `ingest_api.make_blueprint`. Consumes only `report.py`, `labels.py`
+(label manager toggle via `set_source_label`) and `evidence.diagnostic`.
+
+## §11 Jobs (integration)
+
+`jobs.py daily` (launchd, daily): `vault.read_outbox`, `vault.scan`,
+`handlers_imports.send_due_prompts`, `handlers_labels.send_label_batch`,
+diagnostic-end notice. POP's `poll.py`/`triage.py` schedules are unchanged.
+
+## §12 Fixtures and personal data
+
+- Committed fixtures are derived from the real inputs **and sanitised**: titles, channel names, video ids, app names beyond what the parser needs, domains, device name and exact minutes are replaced with synthetic values while the structure the parser depends on is kept byte-for-byte in shape.
+- For Screen Time, fixtures are recorded OCR observations (JSON), sanitised the same way; images are not committed.
+- A test may read `/Users/Jacob/Projects/drbr/inputs/` only as an optional local check that `pytest.skip`s when absent, and it must not print personal content.
+- Nothing from the vault is committed.

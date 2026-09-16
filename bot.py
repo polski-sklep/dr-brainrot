@@ -559,10 +559,36 @@ def build_app(settings: Settings, conn, clk, spotify) -> Application:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("queue", cmd_queue))
     app.add_handler(CommandHandler("stats", cmd_stats))
-    app.add_handler(CallbackQueryHandler(on_callback))
+    # POP's buttons own every callback EXCEPT the DRBR namespace. Anything not
+    # starting "d:" still reaches on_callback, so malformed data is answered
+    # "Unrecognised button." exactly as before.
+    app.add_handler(CallbackQueryHandler(on_callback, pattern=_not_drbr_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    _install_drbr_extensions(app)
     app.add_error_handler(on_error)
     return app
+
+
+#: Callback data prefix reserved for DRBR extensions (CONTRACTS.md Part II §8).
+DRBR_CALLBACK_PREFIX = "d:"
+
+
+def _not_drbr_callback(data: object) -> bool:
+    return not str(data or "").startswith(DRBR_CALLBACK_PREFIX)
+
+
+def _install_drbr_extensions(app: Application) -> None:
+    """DRBR handler modules register their own handlers here.
+
+    Each module owns its handlers, commands and callback namespace
+    (``d:<module>:...``); bot.py only calls ``register``. Neither module may
+    add a plain TEXT handler: free text belongs to the POP capture flow.
+    """
+    import handlers_imports  # noqa: PLC0415
+    import handlers_labels  # noqa: PLC0415
+
+    handlers_imports.register(app)
+    handlers_labels.register(app)
 
 
 def _silence_token_logging() -> None:

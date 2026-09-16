@@ -49,7 +49,8 @@ from config import Settings
 
 ROOT = pathlib.Path(__file__).resolve().parent
 SCHEMA_PATH = ROOT / "schema.sql"
-SCHEMA_VERSION = 1
+MIGRATIONS_DIR = ROOT / "migrations"
+SCHEMA_VERSION = 2
 
 ACTIVE_STATES = ("locked", "queued", "promoted")
 TERMINAL_STATES = ("dropped", "expired", "played")
@@ -185,17 +186,32 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    """No-op at schema_version 1. The hook exists so version 2 has somewhere to go."""
+    """Bring the schema up to SCHEMA_VERSION, one numbered step at a time.
+
+    schema.sql is the version-1 baseline and is never edited; every later
+    change lives in ``migrations/NNNN_*.sql``. Each step runs inside a single
+    transaction together with its version bump — SQLite DDL is transactional —
+    so a step that fails part-way leaves the database exactly at the previous
+    version and is retried whole on the next start.
+    """
     row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-    version = int(row["value"]) if row else 0
-    if version >= SCHEMA_VERSION:
-        return
-    conn.execute(
-        "INSERT INTO meta (key, value) VALUES ('schema_version', ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (str(SCHEMA_VERSION),),
-    )
-    conn.commit()
+    version = int(row["value"]) if row else 1
+    for target in range(version + 1, SCHEMA_VERSION + 1):
+        (path,) = sorted(MIGRATIONS_DIR.glob(f"{target:04d}_*.sql"))
+        try:
+            conn.executescript(
+                "BEGIN;\n"
+                + path.read_text()
+                + "\nINSERT INTO meta (key, value) VALUES ('schema_version', "
+                + f"'{target}') ON CONFLICT(key) DO UPDATE SET value = excluded.value;\n"
+                + "COMMIT;"
+            )
+        except sqlite3.Error:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
 
 
 # --- row mapping ------------------------------------------------------------

@@ -94,13 +94,13 @@ def test_ms_to_min_matches_the_contract_formula():
 def test_init_db_is_idempotent(conn):
     db.init_db(conn)
     db.init_db(conn)
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "1"
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
 
 
-def test_migrate_noops_at_version_1(conn):
+def test_migrate_is_idempotent_at_current_version(conn):
     db.migrate(conn)
     db.migrate(conn)
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "1"
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
 
 
 def test_foreign_keys_are_on(conn):

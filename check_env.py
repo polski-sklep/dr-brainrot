@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Phase 0 gate. Validates .env is complete and that both credentials authenticate.
+"""Validates .env is complete and every external dependency DRBR needs works.
 
-    python3 check_env.py           # validate + live auth checks
-    python3 check_env.py --ping    # also send a test message to TELEGRAM_USER_ID
+    .venv/bin/python check_env.py           # validate + live auth checks
+    .venv/bin/python check_env.py --ping    # also send a test message to TELEGRAM_USER_ID
 
-Exit 0 = every check passed. Anything else = do not proceed with the build.
+Exit 0 = every check passed.
+Exit 1 = at least one check FAILED (bad or missing credential, missing path).
+Exit 3 = nothing failed, but a provider was UNAVAILABLE (network down, 5xx,
+         rate limit) so a credential could not be proven either way.
 Secrets are never printed; only lengths and prefixes.
+
+Run with the project venv: the Apple Vision check imports pyobjc from it.
 """
 from __future__ import annotations
 
@@ -33,13 +38,24 @@ REQUIRED = {
     "LOCK_HOURS":             r"\d+",
     "LIFESPAN_CYCLES":        r"\d+",
     "POP_DB_PATH":            r"\S+",
+    "YOUTUBE_API_KEY":        r"AIza[0-9A-Za-z_-]{35}",
+    "DRBR_VAULT_PATH":        r"/\S.*",
+    "DRBR_VAULT_INBOX":       r"[^/].*",
+    "DRBR_CAPTURE_OUTBOX":    r"\S+",
+    "DRBR_RAW_DIR":           r"\S+",
+    "DRBR_DIAGNOSTIC_WEEKS":  r"[1-9]\d*",
+    "DRBR_DASHBOARD_PORT":    r"\d{4,5}",
+    "DRBR_INGEST_TOKEN":      r"[A-Za-z0-9_-]{32,}",
 }
 SECRET_KEYS = {
     "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET",
     "SPOTIFY_REFRESH_TOKEN", "TELEGRAM_BOT_TOKEN",
+    "YOUTUBE_API_KEY", "DRBR_INGEST_TOKEN",
 }
+STEPS = 7
 
 failures: list[str] = []
+unavailable_list: list[str] = []
 
 
 def mask(key: str, val: str) -> str:
@@ -53,6 +69,20 @@ def ok(msg: str) -> None:
 def fail(msg: str) -> None:
     print(f"  FAIL  {msg}")
     failures.append(msg)
+
+
+def unavailable(msg: str) -> None:
+    """The provider could not be reached; the credential is unproven, not bad."""
+    print(f"  UNAVAILABLE  {msg}")
+    unavailable_list.append(msg)
+
+
+def http_problem(what: str, code: int, body: str) -> None:
+    """Classify an HTTP error: 5xx and 429 are the provider, anything else is us."""
+    if code >= 500 or code == 429:
+        unavailable(f"{what} HTTP {code} (provider side): {body[:200]}")
+    else:
+        fail(f"{what} HTTP {code}: {body[:300]}")
 
 
 def load_env() -> dict[str, str]:
@@ -70,7 +100,7 @@ def load_env() -> dict[str, str]:
 
 
 def check_presence(env: dict[str, str]) -> None:
-    print("\n[1/4] .env completeness and shape")
+    print(f"\n[1/{STEPS}] .env completeness and shape")
     for key, pattern in REQUIRED.items():
         val = env.get(key, "")
         if not val:
@@ -82,7 +112,7 @@ def check_presence(env: dict[str, str]) -> None:
 
 
 def check_permissions() -> None:
-    print("\n[2/4] file hygiene")
+    print(f"\n[2/{STEPS}] file hygiene")
     mode = ENV_PATH.stat().st_mode & 0o777
     (ok if mode == 0o600 else fail)(f".env mode is {oct(mode)}" + ("" if mode == 0o600 else " (want 0o600)"))
     gi = ENV_PATH.with_name(".gitignore")
@@ -90,12 +120,12 @@ def check_permissions() -> None:
         fail(".gitignore missing")
         return
     body = gi.read_text()
-    for pat in (".env", "data/", "__pycache__/", "*.session"):
+    for pat in (".env", "data/", "__pycache__/", "*.session", "inputs/"):
         (ok if pat in body else fail)(f".gitignore covers {pat}")
 
 
 def check_telegram(env: dict[str, str], ping: bool) -> None:
-    print("\n[3/4] Telegram — live getMe")
+    print(f"\n[3/{STEPS}] Telegram — live getMe")
     token = env.get("TELEGRAM_BOT_TOKEN", "")
     if not token:
         fail("no token to test")
@@ -106,11 +136,10 @@ def check_telegram(env: dict[str, str], ping: bool) -> None:
         ) as r:
             data = json.load(r)
     except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")
-        fail(f"getMe HTTP {e.code}: {body[:200]}")
+        http_problem("getMe", e.code, e.read().decode(errors="replace").replace(token, "<TOKEN>"))
         return
     except urllib.error.URLError as e:
-        fail(f"getMe unreachable: {e.reason}")
+        unavailable(f"getMe unreachable: {e.reason}")
         return
     if not data.get("ok"):
         fail(f"getMe returned ok=false: {data}")
@@ -144,7 +173,7 @@ def check_telegram(env: dict[str, str], ping: bool) -> None:
 
 
 def check_spotify(env: dict[str, str]) -> None:
-    print("\n[4/4] Spotify — live refresh-token exchange")
+    print(f"\n[4/{STEPS}] Spotify — live refresh-token exchange")
     cid, csec = env.get("SPOTIFY_CLIENT_ID", ""), env.get("SPOTIFY_CLIENT_SECRET", "")
     refresh = env.get("SPOTIFY_REFRESH_TOKEN", "")
     if not (cid and csec and refresh):
@@ -164,11 +193,10 @@ def check_spotify(env: dict[str, str]) -> None:
         with urllib.request.urlopen(req, timeout=30) as r:
             payload = json.load(r)
     except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")
-        fail(f"refresh HTTP {e.code}: {body[:300]}")
+        http_problem("refresh", e.code, e.read().decode(errors="replace"))
         return
     except urllib.error.URLError as e:
-        fail(f"Spotify unreachable: {e.reason}")
+        unavailable(f"Spotify unreachable: {e.reason}")
         return
 
     tok = payload.get("access_token")
@@ -185,23 +213,109 @@ def check_spotify(env: dict[str, str]) -> None:
              "measurement would silently read null. Re-run auth_spotify.py")
 
 
+def check_youtube(env: dict[str, str]) -> None:
+    print(f"\n[5/{STEPS}] YouTube Data API — one videos.list request (1 quota unit)")
+    key = env.get("YOUTUBE_API_KEY", "")
+    if not key:
+        fail("no YOUTUBE_API_KEY to test")
+        return
+    url = ("https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=dQw4w9WgXcQ&key="
+           + urllib.parse.quote(key))
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            data = json.load(r)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace").replace(key, "<KEY>")
+        if e.code == 403 and "quotaExceeded" in body:
+            unavailable("YouTube quota exhausted for today; key not proven")
+        else:
+            http_problem("videos.list", e.code, body)
+        return
+    except urllib.error.URLError as e:
+        unavailable(f"YouTube unreachable: {e.reason}")
+        return
+    items = data.get("items") or []
+    duration = items[0].get("contentDetails", {}).get("duration") if items else None
+    if duration:
+        ok(f"key accepted; contentDetails.duration readable ({duration})")
+    else:
+        fail(f"key accepted but no duration returned: keys={sorted(data)}")
+
+
+def check_paths(env: dict[str, str]) -> None:
+    print(f"\n[6/{STEPS}] local paths — vault, inbox, outbox, raw evidence")
+    root = ENV_PATH.parent
+
+    def resolve(value: str) -> pathlib.Path:
+        path = pathlib.Path(value).expanduser()
+        return path if path.is_absolute() else root / path
+
+    vault = pathlib.Path(env.get("DRBR_VAULT_PATH", "")).expanduser()
+    if not env.get("DRBR_VAULT_PATH"):
+        fail("DRBR_VAULT_PATH unset")
+        return
+    if not (vault / ".obsidian").is_dir():
+        fail("DRBR_VAULT_PATH is not an Obsidian vault (no .obsidian/ folder)")
+    else:
+        ok("vault found (path not printed)")
+    inbox = env.get("DRBR_VAULT_INBOX", "")
+    (ok if (vault / inbox).is_dir() else fail)(f"inbox folder '{inbox}' exists in the vault")
+    for key in ("DRBR_CAPTURE_OUTBOX", "DRBR_RAW_DIR"):
+        target = resolve(env.get(key, ""))
+        parent = target.parent if key == "DRBR_CAPTURE_OUTBOX" else target
+        try:
+            parent.mkdir(parents=True, exist_ok=True)
+            probe = parent / ".check_env_probe"
+            probe.write_text("")
+            probe.unlink()
+            ok(f"{key} location is writable")
+        except OSError as e:
+            fail(f"{key} location not writable: {e.strerror}")
+
+
+def check_vision() -> None:
+    print(f"\n[7/{STEPS}] Apple Vision OCR — on-device text recognition")
+    if sys.platform != "darwin":
+        fail("Screen Time parsing needs macOS (Apple Vision); this host is not a Mac")
+        return
+    try:
+        import Vision  # noqa: F401,PLC0415
+        import Quartz  # noqa: F401,PLC0415
+    except ImportError:
+        fail("pyobjc Vision/Quartz not importable — run with .venv/bin/python, "
+             "or pip install -r requirements.txt")
+        return
+    ok("Vision and Quartz frameworks importable (no network involved)")
+
+
 def main() -> int:
     ping = "--ping" in sys.argv
-    print("POP — Phase 0 credential check")
+    print("DRBR — environment and credential check")
     env = load_env()
     check_presence(env)
     check_permissions()
     check_telegram(env, ping)
     check_spotify(env)
+    check_youtube(env)
+    check_paths(env)
+    check_vision()
 
     print("\n" + "=" * 60)
     if failures:
         print(f"RESULT: FAILED — {len(failures)} problem(s)")
         for f in failures:
             print(f"  - {f}")
-        print("Do not start the build until these are resolved.")
+        for u in unavailable_list:
+            print(f"  - (unavailable) {u}")
+        print("Do not proceed until the failures are resolved.")
         return 1
-    print("RESULT: PASSED — .env is complete and both credentials authenticate.")
+    if unavailable_list:
+        print(f"RESULT: UNPROVEN — no failures, but {len(unavailable_list)} provider(s) unavailable")
+        for u in unavailable_list:
+            print(f"  - {u}")
+        print("Credentials are not known to be bad. Re-run when the provider is reachable.")
+        return 3
+    print("RESULT: PASSED — .env is complete and every dependency works.")
     return 0
 
 

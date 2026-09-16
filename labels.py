@@ -1,0 +1,185 @@
+"""Source labels, per-item overrides, and the one label resolver.
+
+Phase 1 skeleton implementing CONTRACTS.md Part II §5; Agent C owns this file
+in Phase 2 and extends it (label setting, batch selection) without changing
+the signatures below.
+
+The governing principle: **the user labels, the system counts.** Nothing in
+this module may derive a label from behaviour, duration, folder, or any other
+indirect signal. A label is read from explicit stored state or it is the
+documented default.
+"""
+from __future__ import annotations
+
+import re
+import sqlite3
+from dataclasses import dataclass
+
+import clock
+import drbr_types as T
+from clock import Clock
+
+
+class LabelError(ValueError):
+    """Bad label value, unknown source, or malformed key."""
+
+
+@dataclass(frozen=True)
+class Source:
+    id: int
+    kind: str
+    source_key: str
+    display_name: str
+    label: str | None          # None = unlabelled
+    labelled_at: str | None
+    first_seen_at: str
+    prompted_at: str | None
+
+
+@dataclass(frozen=True)
+class ResolvedLabel:
+    label: str                 # always 'wasteful' or 'worthwhile'
+    basis: str                 # T.BASIS_*
+
+
+# --- normalisation ----------------------------------------------------------
+
+_X_APP_NAMES = {"x", "twitter"}
+_X_DOMAINS = {"x.com", "twitter.com", "mobile.twitter.com", "mobile.x.com"}
+
+
+def normalise_key(kind: str, raw: str) -> tuple[str, str]:
+    """-> (kind, key). The only place source identity is canonicalised.
+
+    X is folded into one source whichever surface reports it (iPhone app 'X',
+    desktop 'x.com'/'twitter.com'), because the brief labels X once.
+    """
+    if kind not in T.SOURCE_KINDS:
+        raise LabelError(f"unknown source kind {kind!r}")
+    value = (raw or "").strip()
+    if not value:
+        raise LabelError(f"empty source key for {kind}")
+    if kind == T.KIND_IPHONE_APP:
+        key = re.sub(r"\s+", " ", value).casefold()
+        if key in _X_APP_NAMES:
+            return T.KIND_X, "x"
+        return kind, key
+    if kind == T.KIND_WEB_DOMAIN:
+        key = value.casefold()
+        key = re.sub(r"^[a-z]+://", "", key).split("/")[0]
+        if key.startswith("www."):
+            key = key[4:]
+        if key in _X_DOMAINS:
+            return T.KIND_X, "x"
+        return kind, key
+    if kind == T.KIND_PODCAST_SHOW:
+        return kind, re.sub(r"\s+", " ", value).casefold()
+    if kind == T.KIND_YOUTUBE_CHANNEL:
+        return kind, value            # channel ids (UC...) are case-sensitive
+    return T.KIND_X, "x"
+
+
+# --- sources ----------------------------------------------------------------
+
+def _to_source(row: sqlite3.Row) -> Source:
+    return Source(row["id"], row["kind"], row["source_key"], row["display_name"], row["label"],
+                  row["labelled_at"], row["first_seen_at"], row["prompted_at"])
+
+
+def ensure_source(conn: sqlite3.Connection, clk: Clock, kind: str, raw_key: str,
+                  display_name: str | None = None) -> Source:
+    """Get or create a source, normalised. Does not commit (callers batch)."""
+    kind, key = normalise_key(kind, raw_key)
+    conn.execute(
+        "INSERT OR IGNORE INTO sources (kind, source_key, display_name, first_seen_at) VALUES (?, ?, ?, ?)",
+        (kind, key, (display_name or raw_key).strip() or key, clock.iso(clk.now())),
+    )
+    row = conn.execute("SELECT * FROM sources WHERE kind = ? AND source_key = ?", (kind, key)).fetchone()
+    return _to_source(row)
+
+
+def get_source(conn: sqlite3.Connection, source_id: int) -> Source | None:
+    row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+    return _to_source(row) if row else None
+
+
+def is_covered_elsewhere(source: Source) -> str | None:
+    """Reason text if this source's minutes are measured by a better source."""
+    return T.COVERED_ELSEWHERE.get((source.kind, source.source_key))
+
+
+# --- explicit label writes -------------------------------------------------
+
+def set_source_label(conn: sqlite3.Connection, clk: Clock, source_id: int, label: str) -> Source:
+    """The user labelled a source. Commits."""
+    _check_label(label)
+    cur = conn.execute("UPDATE sources SET label = ?, labelled_at = ? WHERE id = ?",
+                       (label, clock.iso(clk.now()), source_id))
+    if cur.rowcount != 1:
+        raise LabelError(f"no source with id {source_id}")
+    conn.commit()
+    return get_source(conn, source_id)  # type: ignore[return-value]
+
+
+def set_item_override(conn: sqlite3.Connection, clk: Clock, item_ref: str, label: str) -> None:
+    """Per-item override written at capture. Last explicit statement wins. Does not commit."""
+    _check_label(label)
+    conn.execute(
+        "INSERT INTO item_labels (item_ref, label, set_at, origin) VALUES (?, ?, ?, 'capture') "
+        "ON CONFLICT(item_ref) DO UPDATE SET label = excluded.label, set_at = excluded.set_at",
+        (item_ref, label, clock.iso(clk.now())),
+    )
+
+
+_OVERRIDE_RE = re.compile(r"(?<!\S)#(worthwhile|worth|wasteful|waste)(?!\S)", re.IGNORECASE)
+
+
+def parse_override_token(text: str) -> tuple[str, str | None]:
+    """Split an explicit label token off a why-note. -> (note, label or None).
+
+    '#worthwhile' / '#worth' / '#wasteful' / '#waste', as its own word,
+    anywhere in the note. Typing it is the override, in the same message as the
+    reason, so it is one decision rather than two. Two conflicting tokens are
+    not guessed between: the note is returned untouched with no override.
+    """
+    found = {m.group(1).lower() for m in _OVERRIDE_RE.finditer(text or "")}
+    labels_found = {T.WORTHWHILE if f.startswith("worth") else T.WASTEFUL for f in found}
+    if len(labels_found) != 1:
+        return (text or "").strip(), None
+    note = _OVERRIDE_RE.sub("", text)
+    note = re.sub(r"[ \t]{2,}", " ", note).strip()
+    return note, labels_found.pop()
+
+
+# --- resolution -------------------------------------------------------------
+
+def _check_label(label: str) -> str:
+    if label not in T.LABELS:
+        raise LabelError(f"label must be one of {T.LABELS}, got {label!r}")
+    return label
+
+
+def item_override(conn: sqlite3.Connection, item_ref: str) -> str | None:
+    row = conn.execute("SELECT label FROM item_labels WHERE item_ref = ?", (item_ref,)).fetchone()
+    return row["label"] if row else None
+
+
+def resolve(conn: sqlite3.Connection, *, source_id: int | None, item_ref: str | None = None) -> ResolvedLabel:
+    """THE resolver. Every gate, allowance and report call goes through here.
+
+    Precedence, fixed:
+      1. per-item override (set at capture)          -> basis item_override
+      2. the source's explicit label                  -> basis source_label
+      3. unlabelled (or no source known)              -> wasteful, default_unlabelled
+    """
+    if item_ref is not None:
+        override = item_override(conn, item_ref)
+        if override is not None:
+            return ResolvedLabel(_check_label(override), T.BASIS_ITEM_OVERRIDE)
+    if source_id is not None:
+        row = conn.execute("SELECT label FROM sources WHERE id = ?", (source_id,)).fetchone()
+        if row is None:
+            raise LabelError(f"no source with id {source_id}")
+        if row["label"] is not None:
+            return ResolvedLabel(_check_label(row["label"]), T.BASIS_SOURCE_LABEL)
+    return ResolvedLabel(T.DEFAULT_LABEL, T.BASIS_DEFAULT)

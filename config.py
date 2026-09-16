@@ -38,6 +38,15 @@ class Settings:
     lock_hours: int
     lifespan_cycles: int
     db_path: pathlib.Path
+    # --- DRBR (Part II). Defaults keep every POP call site and test valid. ---
+    youtube_api_key: str = ""
+    vault_path: pathlib.Path | None = None
+    vault_inbox: str = "01-Inbox"
+    capture_outbox: pathlib.Path | None = None
+    raw_dir: pathlib.Path = pathlib.Path(":memory-raw:")
+    diagnostic_weeks: int = 8
+    dashboard_port: int = 8750
+    ingest_token: str = ""
 
     @property
     def lock_seconds(self) -> int:
@@ -76,7 +85,25 @@ def load(env_path: pathlib.Path | None = None, **overrides) -> Settings:
         lock_hours=int(get("LOCK_HOURS", "48")),
         lifespan_cycles=int(get("LIFESPAN_CYCLES", "2")),
         db_path=db_path,
+        youtube_api_key=get("YOUTUBE_API_KEY"),
+        vault_path=_path_or_none(get("DRBR_VAULT_PATH")),
+        vault_inbox=get("DRBR_VAULT_INBOX", "01-Inbox"),
+        capture_outbox=_resolve(get("DRBR_CAPTURE_OUTBOX", "data/vault_captures.jsonl")),
+        raw_dir=_resolve(get("DRBR_RAW_DIR", "data/raw")),
+        diagnostic_weeks=int(get("DRBR_DIAGNOSTIC_WEEKS", "8")),
+        dashboard_port=int(get("DRBR_DASHBOARD_PORT", "8750")),
+        ingest_token=get("DRBR_INGEST_TOKEN"),
     )
+
+
+def _resolve(value: str) -> pathlib.Path:
+    """Relative paths are relative to the repo root, as POP_DB_PATH is."""
+    path = pathlib.Path(value).expanduser()
+    return path if path.is_absolute() else ROOT / path
+
+
+def _path_or_none(value: str) -> pathlib.Path | None:
+    return pathlib.Path(value).expanduser() if value else None
 
 
 #: Environment variables allowed to override `.env`. Deliberately does **not**
@@ -86,6 +113,8 @@ _KEYS = {
     "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN",
     "TELEGRAM_BOT_TOKEN", "TELEGRAM_USER_ID", "WEEKLY_ALLOWANCE_MIN",
     "POP_TZ", "LOCK_HOURS", "LIFESPAN_CYCLES", "POP_DB_PATH",
+    "YOUTUBE_API_KEY", "DRBR_VAULT_PATH", "DRBR_VAULT_INBOX", "DRBR_CAPTURE_OUTBOX",
+    "DRBR_RAW_DIR", "DRBR_DIAGNOSTIC_WEEKS", "DRBR_DASHBOARD_PORT", "DRBR_INGEST_TOKEN",
 }
 
 
@@ -102,6 +131,8 @@ def test_settings(**overrides) -> Settings:
         lock_hours=48,
         lifespan_cycles=2,
         db_path=pathlib.Path(":memory:"),
+        youtube_api_key="test-youtube-key",
+        ingest_token="test-ingest-token",
     )
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]

@@ -898,3 +898,222 @@ running instance still held Lisbon.
 **If the user moves timezone again**, all three of the above must change
 together, and the plist `Hour` must be offset if the system zone and `POP_TZ`
 diverge. Firing early is the failure that closes the wrong week.
+
+---
+
+# Part II — DRBR
+
+Decisions for the DRBR extension (`drbr-build-brief.md`). Numbered `DR<phase>.<n>`
+so they never collide with POP's `D` numbers above. Phase 0 answers came from
+the user on 2026-09-16; everything after Phase 0 was decided without asking,
+per the build prompt.
+
+## Phase 0 — dependencies (user answers and consequences)
+
+### DR0.1 — `drbr/` is the master folder; POP was moved into it
+User decision. POP's launchd agents were stopped, `data/pop.db` and both `.env`
+files were backed up to `/Users/Jacob/Projects/drbr-backup-20260916/` (integrity
+check `ok`), POP's files and `.git` were moved into `drbr/`, the venv was
+rebuilt (venvs are not relocatable), the three plists and `run_build.sh` were
+repointed, and the agents were re-bootstrapped. 488 tests and `check_env.py`
+passed before the first DRBR change. Work happens on git branch `drbr`.
+
+### DR0.2 — POP stays flat at the repo root, not in `drbr/pop/`
+The brief's layout shows `pop/`. POP's 46 intra-module imports are flat
+(`import db`), `config.ROOT`/`.env`/`data/` resolve from the module's own
+directory, and tests monkeypatch module objects by name. A subpackage would
+mean rewriting all of that for no behavioural gain and at real risk to a
+working system. New DRBR code follows the brief's names (`sources/`,
+`labels.py`, `report.py`, `dashboard/`, `extension/`).
+
+### DR0.3 — The vault is scanned in place; no local agent
+The brief's fork assumed a VPS. There is no VPS: POP runs on the Mac, the vault
+is a local git repo at `<vault path>`, and the browser extension runs on
+the same machine. "Server-side scanning" and "local" are the same host.
+
+### DR0.4 — Screen Time OCR uses Apple Vision on-device
+User decision ("privacy is priority"). No image leaves the Mac. The cost is
+lower accuracy than a large vision model, mitigated by keeping every raw image
+for re-parsing and by marking all screenshot figures `screenshot_ocr`.
+
+### DR0.5 — Pooled wasteful allowance is 360 minutes
+User decision (6 hours across every source). `.env` `WEEKLY_ALLOWANCE_MIN=360`.
+The currently open POP week keeps its 180-minute snapshot, as POP designed;
+the next week opens at 360.
+
+### DR0.6 — End date: 8 weeks from the first valid data date
+Default accepted. "First valid data date" = `period_start` of the first
+successful (ok/partial) non-vault import. Stored once in `meta.diagnostic_start`
+and never moved, even if an earlier week is imported later, so the countdown
+cannot jump.
+
+### DR0.7 — Inbox is everything under `01-Inbox/`, as it is today
+User decision. Any tracked note whose copies are all under `01-Inbox/`
+(including `Read/`, `Read/X Bookmarks/`, `YoutubeTranscripts/`) is unprocessed;
+anywhere else is kept. Only notes carrying a DRBR capture id are tracked, so
+everything already in the vault is outside the measurement.
+
+### DR0.8 — Cold Turkey usage comes from the website-statistics export
+The first export was the "Websites Blocked" count chart and carries no time.
+The second (`Website Statistics`) carries per-domain minutes per day. It lists
+only 5 domains, most likely the chart's top N. Unlisted domains are reported as
+unmeasured, never as zero. One desktop machine is assumed; a second machine is
+a named blind spot.
+
+### DR0.9 — Live calls made in Phase 0
+YouTube `videos.list` twice (manual validation, then `check_env.py`); Telegram
+`getMe` and the Spotify refresh exchange twice each (baseline before the move,
+`check_env.py` after). No other live call was made; none is reachable from a
+test.
+
+### DR0.10 — `check_env.py` separates "failed" from "unavailable"
+5xx, 429, quota exhaustion and unreachable hosts are UNAVAILABLE (exit 3):
+the credential is unproven, not bad. Everything else is FAILED (exit 1). The
+check now covers YouTube, the vault and inbox paths, outbox and raw-evidence
+writability, and Apple Vision importability.
+
+## Phase 1 — architecture and contracts
+
+### DR1.1 — Numbered, transactional migrations; `schema.sql` frozen at v1
+`schema.sql` stays the version-1 baseline, so a fresh database and an upgraded
+one run the identical path (asserted by test). Each `migrations/NNNN_*.sql`
+runs in one transaction with its version bump; a failure rolls the whole step
+back and it retries whole on the next start. Migration 0002 is additive: no POP
+row is rewritten, and new columns default to pre-DRBR behaviour. Verified
+against a copy of the real database (row counts unchanged, integrity ok).
+
+### DR1.2 — YouTube captures reuse the POP queue via `episodes.platform`
+The brief pools the allowance across "a wasteful podcast and a wasteful YouTube
+save", and spending it "requires the existing POP path". So YouTube saves go
+through POP's queue. `queue.spotify_id` is `NOT NULL REFERENCES episodes`, and
+SQLite cannot relax that without a table rebuild. So YouTube rows live in
+`episodes` with `platform='youtube'` and key `youtube:<videoId>`. The column
+name is now slightly wrong, but every POP query, state transition and test is
+untouched.
+
+### DR1.3 — The lock stays on for worthwhile items; only the allowance is conditional
+The brief says "lock and allocation ceiling become conditional on the label"
+and "worthwhile content is unrestricted and uncounted". The build prompt says
+"POP's existing lock behaviour remains intact for worthwhile items" and lists
+"worthwhile items accidentally bypassing the existing gate" as a defect. They
+agree on the allowance and conflict on the lock. The prompt is the more
+specific instruction and was written after the brief, so worthwhile items keep
+the 48h lock and triage but cost 0 minutes and never count toward debt or
+alerts. "Unrestricted" is read as "no minute ceiling".
+
+### DR1.4 — Debt comes from pooled wasteful consumption
+POP's debt was driven by listened minutes (D1.5). DRBR keeps that principle and
+widens it: debt = pooled **wasteful** minutes across Spotify, YouTube, Screen
+Time and Cold Turkey minus the effective allowance, clamped as before (D1.6).
+`weeks.listened_min` keeps its POP meaning (raw Spotify minutes) so no POP
+reading of it changes.
+
+### DR1.5 — Late imports recompute debt
+Screen Time, Cold Turkey and YouTube arrive after the week closes, while POP's
+rollover runs Sunday 18:00. `evidence.finish_import` calls
+`allowance.on_measurements_changed`, which recomputes `debt_min` for weeks
+whose predecessor's minutes changed. A debt can therefore rise on Monday. The
+alternative, ignoring late minutes, would make the pooled allowance a
+Spotify-only allowance in practice.
+
+### DR1.6 — Per-item override is a hashtag in the why-note
+`#worthwhile`/`#worth` or `#wasteful`/`#waste` anywhere in the note. The brief
+says the override "is the same act as writing the why-note" — one message, one
+decision. A button after capture would be a second decision. Conflicting tokens
+are not guessed between.
+
+### DR1.7 — Weekly data maps Sunday..Saturday → the allowance week opening that Sunday 18:00
+Screen Time and Cold Turkey report local Sunday–Saturday weeks. POP's allowance
+week runs Sunday 18:00 → Sunday 18:00. Mapping the calendar week to the
+allowance week that opens on its Sunday overlaps by 6¼ of 7 days, and a day is
+never split. The residual (Sunday before 18:00 charged a few hours "late") is
+accepted and documented rather than apportioned by guesswork.
+
+### DR1.8 — X is one source, pre-seeded wasteful
+The brief fixes X's label. `labels.normalise_key` folds the iPhone app "X",
+`x.com` and `twitter.com` into a single `('x','x')` source so the label is
+applied once and X's minutes are one row in cost per keeper.
+
+### DR1.9 — Double-counted surfaces are excluded from totals, not deleted
+YouTube history is account-level, so Screen Time's "YouTube" app and Cold
+Turkey's youtube.com would count the same viewing twice; Spotify's app and web
+player overlap POP polling. Those rows are stored and shown with the reason,
+but excluded from pooled minutes, allowance and cost per keeper. Spotify music
+is outside the brief's scope and is therefore not measured anywhere, which is
+stated as such.
+
+### DR1.10 — Cost per keeper is ranked per group, not per individual source
+Keepers attach to a group (X, YouTube, web) through the capture type, but a
+vault capture carries no reliable channel id or show, and Screen Time can't
+split an app by content. So the ranked table is one row per group (podcasts,
+YouTube, X, iPhone apps, desktop web). Groups with no keeper path show minutes
+with "no keepers yet", never a price.
+
+### DR1.11 — Podcast impulse listening stays a named blind spot
+POP polls only captured episodes, so listening that never touched the queue is
+invisible. A followed-shows sweep would fix it, but the brief says "No change"
+for Spotify beyond conditional gating. It's reported as a blind spot, not
+silently absorbed or estimated.
+
+### DR1.12 — YouTube progress is read from the page's own data, parsed in Python
+The real saved page carries `thumbnailOverlayProgressBarViewModel.startPercent`
+in `ytInitialData`; scrolled pages arrive as browse JSON. The same value
+drives the red overlay, so this satisfies "readable as a value, not estimated
+from pixels", and it survives CSS/DOM reshuffles better than element
+selectors. The extension ships raw JSON; the parser runs server-side against
+the real fixture. Missing structure is a loud failure.
+
+### DR1.13 — Screen Time: only complete past weeks become measurements
+The real screenshots show "This Week" (partial). Storing a partial week under
+a week key would later collide with, or double-count against, the full week.
+Partial or all-devices captures are kept as evidence with a warning saying
+what to send, and write no minutes.
+
+### DR1.14 — YouTube queue items never auto-transition to `played`
+POP's `played` is Spotify's own `fully_played` flag. YouTube offers no
+such flag. Declaring "played" at some watched percentage would be an inferred
+threshold. YouTube items lapse and expire through POP's normal rules. Their
+consumption still appears in gated/ungated minutes and the "played" funnel
+stage counts measured watching after promotion.
+
+### DR1.15 — obsidian-ingest talks to DRBR through a JSONL outbox
+The two bots run from different repos and venvs. An append-only JSONL file
+couples them by a documented line format instead of shared code or a shared
+database connection, and DRBR ingests it idempotently by `capture_id`.
+
+### DR1.16 — The outbox line is written before the note
+If the log succeeds and the note write fails, the capture is `excluded` at
+scan, which is harmless. If the note were written first and the log failed,
+the note would carry an id DRBR never heard of and would be silently missing
+from the denominator.
+
+### DR1.17 — "Edited after capture" compares body hashes, not mtimes
+mtime changes on moves, syncs and git checkouts. A hash of the body (frontmatter
+excluded, so Obsidian property edits like `read_status` don't count) changes
+only when the content does.
+
+### DR1.18 — Temptations rejected
+- Marking a YouTube video "played" or "valuable" above some watch percentage (DR1.14).
+- Treating Screen Time categories ("Social", "Productivity") as labels.
+- Using mtime or file size to judge engagement (DR1.17).
+- Ranking by items-per-hour (the brief chose cost per keeper for stability).
+- Estimating reading minutes for vault captures.
+
+### DR1.19 — Extension ingest shares the dashboard's 127.0.0.1 port, behind a token
+One local Flask process serves the dashboard and `/api/youtube/*`. A random
+`DRBR_INGEST_TOKEN` is required on the API so no other local page can post
+fake history.
+
+### DR1.20 — DRBR callback data uses the reserved `d:` prefix
+POP's callback handler caught every button. It is now registered with a
+pattern that excludes `d:`, so POP's "Unrecognised button." behaviour for
+garbage data is unchanged and DRBR namespaces can't collide with
+`promote:`/`drop:`.
+
+### DR1.21 — Duplicate evidence is detected by content hash; re-parsing is explicit
+Sending the same file twice returns the earlier import (`duplicate_of`) and
+writes nothing. `reparse` re-reads the stored raw bytes and creates a new
+import row, whose facts replace the old ones on their natural key.
+
+### DR1.22 — An unmeasured value is NULL with a status, never zero
+Enforced three times: the `measurements` CHECK constraint, `evidence.upsert_measurement`, and the report layer counting `unmeasured_items` separately.
