@@ -228,6 +228,78 @@ def test_render_item_carries_the_week_remaining(conn):
 
 
 # ==========================================================================
+# DRBR — labels on the triage post, pooled spend in the header
+# ==========================================================================
+
+import drbr_types as T  # noqa: E402
+import labels  # noqa: E402
+
+
+@pytest.mark.parametrize("resolved,line", [
+    (labels.ResolvedLabel(T.WASTEFUL, T.BASIS_DEFAULT),
+     "Label: wasteful (unlabelled source, wasteful by default)"),
+    (labels.ResolvedLabel(T.WASTEFUL, T.BASIS_SOURCE_LABEL), "Label: wasteful (source label)"),
+    (labels.ResolvedLabel(T.WORTHWHILE, T.BASIS_ITEM_OVERRIDE),
+     "Label: worthwhile (your tag at capture) · costs 0 min — worthwhile"),
+])
+def test_render_item_shows_the_label_below_the_note(conn, resolved, line):
+    clk = clock.FrozenClock(CAPTURED)
+    item = seed(conn, clk, config.test_settings(), LONG, why="Looked good")
+    text, _ = triage.render_item(item, _week(), warning=False, label=resolved)
+    lines = text.split("\n")
+    note = next(i for i, l in enumerate(lines) if "Looked good" in l)
+    assert lines[note + 1] == line
+    assert "2h 47m" in lines[note - 1]             # the note still sits under the duration
+    if resolved.label == T.WASTEFUL:
+        assert "costs 0 min" not in text
+
+
+def test_render_item_without_a_label_is_the_pop_post(conn):
+    clk = clock.FrozenClock(CAPTURED)
+    item = seed(conn, clk, config.test_settings(), SHORT)
+    assert "Label:" not in triage.render_item(item, _week(), False)[0]
+
+
+def test_run_triage_posts_each_items_resolved_label(conn, settings, spotify):
+    clk = clock.FrozenClock(CAPTURED)
+    seed(conn, clk, settings, SHORT)
+    good = seed(conn, clk, settings, MEDIUM)
+    labels.set_item_override(conn, clk, T.item_ref("spotify", good.spotify_id), T.WORTHWHILE)
+    conn.commit()
+
+    clk.set(WEEK_1)
+    bot = FakeBot()
+    triage.run_triage(conn, clk, settings, spotify, bot)
+
+    short_post = next(t for t in bot.texts if SHORT.title in t)
+    medium_post = next(t for t in bot.texts if MEDIUM.title in t)
+    assert "Label: wasteful (unlabelled source, wasteful by default)" in short_post
+    assert "costs 0 min — worthwhile" in medium_post
+
+
+def test_week_header_reports_pooled_wasteful_spend(conn, settings, spotify):
+    clk = clock.FrozenClock(CAPTURED)
+    seed(conn, clk, settings, SHORT)
+    clk.set("2026-08-24T10:00:00+00:00")
+    db.current_week(conn, clk, settings)
+    db.record_listening(conn, clk, SHORT.spotify_id, 100 * 60_000, 100 * 60_000, False)
+
+    clk.set(WEEK_1)
+    bot = FakeBot()
+    triage.run_triage(conn, clk, settings, spotify, bot)
+
+    header = bot.texts[-1]
+    assert header.startswith("Week of")
+    assert "Last week spent 100 min wasteful across sources" in header
+    assert "Spent so far 0 min wasteful across sources" in header
+
+
+def test_render_stats_points_to_the_dashboard(conn, settings):
+    text = triage.render_stats(conn, clock.FrozenClock(WEEK_1), settings)
+    assert text.split("\n")[-1] == f"Cross-source report: dashboard at http://127.0.0.1:{settings.dashboard_port}"
+
+
+# ==========================================================================
 # run_triage — the order of operations
 # ==========================================================================
 

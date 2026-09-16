@@ -31,6 +31,16 @@ Four things in this module are load-bearing.
    which is most deadlines. `deadline_notices` is the same bookkeeping idea as
    `alerts_sent`: once per item, ever. See `surface_deadlines` and D5.1.
 
+DRBR (CONTRACTS.md Part II §7, Agent D) changes three things and nothing else:
+
+* **Alerts read pooled wasteful minutes** across every source
+  (`allowance.pooled_minutes`), not Spotify's `listened_min`. Worthwhile
+  consumption never trips an alert. Still one alert of each kind per week.
+* **YouTube queue items are never polled and never auto-`played`**: Spotify
+  has no opinion about them and YouTube has no `fully_played` flag (DR1.14).
+* **Sources are backfilled** for active queue items, so a show captured before
+  DRBR existed can still be offered for labelling. Identity only, never a label.
+
 No live call is made from anywhere in this file except `main()`, which is the
 production cron path and is never executed by the test suite.
 """
@@ -38,6 +48,7 @@ from __future__ import annotations
 
 import logging
 
+import allowance
 import clock
 import db
 from clock import Clock
@@ -111,6 +122,12 @@ def run_poll(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
     # so `run_triage` making it again on Sunday changes nothing.
     db.lift_expired_locks(conn, clk, settings)
 
+    # Identity rows for every active item's show/channel, so the label batch
+    # can offer it. Idempotent; writes no label.
+    for item in db.active_items(conn):
+        allowance.ensure_item_source(conn, clk, item)
+
+    # YouTube rows are already excluded by `polling_targets`.
     targets = db.polling_targets(conn)
     if targets:
         episodes = spotify.get_episodes(targets)
@@ -168,8 +185,13 @@ def _mark_played(conn, clk: Clock, spotify_id: str) -> None:
     is already terminal — played, dropped or expired — is never touched. A
     second flip would be an illegal transition, and re-resolving a dropped
     item would rewrite the outcome the funnel is measuring.
+
+    A YouTube row is skipped even if its key somehow matched: `played` is
+    Spotify's own flag and YouTube has none (DR1.14).
     """
     for item in db.active_items(conn):
+        if item.platform == "youtube":
+            continue
         if item.spotify_id == spotify_id:
             db.set_state(conn, clk, item.id, "played")
 
@@ -244,7 +266,7 @@ def surface_deadlines(conn, clk: Clock, settings: Settings, bot) -> None:
 
     week = db.current_week(conn, clk, settings)
     for item in due:
-        text, markup = render_deadline_notice(item, week)
+        text, markup = render_deadline_notice(item, week, label=allowance.item_label(conn, item))
         send(bot, settings, text, markup)
         _mark_notice_sent(conn, clk, item.id)
 
@@ -280,40 +302,47 @@ def check_alerts(conn, clk: Clock, settings: Settings, bot) -> None:
     the alert unrecorded and tomorrow's poll retries it rather than swallowing
     it. `INSERT OR IGNORE` on the composite key makes the write itself safe to
     repeat.
+
+    DRBR: the figure compared is pooled **wasteful** minutes across every
+    source, rounded to whole minutes the same way debt is
+    (`allowance.whole_minutes`), so an alert and the debt it predicts never
+    disagree. Worthwhile minutes are never counted here.
     """
     week = db.current_week(conn, clk, settings)
     effective = week.effective_allowance_min
-    listened = week.listened_min
+    used = allowance.whole_minutes(
+        allowance.pooled_minutes(conn, settings, week.week_start).wasteful_min
+    )
 
     # With the whole allowance eaten by debt, "80% of nothing" is not a
-    # meaningful warning — every poll would trip it at zero minutes listened.
+    # meaningful warning — every poll would trip it at zero minutes used.
     # Only the crossing is reported in that case.
-    approaching = effective > 0 and listened >= APPROACHING_FRACTION * effective
-    exceeded = listened > effective
+    approaching = effective > 0 and used >= APPROACHING_FRACTION * effective
+    exceeded = used > effective
 
     if approaching and not _already_sent(conn, week.week_start, APPROACHING):
-        send(bot, settings, _approaching_text(week))
+        send(bot, settings, _approaching_text(week, used))
         _mark_sent(conn, clk, week.week_start, APPROACHING)
 
     if exceeded and not _already_sent(conn, week.week_start, EXCEEDED):
-        send(bot, settings, _exceeded_text(week))
+        send(bot, settings, _exceeded_text(week, used))
         _mark_sent(conn, clk, week.week_start, EXCEEDED)
 
 
-def _approaching_text(week) -> str:
-    left = max(0, week.effective_allowance_min - week.listened_min)
+def _approaching_text(week, used: int) -> str:
+    left = max(0, week.effective_allowance_min - used)
     return (
-        f"{week.listened_min} of {week.effective_allowance_min} min listened "
-        f"this week. {left} min left."
+        f"{used} of {week.effective_allowance_min} min used this week across "
+        f"sources (wasteful only). {left} min left."
     )
 
 
-def _exceeded_text(week) -> str:
-    over = week.listened_min - week.effective_allowance_min
+def _exceeded_text(week, used: int) -> str:
+    over = used - week.effective_allowance_min
     return (
-        f"Over the allowance: {week.listened_min} min listened against "
-        f"{week.effective_allowance_min} min. {over} min over — that comes off "
-        "next week."
+        f"Over the allowance: {used} min used across sources (wasteful only) "
+        f"against {week.effective_allowance_min} min. {over} min over — that "
+        "comes off next week."
     )
 
 

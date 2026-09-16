@@ -20,6 +20,13 @@ Three things in this module are load-bearing and easy to get silently wrong.
    actually passes (DECISIONS.md D1.10). Expiring an item the day before the
    event it was captured for would defeat the only reason the field exists.
 
+DRBR (CONTRACTS.md Part II §7, Agent D): each post shows the item's resolved
+label, read fresh through `allowance.item_label`, and says "costs 0 min —
+worthwhile" when it is; the week header adds pooled wasteful minutes spent
+across sources. The order of operations in `run_triage` is unchanged, and the
+label line sits *below* the why-note so the note stays directly under the
+duration.
+
 No live call is made from anywhere in this file except `main()`, which is the
 production cron path and is never executed by the test suite.
 """
@@ -32,8 +39,10 @@ import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+import allowance
 import clock
 import db
+import drbr_types as T
 from clock import Clock
 from config import Settings
 from db import QueueItem, Week
@@ -144,7 +153,26 @@ def _keyboard(item_id: int) -> InlineKeyboardMarkup:
     ])
 
 
-def render_item(item: QueueItem, week: Week, warning: bool) -> tuple[str, InlineKeyboardMarkup]:
+#: The resolved label's basis, in the words a user reads.
+BASIS_WORDS = {
+    T.BASIS_ITEM_OVERRIDE: "your tag at capture",
+    T.BASIS_SOURCE_LABEL: "source label",
+    T.BASIS_DEFAULT: "unlabelled source, wasteful by default",
+}
+
+WORTHWHILE_COST = "costs 0 min — worthwhile"
+
+
+def label_line(label) -> str:
+    """'Label: wasteful (source label)' / '... · costs 0 min — worthwhile'."""
+    text = f"Label: {label.label} ({BASIS_WORDS.get(label.basis, label.basis)})"
+    if label.label == T.WORTHWHILE:
+        text += f" · {WORTHWHILE_COST}"
+    return text
+
+
+def render_item(item: QueueItem, week: Week, warning: bool, *,
+                label=None) -> tuple[str, InlineKeyboardMarkup]:
     """One triage post: title, show, duration, the why-note, and cycle age.
 
     The why-note is rendered on the line immediately after the duration, and
@@ -155,12 +183,19 @@ def render_item(item: QueueItem, week: Week, warning: bool) -> tuple[str, Inline
     caller knows `settings.lifespan_cycles`. Plain text, no parse_mode: an
     episode title containing an underscore or an asterisk must not blow up a
     Markdown parse or, worse, silently swallow part of the title.
+
+    `label` (DRBR) is the `labels.ResolvedLabel` the caller read through
+    `allowance.item_label`. It is passed in rather than looked up because this
+    function takes no connection (CONTRACTS.md §5); `None` renders exactly the
+    POP post.
     """
     lines = [
         item.title,
         f"{item.show} · {clock.fmt_duration(item.duration_ms)}",
         f"Why: {item.why_note}",
     ]
+    if label is not None:
+        lines.append(label_line(label))
     if item.deadline:
         # render_item takes no Settings (CONTRACTS.md §5), so the display zone
         # is clock.fmt_local's default, which is the configured default too.
@@ -173,7 +208,8 @@ def render_item(item: QueueItem, week: Week, warning: bool) -> tuple[str, Inline
     return "\n".join(lines), _keyboard(item.id)
 
 
-def render_deadline_notice(item: QueueItem, week: Week) -> tuple[str, InlineKeyboardMarkup]:
+def render_deadline_notice(item: QueueItem, week: Week, *,
+                           label=None) -> tuple[str, InlineKeyboardMarkup]:
     """One out-of-cycle deadline post, for `poll.py` to send between triages.
 
     The brief requires that "an item with a deadline surfaces before it expires
@@ -191,12 +227,18 @@ def render_deadline_notice(item: QueueItem, week: Week) -> tuple[str, InlineKeyb
     triage, and a deadline item is lifespan-exempt (D1.10). The lead line is
     the urgency this message carries.
     """
-    text, markup = render_item(item, week, warning=False)
+    text, markup = render_item(item, week, warning=False, label=label)
     return f"{DEADLINE_LEAD}\n{text}", markup
 
 
-def render_week_header(week: Week) -> str:
-    """Allowance, debt carried, remaining. Posted after the items."""
+def render_week_header(week: Week, *, spent_wasteful_min: float | None = None,
+                       last_week_wasteful_min: float | None = None) -> str:
+    """Allowance, debt carried, remaining. Posted after the items.
+
+    DRBR adds pooled wasteful minutes spent across sources — this week so far,
+    and the week just closed, which is the figure the debt above came from.
+    "Remaining" keeps POP's meaning: minutes still promotable.
+    """
     lines = [
         f"Week of {clock.fmt_local(week.week_start)}",
         f"Allowance {week.allowance_min} min",
@@ -204,6 +246,16 @@ def render_week_header(week: Week) -> str:
     if week.debt_min:
         lines.append(f"Debt carried {week.debt_min} min")
     lines.append(f"Remaining {week.remaining_min} min")
+    if last_week_wasteful_min is not None:
+        lines.append(
+            f"Last week spent {allowance.whole_minutes(last_week_wasteful_min)} min "
+            "wasteful across sources"
+        )
+    if spent_wasteful_min is not None:
+        lines.append(
+            f"Spent so far {allowance.whole_minutes(spent_wasteful_min)} min "
+            "wasteful across sources"
+        )
     return "\n".join(lines)
 
 
@@ -291,7 +343,7 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
         return
 
     # 1. Close the outgoing week, lapse its promotions, open this one.
-    _closed, week = db.roll_over_week(conn, clk, settings)
+    closed, week = db.roll_over_week(conn, clk, settings)
 
     # 2. Lift the locks whose 48 hours have elapsed.
     db.lift_expired_locks(conn, clk, settings)
@@ -309,14 +361,21 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
     for item in survivors:
         bumped = db.bump_cycle(conn, item.id)
         warning = _will_expire_next_cycle(bumped, now, settings)
-        text, markup = render_item(bumped, week, warning)
+        # The label is read fresh, per item, at the moment it is shown.
+        text, markup = render_item(bumped, week, warning,
+                                   label=allowance.item_label(conn, bumped))
         send(bot, settings, text, markup)
 
     if not survivors:
         send(bot, settings, NOTHING_LINE)
 
     # 5. The week header, last: it describes the state everything above left.
-    send(bot, settings, render_week_header(db.current_week(conn, clk, settings)))
+    current = db.current_week(conn, clk, settings)
+    send(bot, settings, render_week_header(
+        current,
+        spent_wasteful_min=allowance.pooled_minutes(conn, settings, current.week_start).wasteful_min,
+        last_week_wasteful_min=allowance.pooled_minutes(conn, settings, closed.week_start).wasteful_min,
+    ))
 
     _mark_triaged(conn, week_start)
 
@@ -382,6 +441,8 @@ def render_stats(conn, clk: Clock, settings: Settings) -> str:
         f"Still holds, yes: {_pct(all_time.still_holds_yes_rate)} "
         f"({all_time.still_holds_answered} answered)"
     )
+    # DRBR: the cross-source picture lives on the local dashboard, not here.
+    lines.append(f"Cross-source report: dashboard at http://127.0.0.1:{settings.dashboard_port}")
     return "\n".join(lines)
 
 
