@@ -1187,3 +1187,35 @@ with a warning and the import is `partial`.
 `report.window_start` = `diagnostic_start` once set, else `settings.go_live`.
 Queue captures from before it drop out of the dashboard funnels. POP's own
 `/stats` in Telegram still reports all time.
+
+## Phase 4 — verification decisions
+
+### DR4.1 — Evidence dated before go-live never charges the allowance
+DR2.2 skipped pre-go-live YouTube history at ingest, but Cold Turkey and Screen
+Time still wrote those days and `pooled_minutes` charged them. A first export
+reaching back past go-live would have handed week 1 a debt built from days
+before DRBR existed. The rows are still stored and shown in weekly totals
+(they are evidence); only the allowance, debt and gated split ignore them.
+Spotify is POP's own allowance, older than DRBR, and is unaffected.
+
+### DR4.2 — A vault scan without its inbox fails
+Without the inbox folder every note is "outside the inbox", so every capture
+would be recorded kept and cost per keeper would fall. On macOS a wrong-case
+`DRBR_VAULT_INBOX` passed the old `is_dir()` check and matched no path, with
+the same result. The inbox is resolved to its on-disk spelling, and a missing
+one fails the scan when captures exist (same reasoning as DR2.6).
+
+### DR4.3 — Screen Time OCR stays on the bot's event loop (accepted)
+Measured at 2–3 s for a 10-image capture, once a week, in a one-user bot whose
+updates are handled one at a time anyway. Moving Vision to a worker thread
+would put pyobjc on a non-main thread (autorelease pools, framework thread
+rules) on a path the automated suite cannot exercise, because Vision is
+blocked in tests. Not worth that risk for a few seconds a week.
+
+### DR4.4 — A relabel does not refund minutes already promoted (accepted)
+`weeks.promoted_min` records what was committed at the moment of promotion,
+under the label that applied then. It only caps further promotions in the
+same week and resets at rollover; debt, alerts and reports read consumption
+through the current labels and do change at once (DR2.7). A refund would need
+per-promotion cost records, which POP never stored, to undo a decision that
+was correctly priced when it was made.

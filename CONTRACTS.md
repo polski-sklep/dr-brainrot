@@ -837,3 +837,15 @@ diagnostic-end notice. POP's `poll.py`/`triage.py` schedules are unchanged.
 - §7/§9 (Agent D, accepted): `QueueItem.platform`/`source_key` (defaulted); `triage.render_item(..., label=None)` and `render_deadline_notice(..., label=None)`; `bot.build_app(..., youtube=None)`; `report.window_start(conn, clk, settings)`; `allowance.ensure_item_source`, `whole_minutes`, `week_end`. Week coverage: a YouTube week is covered by any ok/partial sync received after that Saturday; others by period overlap.
 - §8: after any label change (Telegram or dashboard) the caller runs `allowance.on_measurements_changed` (DR2.7). `handlers_imports.send_due_prompts` never asks about a week ending before `settings.go_live`.
 - §11: `jobs.run_daily(conn, clk, settings, bot) -> list[failed step names]`; each step is isolated and any failure makes `jobs.py daily` exit 1.
+
+## §14 Amendments made at verification (Phase 4)
+
+All additive and defaulted; every earlier call site stays valid. Reasons and tests in REVIEW.md Part II.
+
+- §7 `allowance.pooled_minutes` and `gated_split` skip measurement rows whose `period_end` is before `settings.go_live` (DR4.1). Spotify listening is unaffected. `PooledMinutes` gains `screenshot_ocr_min` and `screenshot_ocr_wasteful_min`; `GatedSplit` gains `provenances: frozenset` (excluded from equality).
+- §9 `SourceTotal` gains `import_id` (the import covering that week, not the latest of its kind) and `covered_reasons: tuple[(reason, minutes)]`. `GatedRow` gains `wasteful_ungated_min` and `provenances`. `WeekSplit` gains `screenshot_ocr_min`; `AllowanceStatus` gains `spent_screenshot_ocr_min`. New: `report.latest_imports(conn, clk, settings) -> list[ImportSummary]` and `report.import_detail(conn, clk, settings, import_id) -> ImportSummary | None`. The dashboard reads imports only through these.
+- §6.4 `vault.scan` resolves `settings.vault_inbox` to its on-disk spelling and **fails** when the inbox folder is missing while any capture is logged (a warning only when there are none) (DR4.2).
+- §6.2 A complete past week whose parse yields no app rows is evidence only: NULL period, status `partial`, nothing written, and a reparse in that state deletes nothing.
+- §6.1 `EvidenceError`/`LabelError` during YouTube ingest fail the import like a `ParseError`.
+- Part I §5 `triage.render_item`, `render_deadline_notice` and `render_week_header` take keyword `tz=None`; callers with `Settings` pass `settings.tz`.
+- §8 The bot's capture confirmation distinguishes an override typed in this note from one stored by an earlier capture of the same item.
