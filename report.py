@@ -31,6 +31,7 @@ everywhere else. Nothing is cached.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -101,6 +102,12 @@ class SourceTotal:
     `covered_excluded_min`) and is `None` when the week's evidence for this
     row never arrived — `import_status == 'missing'` — which is not zero.
     `import_status` is `None` for API-polled Spotify, which has no imports.
+
+    `import_id` is the import whose status is reported — the one covering this
+    week, not merely the latest of its kind — so a "partial" links to the
+    warnings that made *this* week partial. `covered_reasons` says why each
+    excluded minute was excluded, computed from the same rows as
+    `covered_excluded_min` so the two can never disagree.
     """
 
     group: str
@@ -110,13 +117,22 @@ class SourceTotal:
     unmeasured_items: int
     covered_excluded_min: float
     import_status: str | None
+    import_id: int | None = None
+    covered_reasons: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)
 class WeekSplit:
+    """One bar of the wasteful/worthwhile chart.
+
+    `screenshot_ocr_min` is how much of the bar came from parsed screenshots,
+    so a chart that stacks OCR minutes on API minutes can say so.
+    """
+
     week_start: str
     wasteful_min: float
     worthwhile_min: float
+    screenshot_ocr_min: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -136,14 +152,40 @@ class AllowanceStatus:
     spent_wasteful_min: float
     remaining_min: int
     promoted_min: int
+    spent_screenshot_ocr_min: float = 0.0     # the parsed-screenshot part of spent_wasteful_min
 
 
 @dataclass(frozen=True)
 class GatedRow:
+    """Queue-gated vs ungated consumption for one group.
+
+    `wasteful_ungated_min` is the brief's "reflex rather than choice" figure:
+    wasteful consumption that never passed through the queue. It is a subset
+    of `ungated_min` and is carried through so the dashboard can surface it.
+    `provenances` names where the group's counted minutes came from this week.
+    """
+
     group: str
     gated_min: float
     ungated_min: float
     share_ungated: float | None       # None when nothing was consumed
+    wasteful_ungated_min: float = 0.0
+    provenances: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ImportSummary:
+    """The latest stored import of one kind, read back verbatim. `id` None: none yet."""
+
+    kind: str
+    id: int | None = None
+    status: str | None = None
+    received_at: str | None = None
+    period_start: str | None = None
+    period_end: str | None = None
+    parser_version: str | None = None
+    error: str | None = None
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -309,16 +351,19 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
     acc: dict[tuple[str, str, str], dict] = {}
 
     def row(key):
-        return acc.setdefault(key, {"minutes": 0.0, "unmeasured_items": 0, "covered_excluded_min": 0.0})
+        return acc.setdefault(key, {"minutes": 0.0, "unmeasured_items": 0, "covered_excluded_min": 0.0,
+                                    "reasons": {}})
 
     for r in allowance._spotify_rows(conn, settings, week_start):
         row((T.GROUP_PODCASTS, T.PROV_API, T.DEVICE_ACCOUNT))["minutes"] += int(r["delta_ms"]) / MIN_MS
 
     for r in allowance._measurement_rows(conn, settings, week_start):
         b = row((T.report_group(r["kind"], r["device"]), r["provenance"], r["device"]))
-        if T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"])):
+        reason = T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"]))
+        if reason:
             if r["status"] == "ok":
                 b["covered_excluded_min"] += float(r["minutes"])
+                b["reasons"][reason] = b["reasons"].get(reason, 0.0) + float(r["minutes"])
         elif r["status"] != "ok":
             b["unmeasured_items"] += 1
         else:
@@ -327,15 +372,17 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
     mweek = T.measurement_week_for_allowance_week(week_start, settings.tz)
     out: list[SourceTotal] = []
     for (group, provenance, device), v in acc.items():
-        status = None
+        status = import_id = None
         kind = IMPORT_KIND_FOR_PROVENANCE.get(provenance)
         if kind is not None:
             imp = _covering_import(conn, settings, kind, mweek)
             # Rows exist but no import covers the whole week yet (e.g. a
             # YouTube sync made mid-week): the figure is honest but incomplete.
             status = imp["status"] if imp else IMPORT_INCOMPLETE
+            import_id = imp["id"] if imp else None
         out.append(SourceTotal(group, provenance, device, v["minutes"], v["unmeasured_items"],
-                               v["covered_excluded_min"], status))
+                               v["covered_excluded_min"], status, import_id,
+                               tuple(sorted(v["reasons"].items()))))
 
     present = {(t.group, t.provenance, t.device) for t in out}
     for kind, group, provenance, device, _name in EXPECTED_WEEKLY:
@@ -346,7 +393,7 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
             out.append(SourceTotal(group, provenance, device, None, 0, 0.0, IMPORT_MISSING))
         else:
             # Evidence arrived and simply held no rows for this week.
-            out.append(SourceTotal(group, provenance, device, 0.0, 0, 0.0, imp["status"]))
+            out.append(SourceTotal(group, provenance, device, 0.0, 0, 0.0, imp["status"], imp["id"]))
 
     order = {g: i for i, g in enumerate(T.REPORT_GROUPS)}
     prov_order = {p: i for i, p in enumerate(T.PROVENANCES)}
@@ -370,7 +417,7 @@ def label_split(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         if floor is not None and T.measurement_week_for_allowance_week(start, settings.tz).end < floor:
             continue
         pooled = allowance.pooled_minutes(conn, settings, start)
-        out.append(WeekSplit(start, pooled.wasteful_min, pooled.worthwhile_min))
+        out.append(WeekSplit(start, pooled.wasteful_min, pooled.worthwhile_min, pooled.screenshot_ocr_min))
     return out
 
 
@@ -395,7 +442,8 @@ def allowance_status(conn: sqlite3.Connection, clk: Clock, settings: Settings) -
             debt = allowance.debt_for(closed, allowance.pooled_minutes(conn, settings, closed.week_start))
         week = db.Week(start, settings.weekly_allowance_min, debt, 0, 0)
 
-    spent = allowance.pooled_minutes(conn, settings, start).wasteful_min
+    pooled = allowance.pooled_minutes(conn, settings, start)
+    spent = pooled.wasteful_min
     effective = week.effective_allowance_min
     return AllowanceStatus(
         week_start=start,
@@ -405,6 +453,7 @@ def allowance_status(conn: sqlite3.Connection, clk: Clock, settings: Settings) -
         spent_wasteful_min=spent,
         remaining_min=max(0, effective - allowance.whole_minutes(spent)),
         promoted_min=week.promoted_min,
+        spent_screenshot_ocr_min=pooled.screenshot_ocr_wasteful_min,
     )
 
 
@@ -412,13 +461,69 @@ def gated_vs_ungated(conn: sqlite3.Connection, clk: Clock, settings: Settings,
                      week_start: str) -> list[GatedRow]:
     """How much consumption passed through the queue versus bypassed it, per group."""
     split = allowance.gated_split(conn, settings, week_start)
+    provs = _counted_provenances(conn, settings, week_start)
+    prov_order = {p: i for i, p in enumerate(T.PROVENANCES)}
     out = []
     for group in T.REPORT_GROUPS:
         s = split[group]
         total = s.gated_min + s.ungated_min
         out.append(GatedRow(group, s.gated_min, s.ungated_min,
-                            (s.ungated_min / total) if total > 0 else None))
+                            (s.ungated_min / total) if total > 0 else None,
+                            s.wasteful_ungated_min,
+                            tuple(sorted(provs.get(group, ()), key=lambda p: prov_order.get(p, 99)))))
     return out
+
+
+def _counted_provenances(conn: sqlite3.Connection, settings: Settings, week_start: str) -> dict[str, set[str]]:
+    """Per group, the provenances of the rows `allowance.gated_split` counts this week."""
+    out: dict[str, set[str]] = {}
+    if allowance._spotify_rows(conn, settings, week_start):
+        out.setdefault(T.GROUP_PODCASTS, set()).add(T.PROV_API)
+    go_live = getattr(settings, "go_live", "") or ""
+    for r in allowance._measurement_rows(conn, settings, week_start):
+        if r["status"] != "ok" or T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"])):
+            continue
+        if go_live and r["period_end"] < go_live:
+            continue
+        out.setdefault(T.report_group(r["kind"], r["device"]), set()).add(r["provenance"])
+    return out
+
+
+def latest_imports(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[ImportSummary]:
+    """The most recent import of every kind, including failures, oldest kind order.
+
+    Read-only and verbatim: status, error and warnings exactly as stored, so a
+    failed import is as visible on the dashboard as it was in the bot reply.
+    """
+    out: list[ImportSummary] = []
+    for kind in T.IMPORT_KINDS:
+        row = conn.execute("SELECT * FROM imports WHERE kind = ? ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
+        if row is None:
+            out.append(ImportSummary(kind))
+            continue
+        out.append(ImportSummary(kind, row["id"], row["status"], row["received_at"], row["period_start"],
+                                 row["period_end"], row["parser_version"], row["error"],
+                                 _stored_warnings(row["warnings"])))
+    return out
+
+
+def _stored_warnings(raw: str | None) -> tuple[str, ...]:
+    try:
+        value = json.loads(raw or "[]")
+    except ValueError:
+        return ("(stored warnings could not be read)",)
+    if not isinstance(value, list):
+        return ("(stored warnings could not be read)",)
+    return tuple(str(w) for w in value)
+
+
+def import_detail(conn: sqlite3.Connection, clk: Clock, settings: Settings, import_id: int) -> ImportSummary | None:
+    """One stored import by id, verbatim (what a week's "partial" links to)."""
+    row = conn.execute("SELECT * FROM imports WHERE id = ?", (import_id,)).fetchone()
+    if row is None:
+        return None
+    return ImportSummary(row["kind"], row["id"], row["status"], row["received_at"], row["period_start"],
+                         row["period_end"], row["parser_version"], row["error"], _stored_warnings(row["warnings"]))
 
 
 def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,

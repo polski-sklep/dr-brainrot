@@ -791,3 +791,20 @@ def test_stats_since_is_eight_weeks_back(settings):
     )
     assert expected < WEEK_1
     assert triage.STATS_WEEKS == 8
+
+
+def test_deadline_and_week_header_render_in_the_configured_zone_not_lisbon(conn):
+    """Phase 4 regression: triage posts rendered times in clock.fmt_local's
+    Lisbon default, so with POP_TZ=Europe/Warsaw an 18:00 deadline and the
+    Sunday 18:00 week start read as 17:00."""
+    settings = config.test_settings(tz="Europe/Warsaw")
+    clk = clock.FrozenClock("2026-09-16T08:00:00+00:00")
+    db.upsert_episode(conn, "ep_tz_deadline_00000001", "T", "Show", None, None, 60 * 60_000)
+    item = db.capture(conn, clk, settings, spotify_id="ep_tz_deadline_00000001", why_note="talk prep",
+                      deadline="2026-09-25T16:00:00+00:00")                # 18:00 in Warsaw
+    week = db.current_week(conn, clk, settings)
+    text, _ = triage.render_item(item, week, warning=False, tz=settings.tz)
+    assert "Deadline: Fri 25 Sep 18:00" in text
+    notice, _ = triage.render_deadline_notice(item, week, tz=settings.tz)
+    assert "Fri 25 Sep 18:00" in notice
+    assert "Week of Sun 13 Sep 18:00" in triage.render_week_header(week, tz=settings.tz)

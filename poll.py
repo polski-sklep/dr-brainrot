@@ -266,7 +266,8 @@ def surface_deadlines(conn, clk: Clock, settings: Settings, bot) -> None:
 
     week = db.current_week(conn, clk, settings)
     for item in due:
-        text, markup = render_deadline_notice(item, week, label=allowance.item_label(conn, item))
+        text, markup = render_deadline_notice(item, week, label=allowance.item_label(conn, item),
+                                              tz=settings.tz)
         send(bot, settings, text, markup)
         _mark_notice_sent(conn, clk, item.id)
 

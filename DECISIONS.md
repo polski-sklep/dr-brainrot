@@ -928,7 +928,7 @@ working system. New DRBR code follows the brief's names (`sources/`,
 
 ### DR0.3 — The vault is scanned in place; no local agent
 The brief's fork assumed a VPS. There is no VPS: POP runs on the Mac, the vault
-is a local git repo at `<vault path>`, and the browser extension runs on
+is a local git repo at `<vault path>` (obsidian-ingest's own default), and the browser extension runs on
 the same machine. "Server-side scanning" and "local" are the same host.
 
 ### DR0.4 — Screen Time OCR uses Apple Vision on-device

@@ -730,7 +730,12 @@ def _ingest_bytes(conn: sqlite3.Connection, clk: Clock, settings: Settings, data
         period_start = min(dates) if dates else None
         period_end = max(dates) if dates else None
         rec.meta["measurements"] = written
-    except (evidence.ParseError, VideoLookupError) as exc:
+    except (evidence.ParseError, VideoLookupError, evidence.EvidenceError, labels.LabelError) as exc:
+        # EvidenceError/LabelError: a value the page carried that cannot be
+        # stored (e.g. a negative resume position). Without catching them the
+        # import stayed "did not finish" with half-written facts pending on
+        # the connection, and the extension saw an HTTP 500 instead of the
+        # reason.
         evidence.fail_import(conn, rec, str(exc))
         log.warning("youtube import %s failed: %s", rec.id, exc)
         return evidence.Outcome(rec.id, T.IMPORT_FAILED, 0, tuple(rec.warnings), str(exc))

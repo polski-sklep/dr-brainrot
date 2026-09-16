@@ -269,6 +269,35 @@ def _in_inbox(rel_path: str, inbox: str) -> bool:
     return rel_path == inbox or rel_path.startswith(inbox + "/")
 
 
+def _resolve_inbox(root: pathlib.Path, inbox: str) -> str | None:
+    """The inbox folder's relative path as it is spelled on disk, or None if absent.
+
+    Outcomes compare note paths (as `os.walk` spells them) against the inbox
+    prefix. On macOS the file system is case-insensitive, so a setting of
+    `01-inbox` passes an `is_dir()` check for `01-Inbox` while matching no
+    note path at all — which would silently turn every capture into `kept`.
+    Each segment is therefore resolved to its real spelling: an exact name
+    first, else the one entry that matches case-insensitively.
+    """
+    current = root
+    parts: list[str] = []
+    for segment in [p for p in inbox.strip("/").split("/") if p]:
+        try:
+            names = [e.name for e in os.scandir(current) if e.is_dir()]
+        except OSError:
+            return None
+        if segment in names:
+            real = segment
+        else:
+            matches = [n for n in names if n.casefold() == segment.casefold()]
+            if len(matches) != 1:
+                return None
+            real = matches[0]
+        parts.append(real)
+        current = current / real
+    return "/".join(parts) if parts else None
+
+
 def _walk_notes(root: pathlib.Path, warnings: list[str]):
     """Yield (relative posix path, text) for every note outside SKIP_DIRS."""
 
@@ -309,11 +338,19 @@ def scan(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> evidence.O
         error = "vault path is not configured" if root is None else "vault path is not a readable folder"
         evidence.fail_import(conn, rec, error)
         return evidence.Outcome(rec.id, T.IMPORT_FAILED, 0, error=error)
-    if not (root / settings.vault_inbox.strip("/")).is_dir():
-        rec.warnings.append(f"inbox folder {settings.vault_inbox!r} does not exist in the vault")
-
     captures = {r["capture_id"]: r["body_sha256"]
                 for r in conn.execute("SELECT capture_id, body_sha256 FROM vault_captures")}
+    inbox = _resolve_inbox(root, settings.vault_inbox)
+    if inbox is None:
+        error = f"inbox folder {settings.vault_inbox!r} does not exist in the vault"
+        if captures:
+            # Without the inbox, "outside the inbox" is everywhere: every
+            # capture would be recorded as kept and flow into cost per keeper.
+            # Same reasoning as a missing vault root (DR2.6): fail loudly.
+            evidence.fail_import(conn, rec, error + "; outcomes cannot be decided")
+            return evidence.Outcome(rec.id, T.IMPORT_FAILED, 0, error=error + "; outcomes cannot be decided")
+        rec.warnings.append(error)
+        inbox = settings.vault_inbox.strip("/")
     found: dict[str, list[tuple[str, str]]] = {}      # id -> [(rel_path, current body hash)]
     files = unknown = bad_ids = 0
     try:
@@ -346,7 +383,7 @@ def scan(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> evidence.O
         if not copies:
             outcome, rel_path, edited = "excluded", None, None
         else:
-            outside = [c for c in copies if not _in_inbox(c[0], settings.vault_inbox)]
+            outside = [c for c in copies if not _in_inbox(c[0], inbox)]
             outcome = "kept" if outside else "unprocessed"
             counted = outside or copies
             rel_path = counted[0][0]

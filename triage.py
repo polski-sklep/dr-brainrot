@@ -172,7 +172,7 @@ def label_line(label) -> str:
 
 
 def render_item(item: QueueItem, week: Week, warning: bool, *,
-                label=None) -> tuple[str, InlineKeyboardMarkup]:
+                label=None, tz: str | None = None) -> tuple[str, InlineKeyboardMarkup]:
     """One triage post: title, show, duration, the why-note, and cycle age.
 
     The why-note is rendered on the line immediately after the duration, and
@@ -188,6 +188,11 @@ def render_item(item: QueueItem, week: Week, warning: bool, *,
     `allowance.item_label`. It is passed in rather than looked up because this
     function takes no connection (CONTRACTS.md §5); `None` renders exactly the
     POP post.
+
+    `tz` (Phase 4) is the display zone for the deadline. Without it the
+    deadline rendered in `clock.fmt_local`'s built-in default (Lisbon), an
+    hour off for a user whose `POP_TZ` is Warsaw — "18:00" read as "17:00".
+    Callers holding `Settings` pass `settings.tz`.
     """
     lines = [
         item.title,
@@ -197,9 +202,7 @@ def render_item(item: QueueItem, week: Week, warning: bool, *,
     if label is not None:
         lines.append(label_line(label))
     if item.deadline:
-        # render_item takes no Settings (CONTRACTS.md §5), so the display zone
-        # is clock.fmt_local's default, which is the configured default too.
-        lines.append(f"Deadline: {clock.fmt_local(item.deadline)}")
+        lines.append(f"Deadline: {_fmt_local(item.deadline, tz)}")
     lines.append(
         f"Cycle {item.cycles_seen} · {week.remaining_min} min left this week"
     )
@@ -209,7 +212,7 @@ def render_item(item: QueueItem, week: Week, warning: bool, *,
 
 
 def render_deadline_notice(item: QueueItem, week: Week, *,
-                           label=None) -> tuple[str, InlineKeyboardMarkup]:
+                           label=None, tz: str | None = None) -> tuple[str, InlineKeyboardMarkup]:
     """One out-of-cycle deadline post, for `poll.py` to send between triages.
 
     The brief requires that "an item with a deadline surfaces before it expires
@@ -227,12 +230,16 @@ def render_deadline_notice(item: QueueItem, week: Week, *,
     triage, and a deadline item is lifespan-exempt (D1.10). The lead line is
     the urgency this message carries.
     """
-    text, markup = render_item(item, week, warning=False, label=label)
+    text, markup = render_item(item, week, warning=False, label=label, tz=tz)
     return f"{DEADLINE_LEAD}\n{text}", markup
 
 
+def _fmt_local(when: str, tz: str | None) -> str:
+    return clock.fmt_local(when, tz) if tz else clock.fmt_local(when)
+
+
 def render_week_header(week: Week, *, spent_wasteful_min: float | None = None,
-                       last_week_wasteful_min: float | None = None) -> str:
+                       last_week_wasteful_min: float | None = None, tz: str | None = None) -> str:
     """Allowance, debt carried, remaining. Posted after the items.
 
     DRBR adds pooled wasteful minutes spent across sources — this week so far,
@@ -240,7 +247,7 @@ def render_week_header(week: Week, *, spent_wasteful_min: float | None = None,
     "Remaining" keeps POP's meaning: minutes still promotable.
     """
     lines = [
-        f"Week of {clock.fmt_local(week.week_start)}",
+        f"Week of {_fmt_local(week.week_start, tz)}",
         f"Allowance {week.allowance_min} min",
     ]
     if week.debt_min:
@@ -363,7 +370,7 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
         warning = _will_expire_next_cycle(bumped, now, settings)
         # The label is read fresh, per item, at the moment it is shown.
         text, markup = render_item(bumped, week, warning,
-                                   label=allowance.item_label(conn, bumped))
+                                   label=allowance.item_label(conn, bumped), tz=settings.tz)
         send(bot, settings, text, markup)
 
     if not survivors:
@@ -375,6 +382,7 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
         current,
         spent_wasteful_min=allowance.pooled_minutes(conn, settings, current.week_start).wasteful_min,
         last_week_wasteful_min=allowance.pooled_minutes(conn, settings, closed.week_start).wasteful_min,
+        tz=settings.tz,
     ))
 
     _mark_triaged(conn, week_start)

@@ -75,6 +75,11 @@ class PooledMinutes:
     by_group: dict[str, GroupMinutes] = field(default_factory=dict)
     covered_excluded_min: float = 0.0
     unmeasured_items: int = 0
+    #: The parsed-screenshot share of the figures above (all labels, and the
+    #: wasteful part). Carried so an aggregate that mixes OCR with API figures
+    #: can say how much of it is lower-confidence instead of flattening it.
+    screenshot_ocr_min: float = 0.0
+    screenshot_ocr_wasteful_min: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -277,6 +282,7 @@ def spotify_label(conn: sqlite3.Connection, row: sqlite3.Row) -> labels.Resolved
 def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str) -> PooledMinutes:
     """Every minute consumed in one allowance week, split wasteful/worthwhile. Read-only."""
     groups: dict[str, dict] = {}
+    ocr = {"all": 0.0, "wasteful": 0.0}
 
     def bucket(group: str) -> dict:
         return groups.setdefault(group, {"wasteful_min": 0.0, "worthwhile_min": 0.0,
@@ -287,7 +293,18 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
         label = spotify_label(conn, row).label
         bucket(T.GROUP_PODCASTS)[f"{label}_min"] += minutes
 
+    go_live = getattr(settings, "go_live", "") or ""
     for row in _measurement_rows(conn, settings, week_start):
+        if go_live and row["period_end"] < go_live:
+            # Evidence from before DRBR went live is kept and shown, but it is
+            # not diagnostic data and must not charge the allowance: a first
+            # Cold Turkey export or "Last Week" screenshot reaching back past
+            # go-live would otherwise hand the first diagnostic week a debt
+            # built from pre-DRBR days. YouTube already skips these at ingest
+            # (DR2.2); this applies the same rule to every DRBR source.
+            # Spotify is POP's own allowance and predates DRBR, so it is not
+            # affected.
+            continue
         group = T.report_group(row["kind"], row["device"])
         b = bucket(group)
         if T.COVERED_ELSEWHERE.get((row["kind"], row["source_key"])):
@@ -299,6 +316,10 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
             continue
         label = measurement_label(conn, row).label
         b[f"{label}_min"] += float(row["minutes"])
+        if row["provenance"] == T.PROV_SCREENSHOT:
+            ocr["all"] += float(row["minutes"])
+            if label == T.WASTEFUL:
+                ocr["wasteful"] += float(row["minutes"])
 
     by_group = {g: GroupMinutes(**v) for g, v in sorted(groups.items())}
     return PooledMinutes(
@@ -307,6 +328,8 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
         by_group=by_group,
         covered_excluded_min=sum(g.covered_excluded_min for g in by_group.values()),
         unmeasured_items=sum(g.unmeasured_items for g in by_group.values()),
+        screenshot_ocr_min=ocr["all"],
+        screenshot_ocr_wasteful_min=ocr["wasteful"],
     )
 
 
@@ -337,9 +360,12 @@ def gated_split(conn: sqlite3.Connection, settings: Settings,
         _add_split(out[T.GROUP_PODCASTS], minutes, promoted is not None,
                    spotify_label(conn, row).label)
 
+    go_live = getattr(settings, "go_live", "") or ""
     for row in _measurement_rows(conn, settings, week_start):
         if row["status"] != "ok" or T.COVERED_ELSEWHERE.get((row["kind"], row["source_key"])):
             continue
+        if go_live and row["period_end"] < go_live:
+            continue            # same rule as pooled_minutes: pre-go-live evidence is not diagnostic data
         group = T.report_group(row["kind"], row["device"])
         gated = False
         if row["kind"] == T.KIND_YOUTUBE_CHANNEL and row["item_key"]:

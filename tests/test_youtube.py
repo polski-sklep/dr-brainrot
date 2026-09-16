@@ -802,3 +802,18 @@ def _walk(obj):
     elif isinstance(obj, list):
         for v in obj:
             yield from _walk(v)
+
+
+def test_unstorable_page_value_fails_the_import_instead_of_crashing(conn, clk, settings, api, initial):
+    """Phase 4 regression: a negative resume position made minutes negative;
+    evidence.upsert_measurement raised EvidenceError, which escaped ingest,
+    left the import 'did not finish' and answered the extension with HTTP 500."""
+    for we in youtube._find(sections_of(initial)[1], "watchEndpoint"):
+        if isinstance(we, dict) and we.get("videoId") == "fxVideo0004":
+            we["startTimeSeconds"] = -30
+    out = youtube.ingest(conn, clk, settings, payload([initial]), api)
+    assert out.status == "failed" and "negative minutes" in (out.error or "")
+    assert conn.execute("SELECT COUNT(*) FROM measurements").fetchone()[0] == 0
+    row = conn.execute("SELECT status, error FROM imports WHERE id = ?", (out.import_id,)).fetchone()
+    assert row["status"] == "failed" and "negative minutes" in row["error"]
+    assert youtube.current_cursor(conn) is None

@@ -138,7 +138,7 @@
   logging somewhere nobody reads.
 - Pre-existing, not changed: `VAULT_PATH` is read when `vault_write` is
   imported, which in `bot.py` happens *before* `load_dotenv`, so a
-  `VAULT_PATH` set only in `.env` is ignored (default `<vault path>` is
+  `VAULT_PATH` set only in `.env` is ignored (default `<vault path>` (obsidian-ingest's own default) is
   used). Running `python vault_write.py` still writes demo notes into the real
   vault, and now also appends outbox lines if the env var is set.
 - Tests: `tests/test_capture_id.py` + `tests/conftest.py` (autouse: VAULT_PATH

@@ -6,6 +6,21 @@
 <p class="note">This is a diagnostic. You label, the system counts. There are no targets here: compare and watch the trend.
 {% if window_start %}Figures start at {{ window_start }}.{% endif %}</p>
 
+{# ------------------------------------------------------------------ 0 #}
+<section id="reflex">
+  <h2>Reflex: wasteful consumption that bypassed the queue (week of {{ week.sunday }})</h2>
+  <p class="reflex-figure"><span class="num">{{ reflex_min|min }}</span></p>
+  <table class="compact">
+    <tbody>
+    {% for r in gated %}{% if r.wasteful_ungated_min %}
+      <tr><th>{{ GROUP_NAMES.get(r.group, r.group) }}</th><td class="num">{{ r.wasteful_ungated_min|min }}</td>
+          <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
+    {% endif %}{% endfor %}
+    </tbody>
+  </table>
+  <p class="note">Wasteful (including unlabelled) minutes that never passed through capture, lock and triage. This is the honest measure of how much was reflex rather than choice. Measured minutes only; weeks whose evidence has not arrived are not counted as zero (see weekly totals).</p>
+</section>
+
 {# ------------------------------------------------------------------ 1 #}
 <section id="weekly-totals">
   <h2>Weekly totals by source</h2>
@@ -40,18 +55,15 @@
         <td>
           {% if t.covered_excluded_min %}
             <span class="excluded">{{ t.covered_excluded_min|min }} excluded</span>
-            {% set reasons = covered.get((t.group, t.provenance, t.device), []) %}
-            {% if reasons %}
-            <ul class="tight">{% for reason, mins in reasons %}<li>{{ mins|min }}: already measured by {{ reason }}</li>{% endfor %}</ul>
-            {% else %}— already measured by a more direct source{% endif %}
+            <ul class="tight">{% for reason, mins in t.covered_reasons %}<li>{{ mins|min }}: already measured by {{ reason }}</li>{% endfor %}</ul>
           {% else %}none{% endif %}
         </td>
         <td class="import-{{ t.import_status or 'api' }}">
           {% if t.import_status is none %}polled via API (no import)
           {% elif t.import_status == "missing" %}<strong>missing</strong> — no import covers this week
           {% elif t.import_status == "incomplete" %}<strong>incomplete</strong> — no import covers the whole week yet
-          {% elif t.import_status == "partial" %}<strong>partial</strong> — with warnings (<a href="#imports">see imports</a>)
-          {% elif t.import_status == "ok" %}received
+          {% elif t.import_status == "partial" %}<strong>partial</strong> — with warnings (<a href="#import-{{ t.import_id }}">see import #{{ t.import_id }}</a>)
+          {% elif t.import_status == "ok" %}received (<a href="#import-{{ t.import_id }}">import #{{ t.import_id }}</a>)
           {% else %}{{ t.import_status }}{% endif %}
         </td>
       </tr>
@@ -59,6 +71,27 @@
     </tbody>
   </table>
   <p class="note">Measured minutes count every label. Parsed-screenshot figures are OCR readings and carry lower confidence than API figures.</p>
+  {% if week_imports %}
+  <h3>Imports covering this week</h3>
+  <table>
+    <thead><tr><th>Import</th><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th>Error / warnings</th></tr></thead>
+    <tbody>
+    {% for i in week_imports %}
+      <tr id="import-{{ i.id }}">
+        <td>#{{ i.id }} <span class="muted">({{ i.parser_version }})</span></td>
+        <td>{{ IMPORT_KIND_NAMES.get(i.kind, i.kind) }}</td>
+        <td class="import-{{ i.status }}"><strong>{{ i.status }}</strong></td>
+        <td>{{ i.received_at|local_dt }}</td>
+        <td>{% if i.period_start %}{{ i.period_start }} – {{ i.period_end }}{% else %}—{% endif %}</td>
+        <td>
+          {% if i.error %}<div class="error">Failed: {{ i.error }}</div>{% endif %}
+          {% if i.warnings %}<ul class="tight">{% for w in i.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
 </section>
 
 {# ------------------------------------------------------------------ 2 #}
@@ -83,9 +116,10 @@
   </svg>
   <p class="legend"><span class="swatch bar-wasteful"></span> wasteful (includes unlabelled) <span class="swatch bar-worthwhile"></span> worthwhile · weeks labelled by their Sunday</p>
   <table class="compact">
-    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Worthwhile</th></tr></thead>
-    <tbody>{% for b in chart.bars %}<tr><td>{{ b.sunday }}{% if b.current %} (in progress){% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td></tr>{% endfor %}</tbody>
+    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Worthwhile</th><th class="num">Of which parsed screenshots</th></tr></thead>
+    <tbody>{% for b in chart.bars %}<tr><td>{{ b.sunday }}{% if b.current %} (in progress){% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>{% endfor %}</tbody>
   </table>
+  <p class="note">Each bar stacks every source, so it mixes API, page-data, export and parsed-screenshot minutes; the last column says how much of each bar is lower-confidence OCR.</p>
   {% endif %}
 </section>
 
@@ -95,6 +129,7 @@
   <table class="compact">
     <tbody>
       <tr><th>Spent (wasteful, pooled across sources)</th><td class="num">{{ allowance.spent_wasteful_min|min }}</td></tr>
+      <tr><th>… of which from parsed screenshots</th><td class="num">{{ allowance.spent_screenshot_ocr_min|min }}{% if allowance.spent_screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
       <tr><th>Remaining</th><td class="num">{{ allowance.remaining_min }} min</td></tr>
       <tr><th>Debt carried from last week</th><td class="num">{{ allowance.debt_min }} min</td></tr>
       <tr><th>Base allowance</th><td class="num">{{ allowance.allowance_min }} min</td></tr>
@@ -109,14 +144,16 @@
 <section id="gated">
   <h2>Gated vs ungated (week of {{ week.sunday }})</h2>
   <table>
-    <thead><tr><th>Group</th><th class="reflex-head">Ungated (reflex) share</th><th class="num">Bypassed the queue</th><th class="num">Through the queue</th></tr></thead>
+    <thead><tr><th>Group</th><th class="reflex-head">Ungated (reflex) share</th><th class="num">Wasteful, bypassed the queue</th><th class="num">Bypassed the queue (all labels)</th><th class="num">Through the queue</th><th>Provenance</th></tr></thead>
     <tbody>
     {% for r in gated %}
       <tr>
         <td>{{ GROUP_NAMES.get(r.group, r.group) }}</td>
         <td class="reflex">{% if r.share_ungated is none %}<span class="absent">nothing consumed</span>{% else %}{{ r.share_ungated|pct }} ungated{% endif %}</td>
+        <td class="num"><strong>{{ r.wasteful_ungated_min|min }}</strong></td>
         <td class="num">{{ r.ungated_min|min }}</td>
         <td class="num">{{ r.gated_min|min }}</td>
+        <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -196,15 +233,15 @@
     {% for i in imports %}
       <tr>
         <td>{{ IMPORT_KIND_NAMES.get(i.kind, i.kind) }}</td>
-        {% if i.row is none %}
+        {% if i.id is none %}
         <td class="import-missing"><strong>none received</strong></td><td></td><td></td><td></td><td></td>
         {% else %}
-        <td class="import-{{ i.row['status'] }}"><strong>{{ i.row['status'] }}</strong></td>
-        <td>{{ i.row['received_at']|local_dt }}</td>
-        <td>{% if i.row['period_start'] %}{{ i.row['period_start'] }} – {{ i.row['period_end'] }}{% else %}—{% endif %}</td>
-        <td>{{ i.row['id'] }} <span class="muted">({{ i.row['parser_version'] }})</span></td>
+        <td class="import-{{ i.status }}"><strong>{{ i.status }}</strong></td>
+        <td>{{ i.received_at|local_dt }}</td>
+        <td>{% if i.period_start %}{{ i.period_start }} – {{ i.period_end }}{% else %}—{% endif %}</td>
+        <td>{{ i.id }} <span class="muted">({{ i.parser_version }})</span></td>
         <td>
-          {% if i.row['error'] %}<div class="error">Failed: {{ i.row['error'] }}</div>{% endif %}
+          {% if i.error %}<div class="error">Failed: {{ i.error }}</div>{% endif %}
           {% if i.warnings %}<ul class="tight">{% for w in i.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
         </td>
         {% endif %}

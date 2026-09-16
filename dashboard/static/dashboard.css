@@ -35,6 +35,7 @@ ul.tight { margin: 0; padding-left: 18px; }
 .import-missing strong, .import-failed strong, .import-incomplete strong, .import-partial strong { color: #7a4b00; }
 
 td.reflex { font-size: 20px; font-weight: 700; }
+#reflex .reflex-figure { font-size: 32px; font-weight: 700; margin: 8px 0; }
 .reflex-head { font-size: 15px; }
 
 svg.split text { font-size: 11px; fill: #333; }

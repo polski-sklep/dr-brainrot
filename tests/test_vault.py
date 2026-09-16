@@ -20,7 +20,7 @@ import labels
 from sources import vault
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "vault"
-OBSIDIAN_INGEST_VECTORS = pathlib.Path("/Users/Jacob/Projects/obsidian-ingest-drbr/tests/body_hash_vectors.json")
+OBSIDIAN_INGEST_VECTORS = pathlib.Path("/Users/Jacob/Projects/obsidian-ingest/tests/body_hash_vectors.json")
 
 ID_X = "a" * 32
 ID_ARTICLE = "b" * 32
@@ -109,7 +109,7 @@ def test_frontmatter_only_edit_vector_shares_the_hash():
 
 def test_obsidian_ingest_carries_an_identical_vector_copy():
     if not OBSIDIAN_INGEST_VECTORS.exists():
-        pytest.skip("obsidian-ingest drbr-capture-id worktree not present")
+        pytest.skip("obsidian-ingest checkout (with its body-hash vector copy) not present")
     assert OBSIDIAN_INGEST_VECTORS.read_bytes() == (FIXTURES / "body_hash_vectors.json").read_bytes()
 
 
@@ -305,6 +305,7 @@ def test_rename_and_move_keeps_identity_across_scans(conn, clk, settings):
 
 
 def test_deletion_after_keeping_becomes_excluded(conn, clk, settings):
+    (pathlib.Path(settings.vault_path) / "01-Inbox").mkdir()   # a real vault has its inbox (Phase 4: scan now requires it)
     write_outbox(settings, line(ID_X, body=BODY))
     vault.read_outbox(conn, clk, settings)
     path = put(settings, "02-Ideas/n.md", note(ID_X, BODY))
@@ -326,6 +327,7 @@ def test_latest_outcomes_uses_newest_even_at_the_same_instant(conn, clk, setting
 
 
 def test_edited_is_body_only(conn, clk, settings):
+    (pathlib.Path(settings.vault_path) / "01-Inbox").mkdir()   # a real vault has its inbox (Phase 4: scan now requires it)
     write_outbox(settings, line(ID_X, body=BODY), line(ID_ARTICLE, body=BODY))
     vault.read_outbox(conn, clk, settings)
     put(settings, "02-Ideas/fm.md", note(ID_X, BODY, read_status="done", rating=5) + "\n\n\n")
@@ -364,6 +366,31 @@ def test_missing_inbox_folder_is_a_warning(conn, clk, settings):
     outcome = vault.scan(conn, clk, settings)
     assert outcome.status == "partial"
     assert any("inbox folder" in w for w in outcome.warnings)
+
+
+def test_missing_inbox_with_captures_fails_rather_than_marking_everything_kept(conn, clk, settings):
+    """Phase 4 regression: without the inbox every capture read as 'kept'."""
+    write_outbox(settings, line(ID_X, body=BODY))
+    vault.read_outbox(conn, clk, settings)
+    put(settings, "Somewhere/n.md", note(ID_X, BODY))
+    outcome = vault.scan(conn, clk, settings)
+    assert outcome.status == "failed" and "inbox folder" in outcome.error
+    assert conn.execute("SELECT COUNT(*) FROM vault_observations").fetchone()[0] == 0
+    assert vault.latest_outcomes(conn) == {}
+
+
+def test_inbox_setting_in_the_wrong_case_still_finds_the_inbox(conn, clk, settings):
+    """Phase 4 regression: on a case-insensitive disk '01-inbox' passed is_dir()
+    but matched no note path, so an inbox note was recorded as kept."""
+    s = config.test_settings(**{**settings.__dict__, "vault_inbox": "01-inbox/read"})
+    write_outbox(s, line(ID_X, body=BODY), line(ID_ARTICLE, body=BODY))
+    vault.read_outbox(conn, clk, s)
+    put(s, "01-Inbox/Read/n.md", note(ID_X, BODY))
+    put(s, "02-Ideas/k.md", note(ID_ARTICLE, BODY))
+    outcome = vault.scan(conn, clk, s)
+    assert outcome.status == "ok", outcome
+    got = vault.latest_outcomes(conn)
+    assert (got[ID_X].outcome, got[ID_ARTICLE].outcome) == ("unprocessed", "kept")
 
 
 def test_clean_scan_is_ok(conn, clk, settings):

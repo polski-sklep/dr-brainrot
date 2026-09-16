@@ -343,6 +343,25 @@ def test_this_week_ingest_stores_evidence_but_writes_nothing(conn, clk, settings
     assert evidence.get_meta(conn, "diagnostic_start") is None      # a partial week does not start the clock
 
 
+def test_full_week_with_no_readable_most_used_is_evidence_only_not_a_zero_week(conn, clk, settings):
+    """Phase 4 regression: a Last Week capture whose Most Used list is absent
+    used to record the week's period with zero app rows, so the week counted
+    as covered and the dashboard showed iPhone apps as a received 0 min."""
+    pages, _ = load("last_week.json")
+    no_most_used = [[o for o in page if o.y < 0.2 or st._key(o.text) in ("total screen time", "daily average")
+                     or st.parse_duration(o.text) is None or o.x > 0.5] for page in pages]
+    no_most_used = [[o for o in page if st._key(o.text) != "most used"] for page in no_most_used]
+    parsed = parse(no_most_used)
+    assert parsed.is_full_past_week and not parsed.app_rows
+    out = ingest(conn, clk, settings, ocr=fake_ocr(no_most_used))
+    assert (out.status, out.measurements_written, out.period_start) == ("partial", 0, None)
+    assert any("evidence only" in w for w in out.warnings)
+    assert measurement_rows(conn) == []
+    row = conn.execute("SELECT period_start FROM imports WHERE id = ?", (out.import_id,)).fetchone()
+    assert row["period_start"] is None                      # does not cover the week
+    assert evidence.get_meta(conn, "diagnostic_start") is None
+
+
 def test_all_devices_ingest_writes_nothing(conn, clk, settings):
     out = ingest(conn, clk, settings, "all_devices.json")
     assert (out.status, out.measurements_written) == ("partial", 0)

@@ -136,7 +136,7 @@ lost) rather than reading as zero. `poll` keys results by id, never by index.
 
 - Separate repo `/Users/Jacob/Projects/obsidian-ingest`, separate venv and token, launchd `com.jacob.obsidian-ingest` (KeepAlive), **no tests**.
 - `bot.py` debounces text bursts (3s), then `ingest_url.ingest(raw)` classifies (tweet, x-article, YouTube, article, text, curriculum), extracts, optionally cleans an article via the Anthropic API, and `vault_write.route_note` + `write_note` writes `<VAULT_PATH>/<folder>/<title>.md` with rendered frontmatter.
-- `VAULT_PATH` defaults to `<vault path>`. Almost everything lands in `01-Inbox/Read/...`.
+- `VAULT_PATH` defaults to `<vault path>` (obsidian-ingest's own default). Almost everything lands in `01-Inbox/Read/...`.
 - No capture id, no log of what was written other than `bot.log`.
 
 ## Brief discrepancies
@@ -145,7 +145,7 @@ lost) rather than reading as zero. `poll` keys results by id, never by index.
 |---|---|---|---|
 | 1 | Backend on a VPS, reached over Tailscale | Everything runs on the Mac under launchd | Vault scan and extension ingest run locally; no sync agent (DR0.3). Dashboard on 127.0.0.1 is reachable on the Mac itself. |
 | 2 | One existing Telegram bot that also writes Obsidian notes | Two bots: POP (podcast queue) and obsidian-ingest (vault writer) | Capture IDs are added to obsidian-ingest. The queue, screenshots, exports and labels go through the POP bot. Neither bot is replaced. |
-| 3 | Vault may need syncing to the server | Local git repo at `<vault path>` | Scanned in place. |
+| 3 | Vault may need syncing to the server | Local git repo at `<vault path>` (obsidian-ingest's own default) | Scanned in place. |
 | 4 | Ungated/impulse consumption is measured for every source | POP polls only **captured** episodes; podcast listening that never touched the queue is invisible | Reported as a named blind spot for podcasts; not silently absorbed. |
 | 5 | "Existing lock and allocation ceiling" is a simple minute cap | Cap is on *promotion* (remaining minutes); *debt* comes from *listened* minutes, clamped at one allowance | DRBR keeps both mechanisms and makes each label-aware. |
 | 6 | Weekly timing is generic | Week = Sunday 18:00 `Europe/Warsaw`, DST-correct; POP docs still mention Lisbon in places | DRBR maps its Sunday–Saturday data weeks onto this boundary (DR1.7). |

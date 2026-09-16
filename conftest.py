@@ -71,4 +71,19 @@ def no_live_calls(monkeypatch):
         return real_read_text(self, *args, **kwargs)
 
     monkeypatch.setattr(pathlib.Path, "read_text", guarded_read_text)
+
+    # Apple Vision is a local service, not the network, but it is still a live
+    # dependency: slow, machine-specific, and fed personal screenshots in
+    # production. Two test modules guarded it themselves; any other module
+    # (the end-to-end test, a handler test) calling screentime ingest without
+    # an injected `ocr=` would have reached the real framework. Guard it here
+    # for every test. The local-only real-OCR check keeps the originals it
+    # captured at import time, before this fixture runs.
+    from sources import ocr_vision
+
+    def blocked_vision(*args, **kwargs):
+        raise AssertionError("A test reached Apple Vision. Inject recorded OCR observations instead.")
+
+    monkeypatch.setattr(ocr_vision, "recognize", blocked_vision)
+    monkeypatch.setattr(ocr_vision, "recognize_region", blocked_vision)
     yield

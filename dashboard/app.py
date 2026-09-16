@@ -10,9 +10,9 @@ Why it is shaped like this.
 1. **It renders; it does not compute.** Every figure comes from `report.py`,
    the label manager writes through `labels.set_source_label`, and the
    countdown is `evidence.diagnostic`. The helpers below only format, group
-   rows for display, or read stored rows back verbatim (the latest import per
-   kind). A number the dashboard derived on its own would be a second,
-   untested definition of the same fact.
+   rows for display, or add up figures `report` already computed. A number
+   the dashboard derived on its own would be a second, untested definition
+   of the same fact.
 
 2. **Provenance is never flattened.** Every minute figure is printed next to
    a badge whose visual weight differs by tier, and a parsed-screenshot figure
@@ -40,7 +40,6 @@ Why it is shaped like this.
 """
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 from dataclasses import dataclass
@@ -202,21 +201,6 @@ def choose_week(clk: Clock, settings: Settings, raw: str | None) -> WeekChoice:
     )
 
 
-def covered_reasons(conn, clk, settings, week: WeekChoice) -> dict[tuple, list[tuple[str, float]]]:
-    """(group, provenance, device) -> [(reason, excluded minutes)], from `report.records`.
-
-    `SourceTotal` carries the excluded minutes but not why; the record browser
-    rows carry the reason, so the reasons are read from there.
-    """
-    out: dict[tuple, dict[str, float]] = {}
-    for r in report.records(conn, clk, settings, start=week.sunday, end=week.saturday, limit=10**9):
-        if r.covered_elsewhere is None or r.minutes is None or r.record_type != "measurement":
-            continue
-        bucket = out.setdefault((r.group, r.provenance, r.device), {})
-        bucket[r.covered_elsewhere] = bucket.get(r.covered_elsewhere, 0.0) + r.minutes
-    return {k: sorted(v.items()) for k, v in out.items()}
-
-
 def split_bars(splits: list[report.WeekSplit], current_week_start: str, tz: str) -> dict:
     """Geometry for the stacked wasteful/worthwhile bars. Scale only; no judgement."""
     height, bar_w, gap, top, label_h = 160, 56, 36, 28, 40
@@ -250,24 +234,20 @@ def split_bars(splits: list[report.WeekSplit], current_week_start: str, tz: str)
     }
 
 
-def latest_imports(conn: sqlite3.Connection) -> list[dict]:
-    """The latest stored import per kind, read back verbatim (status, error, warnings).
+def week_imports(conn: sqlite3.Connection, clk: Clock, settings: Settings,
+                 totals: list[report.SourceTotal]) -> list[report.ImportSummary]:
+    """The imports the week's rows report on, so "partial" links to *its* warnings.
 
-    `report.py` has no function for this; it is a plain read of stored rows,
-    not a derived figure.
+    The latest import of a kind is often a later week's; linking a week's
+    partial status there would show the wrong warnings.
     """
-    out = []
-    for kind in T.IMPORT_KINDS:
-        row = conn.execute("SELECT * FROM imports WHERE kind = ? ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
-        if row is None:
-            out.append({"kind": kind, "row": None, "warnings": []})
-            continue
-        try:
-            warnings = list(json.loads(row["warnings"] or "[]"))
-        except ValueError:
-            warnings = ["(stored warnings could not be read)"]
-        out.append({"kind": kind, "row": row, "warnings": warnings})
-    return out
+    ids = sorted({t.import_id for t in totals if t.import_id is not None})
+    return [d for d in (report.import_detail(conn, clk, settings, i) for i in ids) if d is not None]
+
+
+def reflex_total(gated: list[report.GatedRow]) -> float:
+    """Sum of the per-group wasteful ungated minutes `report` computed. Addition only."""
+    return sum(r.wasteful_ungated_min for r in gated)
 
 
 def label_toggleable(source: labels.Source) -> bool:
@@ -352,18 +332,21 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         week = choose_week(clk, settings, request.args.get("week"))
         status = report.allowance_status(c, clk, settings)
         splits = report.label_split(c, clk, settings)
+        totals = report.weekly_totals(c, clk, settings, week.week_start)
+        gated = report.gated_vs_ungated(c, clk, settings, week.week_start)
         return render_template(
             "overview.html",
             week=week,
-            totals=report.weekly_totals(c, clk, settings, week.week_start),
-            covered=covered_reasons(c, clk, settings, week),
+            totals=totals,
             chart=split_bars(splits, status.week_start, settings.tz),
             allowance=status,
-            gated=report.gated_vs_ungated(c, clk, settings, week.week_start),
+            gated=gated,
+            reflex_min=reflex_total(gated),
             keepers=report.cost_per_keeper(c, clk, settings),
             funnels=report.funnels(c, clk, settings),
             blind_spots=report.blind_spots(c, clk, settings),
-            imports=latest_imports(c),
+            imports=report.latest_imports(c, clk, settings),
+            week_imports=week_imports(c, clk, settings, totals),
             window_start=report.window_start(c, clk, settings),
         )
 

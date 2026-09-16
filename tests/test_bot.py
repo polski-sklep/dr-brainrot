@@ -1028,3 +1028,17 @@ def test_spotify_capture_takes_the_override_too(real_ctx, real_conn):
     assert (ep["platform"], ep["source_key"]) == ("spotify", None)
     src = real_conn.execute("SELECT kind, source_key FROM sources WHERE kind = 'podcast_show'").fetchone()
     assert (src["kind"], src["source_key"]) == ("podcast_show", "deep dive fm")
+
+
+def test_recapture_without_a_tag_says_the_override_came_from_an_earlier_capture(real_ctx, real_conn):
+    """Phase 4 regression: overrides are per item, so a second capture of the
+    same video without a tag still resolves to the old override, and the
+    confirmation used to claim it came from "your tag in this note"."""
+    run(bot.on_message(FakeUpdate(text=f"https://youtu.be/{VIDEO_ID}"), real_ctx))
+    run(bot.on_message(FakeUpdate(text="#worthwhile for the talk prep"), real_ctx))
+    run(bot.on_message(FakeUpdate(text=f"https://youtu.be/{VIDEO_ID}"), real_ctx))
+    again = FakeUpdate(text="still want this one")
+    run(bot.on_message(again, real_ctx))
+    reply = again.message.replies[0]
+    assert "Label: worthwhile (your tag from an earlier capture of this item)" in reply
+    assert "your tag in this note" not in reply

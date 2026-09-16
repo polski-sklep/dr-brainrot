@@ -333,14 +333,23 @@ BASIS_WORDS = {
 }
 
 
-def _label_line(label) -> str:
-    return f"Label: {label.label} ({BASIS_WORDS.get(label.basis, label.basis)})"
+#: An override already stored for this item from an earlier capture. Overrides
+#: are per item, not per queue row, so re-capturing an episode without a tag
+#: keeps the old one; saying "your tag in this note" then would be untrue.
+EARLIER_TAG_WORDS = "your tag from an earlier capture of this item"
 
 
-def _confirmation(item, settings: Settings, label=None) -> str:
+def _label_line(label, *, tagged_now: bool = True) -> str:
+    words = BASIS_WORDS.get(label.basis, label.basis)
+    if label.basis == "item_override" and not tagged_now:
+        words = EARLIER_TAG_WORDS
+    return f"Label: {label.label} ({words})"
+
+
+def _confirmation(item, settings: Settings, label=None, *, tagged_now: bool = True) -> str:
     lines = ["Captured.", "", _episode_line(item.title, item.show, item.duration_ms), "", f"Why: {item.why_note}"]
     if label is not None:
-        lines.append(_label_line(label))
+        lines.append(_label_line(label, tagged_now=tagged_now))
         if label.label == "worthwhile":
             lines.append("Costs 0 min of the allowance — worthwhile. Still locked like everything else.")
     if item.deadline:
@@ -542,7 +551,7 @@ async def _handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
         )
 
     context.user_data.pop(PENDING_KEY, None)
-    await message.reply_text(_confirmation(item, settings, label))
+    await message.reply_text(_confirmation(item, settings, label, tagged_now=override is not None))
 
 
 def _item_view(item, platform: str, episode):

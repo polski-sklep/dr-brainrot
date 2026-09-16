@@ -220,10 +220,14 @@ def check_youtube(env: dict[str, str]) -> None:
     if not key:
         fail("no YOUTUBE_API_KEY to test")
         return
-    url = ("https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=dQw4w9WgXcQ&key="
-           + urllib.parse.quote(key))
+    # The key goes in a header, as in sources/youtube.py: a URL-borne key ends
+    # up in any traceback, proxy log or error message that echoes the URL.
+    req = urllib.request.Request(
+        "https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=dQw4w9WgXcQ",
+        headers={"X-Goog-Api-Key": key, "Accept": "application/json"},
+    )
     try:
-        with urllib.request.urlopen(url, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=20) as r:
             data = json.load(r)
     except urllib.error.HTTPError as e:
         body = e.read().decode(errors="replace").replace(key, "<KEY>")
