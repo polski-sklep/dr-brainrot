@@ -287,9 +287,30 @@ def fake_db():
 
 
 @pytest.fixture
-def ctx(settings, clk, spotify, fake_db):
+def label_conn():
+    """DRBR: a real, empty, migrated schema for the label tables only.
+
+    Queue writes still go to FakeDB. The capture path now resolves the item's
+    label and records its source (`labels`, `allowance`), which needs the
+    `sources`/`item_labels` tables; before DRBR this fixture passed `object()`.
+    Built from the SQL files directly, so this module still imports no db.py.
+    """
+    import sqlite3
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript((root / "schema.sql").read_text())
+    for migration in sorted((root / "migrations").glob("*.sql")):
+        conn.executescript(migration.read_text())
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
+def ctx(settings, clk, spotify, fake_db, label_conn):
     return FakeContext({
-        "settings": settings, "conn": object(), "clk": clk,
+        "settings": settings, "conn": label_conn, "clk": clk,
         "spotify": spotify, "db": fake_db,
     })
 
@@ -786,3 +807,224 @@ def test_error_handler_survives_no_exception_attached(ctx):
 def test_build_app_registers_the_error_handler(settings, clk, spotify):
     app = bot.build_app(settings, object(), clk, spotify)
     assert bot.on_error in app.error_handlers
+
+
+# ==========================================================================
+# 10. DRBR — YouTube capture and the label override (Part II §7)
+#
+# These drive the REAL db.py against a migrated in-memory database: db.py
+# exists now, and the properties under test (nothing written until the note,
+# the override stored against the right item, the label read back) live in
+# the database, not in a double. The YouTube client is always a fake.
+# ==========================================================================
+
+import drbr_types as T  # noqa: E402
+
+VIDEO_ID = "dQw4w9WgXcQ"
+CHANNEL_ID = "UCuAXFkgsw1L7xaCfnd5JJOw"
+VIDEO = T.VideoInfo(VIDEO_ID, "A Talk Worth Hearing", CHANNEL_ID, "Talks Channel", 25 * 60)
+LIVE = T.VideoInfo("LiveStream1", "Live now", CHANNEL_ID, "Talks Channel", None)
+
+
+class FakeYouTube:
+    """`video_info(video_id) -> VideoInfo | None`, raising VideoLookupError on `fail`."""
+
+    def __init__(self, videos: dict | None = None, *, fail: Exception | None = None):
+        self.videos = videos if videos is not None else {VIDEO_ID: VIDEO, LIVE.video_id: LIVE}
+        self.fail = fail
+        self.asked: list[str] = []
+
+    def video_info(self, video_id: str):
+        self.asked.append(video_id)
+        if self.fail is not None:
+            raise self.fail
+        return self.videos.get(video_id)
+
+
+@pytest.fixture
+def real_conn(settings):
+    import db  # noqa: PLC0415
+
+    conn = db.connect(settings)
+    db.init_db(conn)
+    db.migrate(conn)
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
+def youtube():
+    return FakeYouTube()
+
+
+@pytest.fixture
+def real_ctx(settings, clk, spotify, real_conn, youtube):
+    return FakeContext({
+        "settings": settings, "conn": real_conn, "clk": clk,
+        "spotify": spotify, "youtube": youtube,
+    })
+
+
+def _count(conn, table):
+    return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+
+@pytest.mark.parametrize("text", [
+    f"https://www.youtube.com/watch?v={VIDEO_ID}",
+    f"https://youtube.com/watch?feature=shared&v={VIDEO_ID}&t=42",
+    f"https://m.youtube.com/watch?v={VIDEO_ID}",
+    f"https://youtu.be/{VIDEO_ID}?si=abc",
+    f"https://www.youtube.com/shorts/{VIDEO_ID}",
+    f"worth a look https://youtu.be/{VIDEO_ID} later",
+])
+def test_youtube_links_parse_to_the_strict_video_id(text):
+    assert bot.parse_youtube_ref(text) == VIDEO_ID
+
+
+@pytest.mark.parametrize("text", [
+    "https://www.youtube.com/watch?v=tooShort1",                 # 9 chars
+    f"https://www.youtube.com/watch?v={VIDEO_ID}X",               # 12 chars
+    "https://www.youtube.com/@SomeChannel",
+    "https://www.youtube.com/playlist?list=PLabcdefghijk",
+    "https://youtu.be/",
+])
+def test_non_video_youtube_links_do_not_parse(text):
+    assert bot.parse_youtube_ref(text) is None
+
+
+def test_youtube_capture_happy_path_writes_only_after_the_note(real_ctx, real_conn, youtube):
+    link = FakeUpdate(text=f"https://youtu.be/{VIDEO_ID}")
+    run(bot.on_message(link, real_ctx))
+
+    reply = link.message.replies[0]
+    assert "A Talk Worth Hearing" in reply and "Talks Channel" in reply and "25m" in reply
+    assert "Why?" in reply
+    assert youtube.asked == [VIDEO_ID]
+    assert real_ctx.user_data[bot.PENDING_KEY]["spotify_id"] == f"youtube:{VIDEO_ID}"
+    assert _count(real_conn, "episodes") == 0 and _count(real_conn, "queue") == 0
+
+    note = FakeUpdate(text="the speaker answers my exact question")
+    run(bot.on_message(note, real_ctx))
+
+    ep = real_conn.execute("SELECT * FROM episodes").fetchone()
+    assert (ep["spotify_id"], ep["platform"], ep["source_key"], ep["show"], ep["duration_ms"]) == (
+        f"youtube:{VIDEO_ID}", "youtube", CHANNEL_ID, "Talks Channel", 25 * 60_000)
+    q = real_conn.execute("SELECT * FROM queue").fetchone()
+    assert (q["state"], q["why_note"]) == ("locked", "the speaker answers my exact question")
+
+    confirmation = note.message.replies[0]
+    assert "Label: wasteful (source not labelled yet, so wasteful by default)" in confirmation
+    assert "Locked until" in confirmation
+    source = real_conn.execute("SELECT * FROM sources WHERE kind = 'youtube_channel'").fetchone()
+    assert (source["source_key"], source["label"]) == (CHANNEL_ID, None)   # identity, not a label
+    assert _count(real_conn, "item_labels") == 0
+    assert _count(real_conn, "listening") == 0                              # no Spotify baseline
+    assert bot.PENDING_KEY not in real_ctx.user_data
+
+
+@pytest.mark.parametrize("fake,expected", [
+    (FakeYouTube(), bot.YOUTUBE_NO_DURATION),
+    (FakeYouTube(fail=T.VideoLookupError("quota")), bot.YOUTUBE_UNAVAILABLE),
+])
+def test_youtube_capture_refused_without_a_known_duration(settings, clk, spotify, real_conn, fake, expected):
+    ctx = FakeContext({"settings": settings, "conn": real_conn, "clk": clk, "spotify": spotify,
+                       "youtube": fake})
+    update = FakeUpdate(text="https://www.youtube.com/watch?v=LiveStream1")
+    run(bot.on_message(update, ctx))
+    assert update.message.replies == [expected]
+    assert bot.PENDING_KEY not in ctx.user_data
+    assert _count(real_conn, "episodes") == 0 and _count(real_conn, "queue") == 0
+
+
+def test_a_refused_youtube_link_mid_flow_keeps_the_pending_capture(real_ctx, real_conn):
+    run(bot.on_message(FakeUpdate(text=LINK), real_ctx))
+    bad = FakeUpdate(text="https://youtu.be/LiveStream1")
+    run(bot.on_message(bad, real_ctx))
+    assert bad.message.replies == [bot.YOUTUBE_NO_DURATION]              # not taken as the note
+    assert real_ctx.user_data[bot.PENDING_KEY]["spotify_id"] == EPISODE_ID
+    assert _count(real_conn, "queue") == 0
+
+
+@pytest.mark.parametrize("bot_data_youtube,text,expected", [
+    (FakeYouTube(videos={}), f"https://youtu.be/{VIDEO_ID}", bot.YOUTUBE_NO_SUCH_VIDEO),
+    (None, f"https://youtu.be/{VIDEO_ID}", bot.YOUTUBE_NOT_CONFIGURED),
+    (FakeYouTube(), "https://www.youtube.com/@SomeChannel", bot.YOUTUBE_NOT_A_VIDEO),
+])
+def test_other_youtube_failures_reply_and_write_nothing(settings, clk, spotify, real_conn,
+                                                        bot_data_youtube, text, expected):
+    data = {"settings": settings, "conn": real_conn, "clk": clk, "spotify": spotify}
+    if bot_data_youtube is not None:
+        data["youtube"] = bot_data_youtube
+    ctx = FakeContext(data)
+    update = FakeUpdate(text=text)
+    run(bot.on_message(update, ctx))
+    assert update.message.replies == [expected]
+    assert _count(real_conn, "episodes") == 0
+    assert bot.PENDING_KEY not in ctx.user_data
+
+
+def test_override_token_is_stored_and_confirmed(real_ctx, real_conn):
+    run(bot.on_message(FakeUpdate(text=f"https://youtu.be/{VIDEO_ID}"), real_ctx))
+    note = FakeUpdate(text="#worthwhile for the talk prep")
+    run(bot.on_message(note, real_ctx))
+
+    q = real_conn.execute("SELECT why_note FROM queue").fetchone()
+    assert q["why_note"] == "for the talk prep"                       # the tag is not the reason
+    row = real_conn.execute("SELECT * FROM item_labels").fetchone()
+    assert (row["item_ref"], row["label"], row["origin"]) == (f"youtube:{VIDEO_ID}", "worthwhile", "capture")
+    reply = note.message.replies[0]
+    assert "Label: worthwhile (your tag in this note)" in reply
+    assert "Costs 0 min" in reply
+    assert "Locked until" in reply                                    # worthwhile is still locked
+
+
+@pytest.mark.parametrize("text", [
+    "prep for the interview #worth by friday",
+    "prep for the interview by friday #worth",
+])
+def test_deadline_and_token_together(real_ctx, real_conn, text):
+    run(bot.on_message(FakeUpdate(text=f"https://youtu.be/{VIDEO_ID}"), real_ctx))
+    run(bot.on_message(FakeUpdate(text=text), real_ctx))
+    q = real_conn.execute("SELECT why_note, deadline FROM queue").fetchone()
+    assert q["why_note"] == "prep for the interview"
+    assert q["deadline"].startswith("2026-09-04T17:00")               # Friday 18:00 Lisbon
+    assert real_conn.execute("SELECT label FROM item_labels").fetchone()["label"] == "worthwhile"
+
+
+def test_a_bare_token_is_not_a_reason(real_ctx, real_conn):
+    run(bot.on_message(FakeUpdate(text=f"https://youtu.be/{VIDEO_ID}"), real_ctx))
+    note = FakeUpdate(text="#worthwhile")
+    run(bot.on_message(note, real_ctx))
+    assert "reason" in note.message.replies[0].lower()
+    assert _count(real_conn, "queue") == 0 and _count(real_conn, "item_labels") == 0
+    assert bot.PENDING_KEY in real_ctx.user_data
+
+
+def test_confirmation_names_a_source_label(real_ctx, real_conn, clk):
+    import labels  # noqa: PLC0415
+
+    source = labels.ensure_source(real_conn, clk, T.KIND_YOUTUBE_CHANNEL, CHANNEL_ID, "Talks Channel")
+    labels.set_source_label(real_conn, clk, source.id, T.WORTHWHILE)
+    run(bot.on_message(FakeUpdate(text=f"https://youtu.be/{VIDEO_ID}"), real_ctx))
+    note = FakeUpdate(text="good channel")
+    run(bot.on_message(note, real_ctx))
+    assert "Label: worthwhile (the source's label)" in note.message.replies[0]
+
+
+def test_build_app_parks_an_injected_youtube_client(settings, clk, spotify):
+    yt = FakeYouTube()
+    assert bot.build_app(settings, object(), clk, spotify, youtube=yt).bot_data["youtube"] is yt
+    assert "youtube" not in bot.build_app(settings, object(), clk, spotify).bot_data
+
+
+def test_spotify_capture_takes_the_override_too(real_ctx, real_conn):
+    run(bot.on_message(FakeUpdate(text=LINK), real_ctx))
+    note = FakeUpdate(text="guest is the expert #wasteful")
+    run(bot.on_message(note, real_ctx))
+    row = real_conn.execute("SELECT * FROM item_labels").fetchone()
+    assert (row["item_ref"], row["label"]) == (f"spotify:{EPISODE_ID}", "wasteful")
+    assert "Label: wasteful (your tag in this note)" in note.message.replies[0]
+    ep = real_conn.execute("SELECT platform, source_key FROM episodes").fetchone()
+    assert (ep["platform"], ep["source_key"]) == ("spotify", None)
+    src = real_conn.execute("SELECT kind, source_key FROM sources WHERE kind = 'podcast_show'").fetchone()
+    assert (src["kind"], src["source_key"]) == ("podcast_show", "deep dive fm")

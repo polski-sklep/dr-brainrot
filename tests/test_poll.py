@@ -114,6 +114,23 @@ def listened_min(conn, week_start: str = WEEK_START) -> int:
     return int(row["listened_min"]) if row else 0
 
 
+def use_minutes(conn, clk, total_min: int) -> None:
+    """Bring this week's wasteful consumption to `total_min` with real evidence.
+
+    DRBR: alerts read pooled wasteful minutes computed from `listening` (and
+    `measurements`), not the stored `weeks.listened_min`, so the POP tests that
+    hand-set that column now record the equivalent listening instead. The
+    filler episode's show is unlabelled, so it resolves to wasteful.
+    """
+    filler = "F1ll3rF1ll3rF1ll3rF1ll"
+    db.upsert_episode(conn, filler, "Filler", "Unlabelled Filler Show", None, None, 10_000 * MIN)
+    row = conn.execute(
+        "SELECT COALESCE(SUM(delta_ms), 0) AS ms FROM listening WHERE spotify_id = ?", (filler,)
+    ).fetchone()
+    delta = total_min * MIN - int(row["ms"])
+    db.record_listening(conn, clk, filler, total_min * MIN, delta, False)
+
+
 def alerts(conn) -> set[tuple[str, str]]:
     return {
         (r["week_start"], r["kind"])
@@ -490,8 +507,7 @@ def test_a_new_week_alerts_again(conn, settings):
 def test_check_alerts_is_safe_to_call_directly_and_repeatedly(conn, settings):
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET listened_min = 175 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 175)
 
     bot = FakeBot()
     poll.check_alerts(conn, clk, settings, bot)
@@ -512,8 +528,7 @@ def test_a_zero_effective_allowance_reports_the_crossing_not_the_approach(conn, 
     poll.check_alerts(conn, clk, settings, silent)
     assert silent.sent == []                       # nothing listened yet
 
-    conn.execute("UPDATE weeks SET listened_min = 5 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 5)
     loud = FakeBot()
     poll.check_alerts(conn, clk, settings, loud)
 
@@ -527,15 +542,13 @@ def test_exactly_eighty_percent_counts_as_approaching(conn, settings):
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
 
-    conn.execute("UPDATE weeks SET listened_min = 143 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 143)
     quiet = FakeBot()
     poll.check_alerts(conn, clk, settings, quiet)
     assert quiet.sent == []
     assert alerts(conn) == set()
 
-    conn.execute("UPDATE weeks SET listened_min = 144 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 144)
     loud = FakeBot()
     poll.check_alerts(conn, clk, settings, loud)
     assert len(loud.sent) == 1
@@ -544,8 +557,7 @@ def test_exactly_eighty_percent_counts_as_approaching(conn, settings):
 def test_alerts_go_to_the_authorised_user(conn, settings):
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET listened_min = 200 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 200)
 
     bot = FakeBot()
     poll.check_alerts(conn, clk, settings, bot)
@@ -561,8 +573,7 @@ def test_a_failed_send_leaves_the_alert_unrecorded_for_tomorrow(conn, settings):
 
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET listened_min = 200 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 200)
 
     with pytest.raises(RuntimeError):
         poll.check_alerts(conn, clk, settings, BrokenBot())
@@ -956,3 +967,98 @@ def test_no_deadline_items_means_no_deadline_traffic(conn, settings):
     poll.run_poll(conn, clk, settings, fake_spotify(), bot)
 
     assert bot.sent == []
+
+
+# ==========================================================================
+# DRBR — YouTube rows, pooled alerts, labels on deadline posts
+# ==========================================================================
+
+import drbr_types as T  # noqa: E402
+import labels  # noqa: E402
+
+
+def seed_youtube(conn, clk, settings, video_id="ytVideo0001", *, minutes=30, state="queued",
+                 deadline=None, channel="UCpoll"):
+    key = T.queue_key_for_youtube(video_id)
+    db.upsert_episode(conn, key, "A Video", "Poll Channel", None, None, minutes * MIN,
+                      platform="youtube", source_key=channel)
+    item = db.capture(conn, clk, settings, spotify_id=key, why_note="watch it", deadline=deadline)
+    if state != item.state:
+        conn.execute("UPDATE queue SET state = ? WHERE id = ?", (state, item.id))
+        conn.commit()
+    return db.get_item(conn, item.id)
+
+
+def test_youtube_items_are_never_polled_and_never_played(conn, settings):
+    clk = clock.FrozenClock(CAPTURED)
+    video = seed_youtube(conn, clk, settings, state="promoted")
+    seed(conn, clk, settings, SHORT)
+    spot = fake_spotify()
+
+    clk.set(MONDAY)
+    poll.run_poll(conn, clk, settings, spot, FakeBot())
+
+    asked = [ids for name, ids in spot.calls if name == "get_episodes"]
+    assert asked == [[SHORT.spotify_id]]
+    assert db.get_item(conn, video.id).state == "promoted"
+    assert rows(conn, video.spotify_id) == []
+
+    # Even a Spotify result that somehow carried the YouTube key flips nothing.
+    poll._mark_played(conn, clk, video.spotify_id)
+    assert db.get_item(conn, video.id).state == "promoted"
+
+
+def test_poll_backfills_sources_for_active_items_without_labelling_them(conn, settings):
+    clk = clock.FrozenClock(CAPTURED)
+    seed(conn, clk, settings, SHORT)
+    seed_youtube(conn, clk, settings)
+
+    clk.set(MONDAY)
+    poll.run_poll(conn, clk, settings, fake_spotify(), FakeBot())
+
+    found = {(r["kind"], r["source_key"], r["label"])
+             for r in conn.execute("SELECT kind, source_key, label FROM sources WHERE kind != 'x'")}
+    assert found == {
+        (T.KIND_PODCAST_SHOW, labels.normalise_key(T.KIND_PODCAST_SHOW, SHORT.show)[1], None),
+        (T.KIND_YOUTUBE_CHANNEL, "UCpoll", None),
+    }
+
+
+def test_worthwhile_listening_never_trips_an_alert(conn, settings):
+    clk = clock.FrozenClock(CAPTURED)
+    seed(conn, clk, settings, LONG)
+    source = labels.ensure_source(conn, clk, T.KIND_PODCAST_SHOW, LONG.show)
+    labels.set_source_label(conn, clk, source.id, T.WORTHWHILE)
+    spot = fake_spotify()
+    spot.set_position(LONG.spotify_id, 170 * MIN)
+
+    clk.set(MONDAY)
+    bot = FakeBot()
+    poll.run_poll(conn, clk, settings, spot, bot)
+
+    assert bot.sent == []
+    assert listened_min(conn) == 170          # POP's raw Spotify figure is unchanged
+    assert alerts(conn) == set()
+
+
+def test_alert_text_names_pooled_minutes_used_across_sources(conn, settings):
+    clk = clock.FrozenClock(MONDAY)
+    db.current_week(conn, clk, settings)
+    use_minutes(conn, clk, 150)
+    bot = FakeBot()
+    poll.check_alerts(conn, clk, settings, bot)
+    assert bot.texts == ["150 of 180 min used this week across sources (wasteful only). 30 min left."]
+
+
+def test_a_deadline_post_shows_the_items_label(conn, settings):
+    clk = clock.FrozenClock(MONDAY)
+    item = seed_youtube(conn, clk, settings, deadline=TUESDAY_EVENT)
+    labels.set_item_override(conn, clk, item.spotify_id, T.WORTHWHILE)
+    conn.commit()
+
+    bot = FakeBot()
+    clk.set(TUESDAY)
+    poll.run_poll(conn, clk, settings, fake_spotify(), bot)
+
+    text = deadline_posts(bot)[0]["text"]
+    assert "Label: worthwhile (your tag at capture) · costs 0 min — worthwhile" in text

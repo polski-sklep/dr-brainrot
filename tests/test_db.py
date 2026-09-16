@@ -774,3 +774,93 @@ def test_played_needs_a_positive_delta(conn, clk, settings):
     db.record_listening(conn, clk, item.spotify_id, position_ms=MIN_MS, delta_ms=MIN_MS,
                         fully_played=False)
     assert db.funnel_stats(conn, clk, settings).played == 1
+
+
+# --- DRBR: YouTube rows and the label-aware gate ------------------------------
+
+def youtube_episode(conn, video_id="abcdefghijk", minutes=30, channel="UCchan"):
+    key = f"youtube:{video_id}"
+    db.upsert_episode(conn, key, "A video", "A channel", None, None, minutes * MIN_MS,
+                      platform="youtube", source_key=channel)
+    return key
+
+
+def test_upsert_episode_defaults_to_a_spotify_row(conn):
+    sid = make_episode(conn, "epDefault")
+    row = conn.execute("SELECT platform, source_key FROM episodes WHERE spotify_id = ?", (sid,)).fetchone()
+    assert (row["platform"], row["source_key"]) == ("spotify", None)
+
+
+@pytest.mark.parametrize("key,platform", [
+    ("youtube:abcdefghijk", "spotify"),
+    ("abcdefghijk", "youtube"),
+    ("abcdefghijk", "tiktok"),
+])
+def test_upsert_episode_refuses_a_key_that_contradicts_the_platform(conn, key, platform):
+    with pytest.raises(ValueError):
+        db.upsert_episode(conn, key, "t", "s", None, None, MIN_MS, platform=platform)
+    assert conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
+
+
+def test_youtube_items_carry_platform_and_source_key(conn, clk, settings):
+    key = youtube_episode(conn)
+    item = db.capture(conn, clk, settings, spotify_id=key, why_note="watch",
+                      platform="youtube", source_key="UCchan")
+    assert (item.platform, item.source_key, item.state) == ("youtube", "UCchan", "locked")
+    spotify = capture(conn, clk, settings)
+    assert (spotify.platform, spotify.source_key) == ("spotify", None)
+
+
+def test_capture_refuses_a_platform_the_episode_row_contradicts(conn, clk, settings):
+    key = youtube_episode(conn)
+    with pytest.raises(ValueError):
+        db.capture(conn, clk, settings, spotify_id=key, why_note="x", platform="spotify")
+    with pytest.raises(ValueError):
+        db.capture(conn, clk, settings, spotify_id=key, why_note="x", source_key="UCother")
+    assert db.all_items(conn, include_removed=True) == []
+
+
+def test_polling_targets_exclude_youtube(conn, clk, settings):
+    key = youtube_episode(conn)
+    db.capture(conn, clk, settings, spotify_id=key, why_note="watch")
+    spotify = capture(conn, clk, settings)
+    assert db.polling_targets(conn) == [spotify.spotify_id]
+
+
+def test_worthwhile_promotion_costs_nothing_even_with_no_allowance_left(conn, clk, settings):
+    import labels  # noqa: PLC0415
+
+    key = youtube_episode(conn, minutes=500)
+    item = db.capture(conn, clk, settings, spotify_id=key, why_note="lecture")
+    labels.set_item_override(conn, clk, key, "worthwhile")
+    conn.commit()
+    db.set_state(conn, clk, item.id, "queued")
+    db.current_week(conn, clk, settings)
+    conn.execute("UPDATE weeks SET debt_min = 180")
+    conn.commit()
+
+    promoted = db.promote(conn, clk, settings, item.id)
+    assert promoted.state == "promoted" and promoted.promoted_at is not None
+    assert db.current_week(conn, clk, settings).promoted_min == 0
+
+
+def test_youtube_played_stage_needs_measured_watching_after_promotion(conn, clk, settings):
+    import evidence  # noqa: PLC0415
+    import labels  # noqa: PLC0415
+
+    key = youtube_episode(conn, video_id="watchedvid1", channel="UCw")
+    item = db.capture(conn, clk, settings, spotify_id=key, why_note="watch")
+    db.set_state(conn, clk, item.id, "queued")
+    db.promote(conn, clk, settings, item.id)
+    clk.advance(hours=49)
+    assert db.funnel_stats(conn, clk, settings).played == 0
+
+    source = labels.ensure_source(conn, clk, "youtube_channel", "UCw")
+    settings = config.test_settings(db_path=settings.db_path, raw_dir=settings.db_path.parent / "raw")
+    rec = evidence.begin_import(conn, clk, kind="youtube_history", parser_version="t")
+    evidence.upsert_measurement(conn, rec, source_id=source.id, device="account",
+                                provenance="page_extraction", period_start="2026-09-02",
+                                period_end="2026-09-02", minutes=4.0, item_key="watchedvid1")
+    evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-02", period_end="2026-09-02")
+    stats = db.funnel_stats(conn, clk, settings)
+    assert (stats.played, stats.fully_played) == (1, 0)

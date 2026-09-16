@@ -34,6 +34,20 @@ plumbing around them.
    weekly lapse, not ever. It is what funnel stage 2 is counted from.
    ``resolved_at`` is stamped on entry to a terminal state, which by
    construction happens at most once.
+
+DRBR (CONTRACTS.md Part II §7, Agent D). Every invariant above holds
+unchanged. What changed:
+
+* The queue holds YouTube videos too (`episodes.platform = 'youtube'`, keyed
+  `youtube:<videoId>`, DR1.2). They are never polled from Spotify.
+* ``promote()`` prices an item through ``allowance.promotion_cost``: a
+  worthwhile item costs 0 and is never refused. The lock re-check runs first
+  and is identical for every label (DR1.3).
+* ``roll_over_week()`` drives debt from pooled **wasteful** minutes across
+  sources (``allowance.debt_for``, DR1.4), still clamped. ``listened_min``
+  keeps its POP meaning: raw Spotify minutes.
+* ``funnel_stats()`` "played" for a YouTube item is measured watching after
+  promotion, because YouTube has no ``fully_played`` flag (DR1.14).
 """
 from __future__ import annotations
 
@@ -118,6 +132,9 @@ class QueueItem:
     still_holds: int | None
     promoted_at: str | None
     resolved_at: str | None
+    # DRBR. Defaults keep every POP constructor call valid.
+    platform: str = "spotify"
+    source_key: str | None = None
 
     @property
     def is_removed(self) -> bool:
@@ -229,7 +246,9 @@ SELECT q.id            AS id,
        q.cycles_seen   AS cycles_seen,
        q.still_holds   AS still_holds,
        q.promoted_at   AS promoted_at,
-       q.resolved_at   AS resolved_at
+       q.resolved_at   AS resolved_at,
+       e.platform      AS platform,
+       e.source_key    AS source_key
   FROM queue q
   JOIN episodes e ON e.spotify_id = q.spotify_id
 """
@@ -252,6 +271,8 @@ def _to_item(row: sqlite3.Row) -> QueueItem:
         still_holds=row["still_holds"],
         promoted_at=row["promoted_at"],
         resolved_at=row["resolved_at"],
+        platform=row["platform"],
+        source_key=row["source_key"],
     )
 
 
@@ -274,22 +295,48 @@ def _require(conn: sqlite3.Connection, item_id: int) -> QueueItem:
 
 # --- capture ----------------------------------------------------------------
 
+PLATFORMS = ("spotify", "youtube")
+
+
+def _check_platform_key(spotify_id: str, platform: str) -> None:
+    """A YouTube row is keyed 'youtube:<videoId>'; a Spotify row never is.
+
+    The key shape is how POP's own queries tell the two apart without a join,
+    so a mismatch is refused rather than stored.
+    """
+    if platform not in PLATFORMS:
+        raise ValueError(f"unknown platform {platform!r}")
+    if (platform == "youtube") != str(spotify_id).startswith("youtube:"):
+        raise ValueError(f"episode key {spotify_id!r} does not match platform {platform!r}")
+
+
 def upsert_episode(conn: sqlite3.Connection, spotify_id: str, title: str, show: str,
                    description: str | None, release_date: str | None,
-                   duration_ms: int) -> None:
-    """Store or refresh episode metadata. Safe to call on every capture."""
+                   duration_ms: int, platform: str = "spotify",
+                   source_key: str | None = None) -> None:
+    """Store or refresh episode metadata. Safe to call on every capture.
+
+    `platform`/`source_key` default to a Spotify row with no source key, so
+    every POP call site is unchanged. For YouTube: `spotify_id` is
+    'youtube:<videoId>', `show` the channel title, `source_key` the channel id.
+    """
+    _check_platform_key(spotify_id, platform)
     conn.execute(
         """
-        INSERT INTO episodes (spotify_id, title, show, description, release_date, duration_ms)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO episodes (spotify_id, title, show, description, release_date, duration_ms,
+                              platform, source_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(spotify_id) DO UPDATE SET
             title        = excluded.title,
             show         = excluded.show,
             description  = excluded.description,
             release_date = excluded.release_date,
-            duration_ms  = excluded.duration_ms
+            duration_ms  = excluded.duration_ms,
+            platform     = excluded.platform,
+            source_key   = excluded.source_key
         """,
-        (spotify_id, title, show, description, release_date, int(duration_ms)),
+        (spotify_id, title, show, description, release_date, int(duration_ms),
+         platform, source_key),
     )
     conn.commit()
 
@@ -307,25 +354,36 @@ def _deadline_exempt(captured_at: str, deadline: str | None, lock_hours: int) ->
 
 
 def capture(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, spotify_id: str,
-            why_note: str, deadline: str | None = None) -> QueueItem:
+            why_note: str, deadline: str | None = None, platform: str | None = None,
+            source_key: str | None = None) -> QueueItem:
     """Create a queue row. The only INSERT into `queue` in the codebase.
 
     Raises ValueError on an empty or whitespace-only why_note — the note is
     what the item is read back against 48 hours later, so a row without one is
     worthless and is never created. The bot therefore holds the pending
     capture in memory until the reply arrives.
+
+    DRBR: `platform`/`source_key` are optional assertions about the episode
+    row `upsert_episode` wrote. The row is the source of truth; a caller that
+    disagrees with it gets a ValueError rather than a silently mislabelled
+    item. The lock applies identically on every platform and for every label.
     """
     note = (why_note or "").strip()
     if not note:
         raise ValueError("why_note is required and cannot be empty or whitespace")
 
     episode = conn.execute(
-        "SELECT spotify_id FROM episodes WHERE spotify_id = ?", (spotify_id,)
+        "SELECT spotify_id, platform, source_key FROM episodes WHERE spotify_id = ?",
+        (spotify_id,),
     ).fetchone()
     if episode is None:
         raise ValueError(
             f"unknown episode {spotify_id!r} — call upsert_episode() before capture()"
         )
+    if platform is not None and platform != episode["platform"]:
+        raise ValueError(f"episode {spotify_id!r} is {episode['platform']!r}, not {platform!r}")
+    if source_key is not None and source_key != episode["source_key"]:
+        raise ValueError(f"episode {spotify_id!r} has a different source_key")
 
     captured_at = clock.iso(clk.now())
     deadline_iso = clock.iso(clock.parse(deadline)) if deadline is not None else None
@@ -398,10 +456,15 @@ def polling_targets(conn: sqlite3.Connection) -> list[str]:
 
     Not restricted to the promoted slate. Out-of-band listening on a queued
     item is exactly the behaviour the brief wants visible.
+
+    DRBR: YouTube rows are excluded. Spotify has nothing to say about them;
+    their consumption arrives through the history extension instead.
     """
     rows = conn.execute(
-        "SELECT DISTINCT spotify_id FROM queue "
-        "WHERE state IN ('locked','queued','promoted') ORDER BY spotify_id"
+        "SELECT DISTINCT q.spotify_id AS spotify_id FROM queue q "
+        "JOIN episodes e ON e.spotify_id = q.spotify_id "
+        "WHERE q.state IN ('locked','queued','promoted') AND e.platform != 'youtube' "
+        "ORDER BY q.spotify_id"
     ).fetchall()
     return [r["spotify_id"] for r in rows]
 
@@ -565,10 +628,17 @@ def promote(conn: sqlite3.Connection, clk: Clock, settings: Settings, item_id: i
             "locked items cannot be promoted"
         )
 
-    week = current_week(conn, clk, settings)
-    cost = promotion_cost_min(conn, item)
+    # DRBR: the price depends on the label, read fresh through labels.resolve.
+    # Worthwhile costs 0 and is never refused; wasteful (including the
+    # unlabelled default) is priced and gated exactly as POP always did. The
+    # lock check above has already run, identically for both.
+    import allowance  # noqa: PLC0415 — allowance imports db; lazy breaks the cycle
 
-    if week.promoted_min + cost > week.effective_allowance_min:
+    week = current_week(conn, clk, settings)
+    cost, resolved = allowance.promotion_cost(conn, item)
+    worthwhile = resolved.label == "worthwhile"
+
+    if not worthwhile and week.promoted_min + cost > week.effective_allowance_min:
         overage = week.promoted_min + cost - week.effective_allowance_min
         raise AllowanceExceeded(
             f"that would put you {overage} min over; {week.remaining_min} min left this week",
@@ -592,11 +662,14 @@ def roll_over_week(conn: sqlite3.Connection, clk: Clock,
 
     1. Lapse every `promoted` item back to `queued`. Anything actually played
        is already in `played` and is not touched. `promoted_at` survives.
-    2. `debt = clamp(listened_min - effective_allowance_min, 0, allowance_min)`.
-       Debt is driven by **listened** minutes, not promoted ones: the gate makes
+    2. `debt = clamp(pooled wasteful - effective_allowance_min, 0, allowance_min)`.
+       Debt is driven by **consumed** minutes, not promoted ones: the gate makes
        over-promotion impossible, so the only way to exceed the allowance is to
-       actually listen past it. The clamp at `allowance_min` stops one blown
-       week from zeroing out several later ones.
+       actually consume past it. DRBR widens POP's listened minutes to pooled
+       wasteful minutes across every source (`allowance.debt_for`, DR1.4);
+       worthwhile consumption never creates debt. The clamp at `allowance_min`
+       stops one blown week from zeroing out several later ones. A late import
+       recomputes it through `allowance.on_measurements_changed` (DR1.5).
     3. Open the new week with that debt and a fresh allowance from config.
 
     Note which week gets closed. Triage runs *at* Sunday 18:00, and a Sunday at
@@ -632,9 +705,10 @@ def roll_over_week(conn: sqlite3.Connection, clk: Clock,
     else:
         closed = _to_week(prior)
 
-    # 2. Debt from listened minutes, clamped.
-    raw_debt = closed.listened_min - closed.effective_allowance_min
-    debt = max(0, min(raw_debt, closed.allowance_min))
+    # 2. Debt from pooled wasteful minutes, clamped.
+    import allowance  # noqa: PLC0415 — allowance imports db; lazy breaks the cycle
+
+    debt = allowance.debt_for(closed, allowance.pooled_minutes(conn, settings, closed.week_start))
 
     # 3. Open the new week. If the row already exists (a repeated triage run,
     #    or promotions made before rollover), refresh its debt and allowance
@@ -718,6 +792,25 @@ def _rate(numerator: int, denominator: int) -> float | None:
     return numerator / denominator
 
 
+def _youtube_watched_after_promotion(conn: sqlite3.Connection, settings: Settings,
+                                     item: QueueItem) -> bool:
+    """Measured YouTube watching of this video on or after its promotion day."""
+    import drbr_types as T  # noqa: PLC0415
+
+    video_id = item.spotify_id.split(":", 1)[1]
+    promoted_day = T.iso_date(T.local_date(item.promoted_at, settings.tz))
+    row = conn.execute(
+        """
+        SELECT 1 FROM measurements m JOIN sources s ON s.id = m.source_id
+         WHERE s.kind = 'youtube_channel' AND m.item_key = ? AND m.status = 'ok'
+           AND m.minutes > 0 AND m.period_start >= ?
+         LIMIT 1
+        """,
+        (video_id, promoted_day),
+    ).fetchone()
+    return row is not None
+
+
 def funnel_stats(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
                  since: str | None = None) -> FunnelStats:
     """The decay curve. The **only** function permitted to read REMOVED_STATES.
@@ -765,9 +858,20 @@ def funnel_stats(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
     # counting it here against a denominator of `promoted` produced rates
     # above 100% and made the stage measure something other than what the
     # brief defines.
+    #
+    # DRBR: a YouTube item has no listening rows and no fully_played flag
+    # (DR1.14). Its "played" is measured watching: an ok YouTube history
+    # measurement of that video with minutes > 0 on or after the local day it
+    # was first promoted. No watch-percentage threshold is applied — any
+    # measured minute is watching, and nothing is inferred beyond that. Its
+    # `fully_played` stays 0, because nothing ever flips it to `played`.
     played = sum(
         1 for item in universe
-        if item.promoted_at is not None and item.spotify_id in listened_ids
+        if item.promoted_at is not None and (
+            _youtube_watched_after_promotion(conn, settings, item)
+            if item.platform == "youtube"
+            else item.spotify_id in listened_ids
+        )
     )
     fully_played = sum(
         1 for item in universe
