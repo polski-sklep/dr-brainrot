@@ -1162,3 +1162,28 @@ unlabelled, which means wasteful.
 ### DR2.6 — A vault scan fails when the vault root is missing
 Agent C's addition. Otherwise an unmounted or misconfigured vault would
 mark every capture `excluded` and silently empty the denominator.
+
+### DR2.7 — Relabelling a source recomputes carried debt immediately
+Debt is computed from labels as they are now (Agent D). Without a trigger, a
+relabel would change past debt only when the next import happened to arrive.
+The Telegram label callback calls `allowance.on_measurements_changed` at once;
+the dashboard toggle does the same. Verified on a copy of the live database
+before the live restart: recomputing all four existing weeks reproduced the
+stored debt exactly.
+
+### DR2.8 — Screen Time ingestion details (Agent B, accepted)
+- **Batching:** one batch per chat. An album holds at most 10 images, and a full scrolled capture already hits 10, so batching by album would split one week into two partial imports.
+- **Rows with no name:** a row whose name OCR could not read (Vision never reads the one-letter "X" on a full-page pass) gets a second, cropped re-read. The name is accepted only when two crops agree, and the measurement is flagged as re-read.
+- **Misreads:** misread names ("lelegram") are kept as read and become their own sources. Correcting them would be a guess, and labelling makes a misread harmless.
+- **Confidence:** Vision reports 1.0 even for misreads, so confidence gates nothing.
+- **Duplicates and reparse:** a resend is detected by the same images arriving in the same week. The manifest can't be used for this, because it carries `received_at`. `reparse` replaces the previous import's rows, so apps a better parse no longer finds don't linger.
+
+### DR2.9 — Cold Turkey days on or after the export date are not recorded
+The real export, made on a Wednesday, runs to Saturday with zeros. Those zeros
+are days that hadn't happened yet, not measured zero usage, so they are dropped
+with a warning and the import is `partial`.
+
+### DR2.10 — Report windows start at the diagnostic start
+`report.window_start` = `diagnostic_start` once set, else `settings.go_live`.
+Queue captures from before it drop out of the dashboard funnels. POP's own
+`/stats` in Telegram still reports all time.
