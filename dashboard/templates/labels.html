@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Labels{% endblock %}
+{% block content %}
+<h1>Source labels</h1>
+<p class="note">You decide what each source is. An unlabelled source counts as wasteful until you label it.
+Changing a label recomputes carried debt immediately.</p>
+
+<form method="get" action="{{ url_for('labels_page') }}" class="filters">
+  <label>Kind
+    <select name="kind">
+      <option value="">all</option>
+      {% for k in kinds %}<option value="{{ k }}"{% if f_kind == k %} selected{% endif %}>{{ KIND_NAMES.get(k, k) }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Label
+    <select name="label">
+      <option value="">all</option>
+      {% for l in (WASTEFUL, WORTHWHILE, UNLABELLED) %}<option value="{{ l }}"{% if f_label == l %} selected{% endif %}>{{ l }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">Filter</button>
+  {% if f_kind or f_label %}<a href="{{ url_for('labels_page') }}">clear</a>{% endif %}
+</form>
+
+<p>{{ sources|length }} source{{ "" if sources|length == 1 else "s" }}.</p>
+<table id="label-table">
+  <thead><tr><th>Kind</th><th>Source</th><th>Label</th><th>Set label</th></tr></thead>
+  <tbody>
+  {% for s in sources %}{% include "_label_row.html" %}{% else %}
+  <tr><td colspan="4" class="absent">No sources match.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

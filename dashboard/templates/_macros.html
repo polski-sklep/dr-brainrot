@@ -1,0 +1,9 @@
+{#- Provenance badge. Visual weight differs by tier; a screenshot figure always says so. -#}
+{% macro badge(prov) -%}
+{%- set b = PROVENANCE_BADGES.get(prov, (prov, "unknown")) -%}
+<span class="prov prov-{{ b[1] }}" title="{{ PROVENANCE_TEXT.get(prov, prov) }}">{{ b[0] }}</span>
+{%- endmacro %}
+
+{% macro lowconf(prov) -%}
+{%- if prov == PROV_SCREENSHOT %} <span class="lowconf" title="{{ PROVENANCE_TEXT[prov] }}">lower confidence</span>{% endif -%}
+{%- endmacro %}

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}DRBR{% endblock %} · DRBR diagnostic</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<script src="{{ HTMX_URL }}" integrity="{{ HTMX_SRI }}" crossorigin="anonymous" defer></script>
+</head>
+<body>
+<header class="site">
+  <nav>
+    <strong>DRBR</strong>
+    <a href="{{ url_for('overview') }}">Overview</a>
+    <a href="{{ url_for('labels_page') }}">Labels</a>
+    <a href="{{ url_for('records_page') }}">Records</a>
+  </nav>
+  {% if countdown.state == "ended" %}
+  <div class="countdown countdown-ended" id="countdown">
+    <strong>Diagnostic ended — name the decision or shut it down.</strong>
+    <span>The {{ countdown.weeks }} weeks ran {{ countdown.start }} to {{ countdown.end }}.</span>
+  </div>
+  {% elif countdown.state == "running" %}
+  <div class="countdown" id="countdown">
+    <strong>Diagnostic day {{ countdown.day }} of {{ countdown.total_days }}</strong>
+    · {{ countdown.days_left }} day{{ "" if countdown.days_left == 1 else "s" }} left
+    · ends {{ countdown.end }}
+    · week {{ countdown.week_number }} of {{ countdown.weeks }}
+  </div>
+  {% else %}
+  <div class="countdown countdown-pending" id="countdown">
+    <strong>Diagnostic not started yet.</strong> {{ countdown.reason }}
+  </div>
+  {% endif %}
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

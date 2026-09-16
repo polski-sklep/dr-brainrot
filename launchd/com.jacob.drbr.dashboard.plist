@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  DRBR dashboard — Flask on 127.0.0.1:DRBR_DASHBOARD_PORT, always on.
+
+  Also serves the browser extension's ingest API (/api/youtube/*), so it must
+  be running whenever a weekly YouTube sync is made. KeepAlive restarts it on
+  crash and after a reboot. It binds loopback only; reach it from elsewhere
+  over Tailscale, never by changing the bind address.
+
+  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.drbr.dashboard.plist
+  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.drbr.dashboard
+  Status:   launchctl print     gui/$(id -u)/com.jacob.drbr.dashboard | head -20
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jacob.drbr.dashboard</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/Jacob/Projects/drbr/.venv/bin/python</string>
+        <string>-m</string>
+        <string>dashboard.app</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/Jacob/Projects/drbr</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Do not respawn faster than once every 30s if it crash-loops. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/Jacob/Projects/drbr/logs/dashboard.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/Jacob/Projects/drbr/logs/dashboard.log</string>
+</dict>
+</plist>

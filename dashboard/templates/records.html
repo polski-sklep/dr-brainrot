@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, lowconf %}
+{% block title %}Records{% endblock %}
+{% block content %}
+<h1>Raw records</h1>
+<p class="note">Every consumption fact as stored, newest first. Unmeasured rows show their status, not zero.
+Vault captures are counts and appear in the funnels, not here.{% if window_start %} Records start at {{ window_start }}.{% endif %}</p>
+
+{% for e in errors %}<p class="error">{{ e }}</p>{% endfor %}
+
+<form method="get" action="{{ url_for('records_page') }}" class="filters"
+      hx-get="{{ url_for('records_page') }}" hx-target="body" hx-push-url="true">
+  <label>Source group
+    <select name="group">
+      <option value="">all</option>
+      {% for gname in groups %}<option value="{{ gname }}"{% if f_group == gname %} selected{% endif %}>{{ GROUP_NAMES.get(gname, gname) }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Label
+    <select name="label">
+      <option value="">all</option>
+      {% for l in (WASTEFUL, WORTHWHILE) %}<option value="{{ l }}"{% if f_label == l %} selected{% endif %}>{{ l }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>From <input type="date" name="start" value="{{ f_start or '' }}"></label>
+  <label>To <input type="date" name="end" value="{{ f_end or '' }}"></label>
+  <button type="submit">Filter</button>
+  {% if f_group or f_label or f_start or f_end %}<a href="{{ url_for('records_page') }}">clear</a>{% endif %}
+</form>
+
+<p>{{ rows|length }} record{{ "" if rows|length == 1 else "s" }}{% if rows|length >= limit %} (showing the newest {{ limit }}; narrow the filters to see more){% endif %}.</p>
+<table id="records">
+  <thead><tr>
+    <th>Day</th><th>Group</th><th>Source</th><th>Item</th><th class="num">Minutes</th><th>Status</th>
+    <th>Label</th><th>Provenance</th><th>Device</th><th>Import</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr class="record{% if r.covered_elsewhere %} covered{% endif %}">
+      <td>{{ r.day }}</td>
+      <td>{{ GROUP_NAMES.get(r.group, r.group) }}</td>
+      <td>{{ r.source }} <span class="muted">{{ KIND_NAMES.get(r.source_kind, r.source_kind) }}</span></td>
+      <td>{{ r.item or "" }}</td>
+      <td class="num">{% if r.minutes is none %}<span class="absent">unmeasured</span>{% else %}{{ r.minutes|min }}{{ lowconf(r.provenance) }}{% endif %}</td>
+      <td>{{ r.status }}{% if r.covered_elsewhere %}<div class="excluded">excluded: already measured by {{ r.covered_elsewhere }}</div>{% endif %}</td>
+      <td>{{ r.label }} <span class="muted">({{ BASIS_TEXT.get(r.label_basis, r.label_basis) }})</span></td>
+      <td>{{ badge(r.provenance) }}</td>
+      <td>{{ r.device }}</td>
+      <td>{% if r.import_id is none %}<span class="muted">API poll</span>{% else %}#{{ r.import_id }}{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="10" class="absent">No records match.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
