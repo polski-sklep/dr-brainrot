@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# drbr — the one command that runs DRBR (and the POP queue it absorbed) on this Mac.
+#
+#   ./drbr start     validate the environment, install and (re)load every launchd agent
+#   ./drbr stop      unload DRBR's and POP's agents (obsidian-ingest is left alone)
+#   ./drbr restart   stop, then start
+#   ./drbr status    what is loaded, running, and answering
+#
+# Everything runs under launchd, POP's existing convention (README "Scheduling"):
+#   com.jacob.pop.bot        Telegram bot: capture, triage buttons, imports, labels  (KeepAlive)
+#   com.jacob.pop.poll       daily 09:17  Spotify resume_point deltas, alerts
+#   com.jacob.pop.triage     Sunday 18:00 weekly rollover and triage post
+#   com.jacob.drbr.dashboard dashboard + extension ingest on 127.0.0.1               (KeepAlive)
+#   com.jacob.drbr.jobs      daily 09:30  vault scan, import prompts, label batches
+# obsidian-ingest (com.jacob.obsidian-ingest) lives in its own repo; start only
+# makes sure it is loaded, because DRBR's vault measurement depends on it.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="$ROOT/.venv/bin/python"
+AGENTS_DIR="$HOME/Library/LaunchAgents"
+DOMAIN="gui/$(id -u)"
+AGENTS=(com.jacob.pop.bot com.jacob.pop.poll com.jacob.pop.triage com.jacob.drbr.dashboard com.jacob.drbr.jobs)
+INGEST=com.jacob.obsidian-ingest
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'drbr: %s\n' "$*" >&2; exit 1; }
+
+loaded() { launchctl print "$DOMAIN/$1" >/dev/null 2>&1; }
+
+port() {
+  local p
+  p="$(grep -E '^DRBR_DASHBOARD_PORT=' "$ROOT/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')"
+  printf '%s' "${p:-8750}"
+}
+
+stop_agents() {
+  for a in "${AGENTS[@]}"; do
+    if loaded "$a"; then
+      launchctl bootout "$DOMAIN/$a" 2>/dev/null || true
+      say "  stopped  $a"
+    fi
+  done
+}
+
+start() {
+  [ -x "$PY" ] || die "no venv at .venv — run: python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+  [ -f "$ROOT/.env" ] || die ".env missing — copy .env.example and fill it in (README: Environment)"
+  mkdir -p "$ROOT/logs" "$ROOT/data"
+
+  say "1/4 checking environment (check_env.py)"
+  set +e
+  "$PY" "$ROOT/check_env.py" >"$ROOT/logs/check_env.last" 2>&1
+  rc=$?
+  set -e
+  case "$rc" in
+    0) say "    passed" ;;
+    3) say "    UNPROVEN: a provider was unreachable; starting anyway (see logs/check_env.last)" ;;
+    *) tail -20 "$ROOT/logs/check_env.last"; die "environment check failed; nothing was started" ;;
+  esac
+
+  say "2/4 migrating the database"
+  "$PY" -c "import config, db; c = db.connect(config.load()); db.init_db(c); db.migrate(c); \
+print('    schema version', c.execute(\"SELECT value FROM meta WHERE key='schema_version'\").fetchone()[0])"
+
+  say "3/4 installing and loading launchd agents"
+  mkdir -p "$AGENTS_DIR"
+  stop_agents
+  sleep 1   # bootout is asynchronous; bootstrapping the same label too soon fails with EIO
+  for a in "${AGENTS[@]}"; do
+    plutil -lint -s "$ROOT/launchd/$a.plist" || die "invalid plist launchd/$a.plist"
+    cp "$ROOT/launchd/$a.plist" "$AGENTS_DIR/$a.plist"
+    launchctl bootstrap "$DOMAIN" "$AGENTS_DIR/$a.plist"
+    say "  loaded   $a"
+  done
+  if ! loaded "$INGEST"; then
+    if [ -f "$AGENTS_DIR/$INGEST.plist" ]; then
+      launchctl bootstrap "$DOMAIN" "$AGENTS_DIR/$INGEST.plist" && say "  loaded   $INGEST"
+    else
+      say "  WARNING  $INGEST is not installed: vault captures will not be logged for DRBR"
+    fi
+  fi
+
+  say "4/4 waiting for the dashboard"
+  local p i
+  p="$(port)"
+  for i in $(seq 1 20); do
+    if curl -fsS -o /dev/null "http://127.0.0.1:$p/" 2>/dev/null; then
+      say "    http://127.0.0.1:$p/ is up"
+      status
+      return 0
+    fi
+    sleep 0.5
+  done
+  tail -20 "$ROOT/logs/dashboard.log" 2>/dev/null || true
+  die "dashboard did not answer on 127.0.0.1:$p (see logs/dashboard.log)"
+}
+
+status() {
+  say ""
+  printf '  %-26s %-8s %s\n' AGENT STATE PID
+  for a in "${AGENTS[@]}" "$INGEST"; do
+    if loaded "$a"; then
+      pid="$(launchctl print "$DOMAIN/$a" 2>/dev/null | awk '/^\tpid = /{print $3}')"
+      printf '  %-26s %-8s %s\n' "$a" loaded "${pid:--  (scheduled, not running now)}"
+    else
+      printf '  %-26s %-8s\n' "$a" "NOT loaded"
+    fi
+  done
+  local p
+  p="$(port)"
+  if curl -fsS -o /dev/null "http://127.0.0.1:$p/" 2>/dev/null; then
+    say "  dashboard: http://127.0.0.1:$p/"
+  else
+    say "  dashboard: not answering on 127.0.0.1:$p"
+  fi
+}
+
+case "${1:-}" in
+  start) start ;;
+  stop) stop_agents; say "stopped (obsidian-ingest untouched)" ;;
+  restart) stop_agents; start ;;
+  status) status ;;
+  *) say "usage: ./drbr start|stop|restart|status"; exit 2 ;;
+esac

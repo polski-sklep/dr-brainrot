@@ -1,161 +1,307 @@
-# POP
+# DRBR — Doctor Brain Rot
 
-A deliberate-consumption queue for podcasts. Capture an episode instead of
-playing it, wait out a 48-hour lock, triage weekly against a time allowance,
-and measure what actually gets listened to.
+An eight-week diagnostic of where attention actually goes: Spotify podcasts,
+YouTube, iPhone apps, desktop websites, and X. You label sources wasteful or
+worthwhile. The system counts minutes, gates only the wasteful ones through
+POP's deliberate queue, checks whether captured material was ever processed in
+Obsidian, and reports it on a local dashboard.
 
-Personal tool. Single user. Telegram is the entire interface.
+DRBR absorbs **POP**, the podcast queue: capture instead of play, a why-note, a
+48-hour lock, weekly triage against an allowance. POP's behaviour is unchanged
+except where labels now decide what counts. Personal tool, single user, never
+productised. **It has an end date.** After eight weeks it stops and asks you
+to name the decision it should change, or shut it down.
 
-The output is the decay curve — three funnel rates:
+> The user labels. The system counts.
 
-1. captured → survived the lock (how much of the impulse was momentary)
-2. survived → promoted at triage (how much survives a calm reading)
-3. promoted → actually played (how much was wanted versus imagined)
+| Document | What it is |
+|---|---|
+| `drbr-build-brief.md` | The product brief (authority) |
+| `EXISTING.md` | POP as it actually was before DRBR, plus where the brief was wrong about it |
+| `CONTRACTS.md` | Part I: POP's module contracts. Part II: DRBR's, including amendments |
+| `DECISIONS.md` | Every choice made where the brief was silent (POP `D*`, DRBR `DR*`) |
+| `REVIEW.md` | Independent audits: Part I POP, Part II DRBR |
+| `docs/build-notes/` | The Phase 2 agents' notes on real-data findings |
 
 ---
 
-## Setup
+## Prerequisites
 
-### 1. Dependencies
+- macOS (Apple Vision reads the Screen Time screenshots on-device; launchd runs everything).
+- Python 3.12 (`brew install python@3.12`).
+- Chrome or Brave, signed in to YouTube, for the history extension.
+- Cold Turkey Blocker on the desktop.
+- The Obsidian vault on this Mac, and the `obsidian-ingest` bot (`~/Projects/obsidian-ingest`, merged with the capture-id change).
+- A Telegram bot token, a Spotify app, and a YouTube Data API key (below).
 
-Python 3.12.
+## Installation
 
 ```bash
+cd ~/Projects/drbr
 python3.12 -m venv .venv
-.venv/bin/pip install "python-telegram-bot>=21,<23" httpx pytest pytest-asyncio
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env && chmod 600 .env     # then fill it in, see Environment
 ```
 
-### 2. Credentials
+## Migration and setup
 
-Copy `.env.example` to `.env` and fill it in. `.env` is gitignored and should be
-`chmod 600`.
+The database is `data/pop.db` (SQLite, gitignored). `schema.sql` is the
+version-1 POP baseline. Numbered files in `migrations/` bring it forward, one
+transaction per step (`db.migrate`), and every process runs this at start. The
+upgrade from a pre-DRBR POP database is additive: no POP row is rewritten
+(`tests/test_drbr_migration.py`, `tests/test_drbr_e2e.py`).
 
-**Spotify** — create an app at https://developer.spotify.com/dashboard.
-Register the redirect URI exactly as `http://127.0.0.1:8888/callback`; it must
-be the loopback IP literal, not `localhost`, which Spotify rejects on new apps.
-Copy the client ID and secret into `.env`.
-
-**Telegram** — `/newbot` to @BotFather, copy the token into `.env`. Put your own
-numeric user ID in `TELEGRAM_USER_ID`; every other sender is ignored silently.
-Press **Start** in the bot chat once: a Telegram bot cannot open a conversation
-on its own, so without this it can never send the Sunday triage post or an
-allowance alert.
-
-### 3. One-time Spotify consent
-
-Run this on a machine with a browser, then copy `.env` to the server. The
-refresh token is portable.
+**Back up before any upgrade:**
 
 ```bash
-.venv/bin/python auth_spotify.py
+sqlite3 data/pop.db ".backup data/pop-$(date +%Y%m%d).db"
 ```
 
-Grant **"View your listening position in podcasts"** — that is the
-`user-read-playback-position` scope, and it is the entire measurement strategy.
-Without it every `resume_point` reads null and the system silently reports that
-you listen to nothing. The script refuses to store a token that lacks it.
+## Environment
 
-### 4. Verify
+All configuration is in `.env`. `.env.example` lists every key with placeholders.
+
+| Key | Meaning |
+|---|---|
+| `SPOTIFY_*`, `TELEGRAM_*` | POP credentials, unchanged (see below) |
+| `WEEKLY_ALLOWANCE_MIN` | Pooled **wasteful** minutes per week across every source (360) |
+| `POP_TZ` | The app's timezone (`Europe/Warsaw`). Week = Sunday 18:00 → Sunday 18:00 |
+| `LOCK_HOURS`, `LIFESPAN_CYCLES` | POP's lock and queue lifespan |
+| `YOUTUBE_API_KEY` | YouTube Data API v3 key, used only for `videos.list` (durations, channels) |
+| `DRBR_VAULT_PATH` | Absolute path to the Obsidian vault. Never committed |
+| `DRBR_VAULT_INBOX` | Folder whose notes count as unprocessed (`01-Inbox`, including subfolders) |
+| `DRBR_CAPTURE_OUTBOX` | JSONL file obsidian-ingest appends captures to (`data/vault_captures.jsonl`) |
+| `DRBR_RAW_DIR` | Raw evidence kept for re-parsing (`data/raw`) |
+| `DRBR_GO_LIVE` | First local date that counts (a Sunday). Earlier history is evidence only |
+| `DRBR_DIAGNOSTIC_WEEKS` | Length of the diagnostic (8) |
+| `DRBR_DASHBOARD_PORT` | Dashboard and extension ingest port on 127.0.0.1 (8750) |
+| `DRBR_INGEST_TOKEN` | Shared secret the extension sends. `python -c "import secrets;print(secrets.token_urlsafe(32))"` |
+
+**Spotify:** create an app at developer.spotify.com, with redirect URI exactly
+`http://127.0.0.1:8888/callback`. Then run `.venv/bin/python auth_spotify.py`
+once and grant "View your listening position in podcasts".
+
+**YouTube:** console.cloud.google.com → project → enable **YouTube Data API
+v3** → Credentials → API key, restricted to that API. One sync costs a few
+quota units out of 10,000 a day.
+
+## Credential verification
 
 ```bash
-.venv/bin/python check_env.py
+.venv/bin/python check_env.py          # add --ping to send yourself a Telegram test message
 ```
 
-Checks every variable is present and correctly shaped, that `.env` is `0600`,
-that `.gitignore` covers the secrets, and that both credentials authenticate
-live. Exit 0 means good. `--ping` additionally sends a test message to your
-Telegram user, which also confirms you pressed Start.
+Checks every key's shape, `.env` permissions, `.gitignore` coverage, live
+Telegram/Spotify/YouTube auth, the vault and inbox paths, that the outbox and
+raw-evidence locations are writable, and that Apple Vision is importable.
+Exit codes: 0 passed, 1 failed, 3 unproven (a provider was unreachable,
+credentials not known to be bad).
 
----
-
-## Running it
-
-Start the bot (long polling — no inbound port, no webhook, nothing to expose):
+## Start everything
 
 ```bash
-.venv/bin/python bot.py
+./drbr start
 ```
 
-Entry points:
+This one command validates the environment (it refuses to start on a
+failure), migrates the database, installs and loads every launchd agent,
+makes sure obsidian-ingest is loaded, and waits until the dashboard answers.
+The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 
-| command | when | what it does |
+| Agent | Schedule | What |
 |---|---|---|
-| `.venv/bin/python bot.py` | always on | capture, triage buttons, alerts, `/stats` |
-| `.venv/bin/python poll.py` | daily cron | reads `resume_point`, writes clamped deltas, lifts expired locks, posts items whose deadline falls before the next triage, fires allowance alerts |
-| `.venv/bin/python triage.py` | Sunday 18:00 cron | week rollover, lock lifts, expiry, posts the queue |
+| `com.jacob.pop.bot` | always on | Telegram: capture, triage buttons, screenshot/export imports, labels |
+| `com.jacob.pop.poll` | daily 09:17 | Spotify positions, lock lifts, deadline posts, allowance alerts |
+| `com.jacob.pop.triage` | Sunday 18:00 | Week rollover, debt, expiry, the triage post |
+| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, weekly import prompts, label batches, end notice |
+| `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
 
----
+launchd, not cron, because macOS cron skips runs missed while the Mac sleeps.
+launchd catches up at the next wake. The system timezone and `POP_TZ` must
+agree, or triage closes the wrong week (see POP's DECISIONS on timezone).
+There is no VPS: everything runs on this Mac, which is also where the vault
+and browser are (DR0.3).
 
-## Scheduling
+## Telegram
 
-Two entry points need scheduling: `poll.py` daily and `triage.py` on Sunday.
+One bot (POP's), commands `/start`, `/queue`, `/stats`, `/labels`. Only
+`TELEGRAM_USER_ID` is answered; everyone else is silently ignored. Press
+**Start** in the chat once, or the bot can never message you first.
 
-**Timezone, and it matters.** Both cron and launchd fire in *system local
-time*, which is not necessarily `POP_TZ`. POP computes its week boundary in
-`POP_TZ`. If the two diverge, the schedule must be offset to match, or
-`roll_over_week()` closes the wrong week every Sunday — and firing *early* is
-the dangerous direction. Here they agree: system timezone and `POP_TZ` are both
-`Europe/Warsaw`, so triage is scheduled at a plain `18:00`.
+- **Capture:** send a Spotify episode link **or a YouTube link**. The bot shows
+  the duration and asks why. Your reply is the why-note. Nothing is stored
+  until you reply.
+  - Deadline: end the note with `by friday` / `before 3 oct`.
+  - Label override for this one item: put `#worthwhile` (`#worth`) or
+    `#wasteful` (`#waste`) anywhere in the note.
+  - The confirmation shows the resolved label and where it came from.
+- **Triage** (Sunday 18:00): each unlocked item comes with Promote / Drop /
+  Still holds?. A wasteful promotion costs its remaining minutes. A
+  worthwhile one costs 0, but still waits out the lock (DR1.3).
+- **Imports:** send the Screen Time screenshots and the Cold Turkey JSON
+  straight to the bot (below). It replies with what it stored, what it couldn't
+  read, or why it failed.
+- **Labels:** after the first week, newly seen sources arrive one per message
+  with **Wasteful / Worthwhile** buttons. `/labels` asks for the next batch
+  now. Unlabelled sources count as wasteful. X is fixed wasteful.
 
-### On macOS — launchd (used here)
+## Chrome extension (YouTube)
 
-**Do not use cron on a laptop.** macOS cron does not catch up on missed runs:
-if the Mac is asleep on Sunday evening, triage never happens that week, the
-week never rolls over, and the cycle stalls silently. launchd runs a missed
-`StartCalendarInterval` job at the next wake.
+Load `extension/` unpacked (Chrome `chrome://extensions` or Brave
+`brave://extensions` → Developer mode → Load unpacked). In its **Backend
+settings**, set the URL `http://127.0.0.1:8750` and the ingest token from
+`.env`. Full details are in `extension/README.md`.
 
-Three agents live in `launchd/`:
+## YouTube ingestion behaviour
 
-| job | schedule | what |
-|---|---|---|
-| `com.jacob.pop.bot` | always on, `KeepAlive` | the bot; restarts on crash and reboot |
-| `com.jacob.pop.poll` | 09:17 daily | daily poll |
-| `com.jacob.pop.triage` | Sun 18:00 | weekly triage, on the week boundary |
+Weekly: click **Run weekly sync** with the dashboard running and the history
+tab visible. The extension scrolls `youtube.com/feed/history` back to the
+previous sync's newest video (the cursor) and posts the page's own data to
+the backend. The backend parses it (`sources/youtube.py`):
+
+- **Minutes, regular videos:** the saved resume position, or else the
+  progress percentage, multiplied by the true duration from the Data API. The
+  bar never shows under 10%, so the position wins when present (DR2.1).
+- **Shorts:** assumed fully watched, using the Shorts' real API duration,
+  never an average.
+- **Account-level:** phone viewing appears here too, so Screen Time's YouTube
+  app minutes are excluded from totals (DR1.9).
+- **Dates:** from the page's day headings. There is no time of day and no
+  sittings. A rewatch overwrites position, so rewatches undercount.
+- **Missing data:** a video with no progress, or no API duration, is recorded
+  as **unmeasured** with a warning, never as zero.
+- **Structure changes:** if YouTube changes its page structure the import
+  **fails loudly** and the extension shows **SYNC FAILED**.
+
+## Screen Time weekly procedure
+
+Monday or later (the bot reminds you daily until it arrives; Screen Time keeps
+about four weeks, so a late capture loses nothing):
+
+1. **Settings → Screen Time → See All App & Website Activity.** Select this
+   **iPhone**, not all devices (Share Across Devices would double-count the Mac).
+2. Choose **Week**, then tap **back one week**. The header must read **Last
+   Week**, not "This Week".
+3. Screenshot the summary, then scroll and screenshot the whole **Most Used**
+   list, tapping **Show More** until it ends. Overlap between screenshots is fine.
+4. Send all the screenshots to the bot, as photos or files, in one go.
+
+It is read by Apple Vision **on this Mac**, and nothing is uploaded. Only
+per-app minutes and the top three category totals are used; pickups and
+notification counts are ignored. A "This Week" or all-devices capture is kept
+as evidence but writes no minutes, and the bot tells you what to resend.
+Misread app names are kept as read, and each becomes a source you label. On
+the dashboard, screenshot figures are marked **parsed screenshot, lower
+confidence**.
+
+## Cold Turkey import procedure
+
+Weekly: **Cold Turkey → Statistics → Websites** usage view (time, not
+"Websites Blocked") → **Export** → send the JSON file to the bot.
+
+- Minutes are per domain per day.
+- Days that haven't finished yet are dropped (the export fills them with zeros).
+- Cold Turkey exports only the domains its chart lists, so unlisted sites are
+  a stated blind spot, not zero.
+- The blocked-count export is rejected.
+- One desktop machine is assumed. A second machine that isn't exported is a
+  blind spot.
+
+## Obsidian / vault procedure
+
+Nothing to do weekly. obsidian-ingest writes a `drbr_capture_id` into every new
+note's frontmatter and appends one line to `DRBR_CAPTURE_OUTBOX` **before**
+writing the note. The daily job reads the outbox, then scans the vault by
+capture ID, never by path, so renaming or moving a note keeps its identity:
+
+- **unprocessed:** every copy is still under `01-Inbox/`;
+- **kept:** it is anywhere else;
+- **excluded:** deleted or only in `.trash/`. Excluded notes leave the
+  denominator and never count as failures.
+
+Notes from before DRBR, and notes without an ID, are not tracked. "Edited
+after capture" compares body hashes (frontmatter excluded) and is a secondary
+flag only. Vault numbers are **counts**, never minutes.
+
+If obsidian-ingest's reply says **"DRBR capture log failed"**, the note was
+filed but DRBR can't track it. Check that `DRBR_CAPTURE_OUTBOX` is set in
+obsidian-ingest's `.env` and that `drbr/data/` exists.
+
+## Dashboard access
+
+`http://127.0.0.1:8750/`, on this Mac only. It binds loopback and rejects
+cross-site posts. Every page shows the countdown to the end date.
+
+- **Overview:**
+  - weekly totals by source, with provenance badges (API / page data / parsed
+    screenshot / manual export);
+  - wasteful vs worthwhile per week;
+  - allowance spent, remaining and debt;
+  - the **reflex** figure: wasteful minutes that never passed through the queue;
+  - gated vs ungated per group;
+  - cost per keeper, ranked;
+  - funnels, blind spots, and the latest import per kind with warnings.
+- **Labels:** every source with an inline wasteful/worthwhile toggle.
+  Changing a label recomputes carried debt immediately.
+- **Records:** the raw measurements, filterable by group, label and date.
+
+No targets, scores or streaks, by design.
+
+## Backup and recovery
+
+**What to back up:**
+- `data/pop.db` (use `sqlite3 ... ".backup"`, not `cp`, while agents run);
+- `data/raw/` (all original evidence);
+- `data/vault_captures.jsonl`;
+- `.env`.
+
+`data/` and `.env` are gitignored. Pre-DRBR backups from the 2026-09-16
+migration are in `~/Projects/drbr-backup-20260916/`.
+
+**Restore:**
+1. `./drbr stop`
+2. Copy the database back.
+3. `./drbr start`. Migrations re-apply if needed.
+
+**Lost a parse or improved a parser?** Nothing needs resending; see Troubleshooting.
+
+## Weekly routine
+
+| When | Do |
+|---|---|
+| Any time | Capture instead of play: send links to the POP bot, with a why and optionally `#worthwhile` |
+| Any time | Capture reading/watching material via obsidian-ingest as usual; process notes out of `01-Inbox` when they earn it |
+| Sunday 18:00 | Triage the queue post in Telegram |
+| Monday+ | Send Screen Time "Last Week" screenshots and the Cold Turkey export; run the extension's weekly sync |
+| When asked | Label new sources (buttons) |
+| Weekly | Glance at the dashboard: reflex share, cost per keeper |
+| Week 8 | Name the decision, or shut DRBR down (`./drbr stop`) |
+
+## Troubleshooting parse failures
+
+Every import is recorded, including failures, with its warnings and error, and
+the original bytes are kept.
 
 ```bash
-cp launchd/*.plist ~/Library/LaunchAgents/
-for j in bot poll triage; do
-  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.pop.$j.plist
-done
-launchctl list | grep jacob.pop
+.venv/bin/python reparse.py list              # recent imports, status, warnings
+.venv/bin/python reparse.py list screentime   # or coldturkey / youtube_history
+.venv/bin/python reparse.py 42                # re-parse import #42 from its stored evidence
 ```
 
-Run one immediately, without waiting for its hour:
-
-```bash
-launchctl kickstart -p gui/$(id -u)/com.jacob.pop.poll
-```
-
-Stop one: `launchctl bootout gui/$(id -u)/com.jacob.pop.triage`.
-
-Stop any manually started bot first — Telegram permits exactly one
-`getUpdates` poller per token, and two instances make *both* fail.
-
-### On the VPS — cron
-
-Cron is correct on an always-on host. `crontab -e`:
-
-```cron
-CRON_TZ=Europe/Warsaw   # must match POP_TZ in .env
-
-# Daily poll: resume_point deltas, deadline surfacing, allowance alerts
-17 8 * * * cd /opt/pop && .venv/bin/python poll.py >> logs/poll.log 2>&1
-
-# Weekly triage: Sunday 18:00
-0 18 * * 0 cd /opt/pop && .venv/bin/python triage.py >> logs/triage.log 2>&1
-```
-
-Set `CRON_TZ` explicitly rather than trusting the daemon to inherit your login
-shell's timezone — it does not. Note `CRON_TZ` is a Linux cron extension and is
-**not** reliably honoured by macOS cron, which is another reason launchd is
-used above.
-
-`CRON_TZ` and `POP_TZ` are different settings. `CRON_TZ` decides when the
-daemon fires; `POP_TZ` is what POP believes its own timezone to be. POP
-deliberately does not read the POSIX `TZ` variable, so a unit exporting
-`TZ=UTC` cannot move the triage boundary.
-
----
+- **YouTube "SYNC FAILED" / no sections:** YouTube changed its page data. Fix
+  `sources/youtube.py` against a freshly saved history page, then `reparse.py`
+  the failed imports. The cursor didn't move, so nothing is lost. **Quota
+  exhausted:** re-parse tomorrow.
+- **Screen Time "no minutes written":** check the header said Last Week and the
+  view was the iPhone, not all devices. Unreadable rows are listed as
+  warnings. After changing the parser, re-parse.
+- **Cold Turkey rejected:** you exported the blocked-count chart. Export the
+  Websites usage statistics instead.
+- **Vault scan failed:** `DRBR_VAULT_PATH` or `DRBR_VAULT_INBOX` is wrong,
+  missing, or has the wrong letter case. The scan refuses rather than count
+  every capture as kept.
+- **Anything else:** look in `logs/` (`bot.log`, `jobs.log`, `dashboard.log`,
+  `poll.log`, `triage.log`, `check_env.last`) and run `./drbr status`.
 
 ## Tests
 
@@ -163,45 +309,39 @@ deliberately does not read the POSIX `TZ` variable, so a unit exporting
 .venv/bin/pytest -q
 ```
 
-No test touches the network. Spotify and Telegram are both faked; the only live
-calls this project ever makes are `auth_spotify.py` and `check_env.py`, and
-neither runs in the suite.
-
----
+No test touches the network or runs Apple Vision; `conftest.py` blocks both
+and blocks reading the real `.env`. An optional local check against your real
+screenshots runs only with `DRBR_REAL_OCR=1` and skips when `inputs/` is
+absent. obsidian-ingest's tests run from its own directory with the same venv.
 
 ## Files
 
 ```
-bot.py           capture, triage buttons, /stats
-spotify.py       auth, episode fetch, resume_point polling, the clamp
-poll.py          daily cron entry — deltas, deadline surfacing, alerts
-triage.py        Sunday 18:00 cron entry — rollover, expiry, the queue post
-db.py            state machine, soft delete, week/debt accounting, funnel stats
-config.py        .env loading
-clock.py         UTC storage, week boundaries, DST-correct
-schema.sql
-auth_spotify.py  one-time OAuth consent (run once, then never again)
-check_env.py     credential validator
-conftest.py      blocks network and real-.env reads across the whole suite
-tests/           472 tests
-data/            gitignored
+bot.py poll.py triage.py db.py spotify.py clock.py config.py   POP, label-aware (CONTRACTS Part I + II §7)
+drbr_types.py evidence.py labels.py allowance.py report.py     shared DRBR core
+sources/youtube.py screentime.py ocr_vision.py coldturkey.py vault.py
+handlers_imports.py handlers_labels.py                          Telegram extensions
+ingest_api.py dashboard/ extension/                             local API, dashboard, browser extension
+jobs.py reparse.py check_env.py drbr                            daily job, re-parse CLI, env check, launcher
+schema.sql migrations/                                          v1 baseline + numbered migrations
+launchd/                                                        agent definitions installed by ./drbr start
+tests/                                                          unit, migration, integration, end-to-end
+data/ inputs/ logs/                                             gitignored
 ```
 
-`CONTRACTS.md` is the interface contract between these modules.
-`DECISIONS.md` records every choice made where the brief was silent.
-`REVIEW.md` is the independent audit of the implementation against the brief.
+## Known distortions and blind spots
 
----
+Accepted deliberately, and stated on the dashboard rather than absorbed:
 
-## Known distortions
-
-Accepted deliberately, not bugs:
-
-- Scrubbing forward reads as listening, since the position moved.
-- Playback above 1x undercounts real minutes against elapsed time.
-- Completion uses Spotify's `fully_played` flag, not `position >= duration` —
-  trailing credits mean episodes rarely reach 100%.
-- Anything played spontaneously outside the queue is invisible. That is the
-  behaviour POP exists to catch, so it matters. If the numbers look
-  implausibly low, that is the signal the system is being bypassed, and the
-  deferred v2 sweep over followed shows is the fix.
+- **Podcasts:** listening that never went through the queue is invisible (POP
+  polls only captured episodes, DR1.11).
+- **Spotify accuracy:** scrubbing forward reads as listening, and playback
+  above 1x undercounts. Completion is Spotify's `fully_played` flag.
+- **YouTube:** rewatches overwrite position and undercount; there is no time of
+  day; the bar floor is handled by using the resume position.
+- **Cold Turkey:** only the chart's listed domains; one machine.
+- **Screen Time:** OCR, lower confidence than the API figures; only full past
+  weeks count; YouTube and Spotify app minutes are excluded as double counts;
+  Spotify music is out of scope.
+- **X:** one label, wasteful, with no sub-categories by design. Value taken from X
+  shows up as vault keepers, not minutes.

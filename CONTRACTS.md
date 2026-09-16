@@ -488,7 +488,7 @@ Crontab lines go in `README.md`. They are not installed.
 Phase 1 output for the DRBR extension (`drbr-build-brief.md`). Binding on every
 Phase 2 agent. **No agent changes a shared contract privately.** If a contract
 must change, stop, write the change here centrally, and apply it to every
-affected component. Agents record everything else in `NOTES-<agent>.md` for the
+affected component. Agents record everything else in `NOTES-<agent>.md` (now `docs/build-notes/`) for the
 integration pass.
 
 Governing rule for all of it: **the user labels, the system counts.** No
