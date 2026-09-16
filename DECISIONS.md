@@ -1229,7 +1229,7 @@ SQLite file (`/Library/Application Support/Cold Turkey/data-browser.db`,
 table `stats(date, domain, seconds, user)`, one row per minute). Checked
 against the user's manual export: summed per hostname per local day, it
 reproduced every finished day's figure to the hundredth of a minute. It also
-lists every domain (76–187 a day in the first week), where the export listed 5.
+lists every domain (29–30 hostnames a day in the first week), where the export listed 5.
 
 **Privacy.** The `domain` column actually holds full URLs, search queries
 included. The user approved a **hostname-only** version. Rows are reduced
