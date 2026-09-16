@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "DRBR YouTube history sync",
+  "version": "0.1.0",
+  "description": "Weekly: captures YouTube's own watch-history page data and posts it to the local DRBR backend.",
+  "minimum_chrome_version": "111",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://www.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/feed/history*"],
+      "js": ["page_hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.youtube.com/feed/history*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "DRBR YouTube sync",
+    "default_popup": "popup.html"
+  }
+}
