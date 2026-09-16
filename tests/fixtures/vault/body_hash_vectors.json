@@ -1,0 +1,53 @@
+{
+  "description": "Shared DRBR body-hash test vectors. Byte-identical copies live in drbr (tests/fixtures/vault/body_hash_vectors.json) and obsidian-ingest (tests/body_hash_vectors.json). body_sha256(note_text) = SHA-256 of the text after the first frontmatter block's closing '---' line, .strip()ped, UTF-8. A frontmatter block exists only when the first line (after an optional BOM) is '---' and a later line is '---' (trailing whitespace ignored); otherwise the whole text is body.",
+  "cases": [
+    {
+      "name": "standard_capture",
+      "note_text": "---\ntype: reference\nformat: x-post\nurl: https://x.com/example/status/1\nauthor: \"@example\"\ndate: 2026-09-16\nread_status: unread\ntags:\n  - reference\n  - x-post\ndrbr_capture_id: 0f1e2d3c4b5a69788796a5b4c3d2e1f0\n---\n\nA synthetic note body.\n\nSecond paragraph with trailing spaces.   \n",
+      "expected_body": "A synthetic note body.\n\nSecond paragraph with trailing spaces.",
+      "sha256": "e3ecadefe4065a482fd4d897653244227aa6486a9db858a033553c37ac0c6b24"
+    },
+    {
+      "name": "frontmatter_only_edit",
+      "note_text": "---\ntype: reference\nformat: x-post\nread_status: read\ntags: [reference]\ndrbr_capture_id: 0f1e2d3c4b5a69788796a5b4c3d2e1f0\nrating: 5\n---\nA synthetic note body.\n\nSecond paragraph with trailing spaces.\n\n\n",
+      "expected_body": "A synthetic note body.\n\nSecond paragraph with trailing spaces.",
+      "sha256": "e3ecadefe4065a482fd4d897653244227aa6486a9db858a033553c37ac0c6b24"
+    },
+    {
+      "name": "no_frontmatter",
+      "note_text": "Just a body.\n---\nwith a rule\n",
+      "expected_body": "Just a body.\n---\nwith a rule",
+      "sha256": "d283b300bdf9017cc54be4d1326d253fe73c2b16a863a8317066e4b22bcf6f16"
+    },
+    {
+      "name": "unclosed_frontmatter",
+      "note_text": "---\ntitle: never closed\n\nbody\n",
+      "expected_body": "---\ntitle: never closed\n\nbody",
+      "sha256": "87f508728b27bd9a3bbbcd6935da1cc02b14f03a2fcb8f14adcd0b82182efcf5"
+    },
+    {
+      "name": "later_rule_is_body",
+      "note_text": "---\na: 1\n---\nIntro\n---\nb: 2\n---\nOutro\n",
+      "expected_body": "Intro\n---\nb: 2\n---\nOutro",
+      "sha256": "781cd78c07f4e11f8f62aa943036c65319cc0566087735b89cf5515afeb9008b"
+    },
+    {
+      "name": "crlf_line_endings",
+      "note_text": "---\r\na: 1\r\n---\r\n\r\nBody line\r\nNext line\r\n",
+      "expected_body": "Body line\r\nNext line",
+      "sha256": "fd66e68bfa8de21377e3658d1f7449f6128ae89e8bbce6bd66ceb639aedb5fcf"
+    },
+    {
+      "name": "bom_unicode_and_fence_whitespace",
+      "note_text": "﻿--- \nt: \"Zażółć\"\n---  \n\n  Gęślą jaźń — “quoted” ✓\n",
+      "expected_body": "Gęślą jaźń — “quoted” ✓",
+      "sha256": "939e69d8d2a7371643fa9712a9cb252f33c21a2e8c0d905adb9554465fc7879e"
+    },
+    {
+      "name": "empty_body",
+      "note_text": "---\na: 1\n---\n",
+      "expected_body": "",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

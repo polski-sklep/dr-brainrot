@@ -1,8 +1,8 @@
 """Source labels, per-item overrides, and the one label resolver.
 
-Phase 1 skeleton implementing CONTRACTS.md Part II §5; Agent C owns this file
-in Phase 2 and extends it (label setting, batch selection) without changing
-the signatures below.
+CONTRACTS.md Part II §5. Phase 1 wrote the core (normalisation, writes, the
+resolver); Phase 2 added batch selection for the bot's label prompts and a
+listing for the dashboard's label manager, without changing any signature.
 
 The governing principle: **the user labels, the system counts.** Nothing in
 this module may derive a label from behaviour, duration, folder, or any other
@@ -14,10 +14,12 @@ from __future__ import annotations
 import re
 import sqlite3
 from dataclasses import dataclass
+from datetime import timedelta
 
 import clock
 import drbr_types as T
 from clock import Clock
+from config import Settings
 
 
 class LabelError(ValueError):
@@ -183,3 +185,112 @@ def resolve(conn: sqlite3.Connection, *, source_id: int | None, item_ref: str | 
         if row["label"] is not None:
             return ResolvedLabel(_check_label(row["label"]), T.BASIS_SOURCE_LABEL)
     return ResolvedLabel(T.DEFAULT_LABEL, T.BASIS_DEFAULT)
+
+
+# --- prompting and listing ---------------------------------------------------
+
+#: A source the user was asked about is not asked about again for this long.
+#: Ignoring a prompt is allowed; being nagged daily about it is not.
+PROMPT_COOLDOWN = timedelta(days=7)
+
+UNLABELLED = "unlabelled"
+
+
+def _sources_with_evidence(conn: sqlite3.Connection) -> set[int]:
+    """Ids of sources something was actually observed for.
+
+    Three kinds of evidence, all explicit rows: a measurement, a vault
+    capture attributed to the source, or a listening row for a queue episode
+    whose show/channel is the source. The last is matched in Python because
+    podcast keys are normalised by `normalise_key` (casefold), which SQL
+    cannot reproduce exactly.
+    """
+    ids = {r[0] for r in conn.execute("SELECT DISTINCT source_id FROM measurements")}
+    ids |= {r[0] for r in conn.execute(
+        "SELECT DISTINCT source_id FROM vault_captures WHERE source_id IS NOT NULL")}
+    keys: set[tuple[str, str]] = set()
+    for row in conn.execute(
+        "SELECT DISTINCT e.platform, e.show, e.source_key FROM episodes e "
+        "WHERE EXISTS (SELECT 1 FROM listening l WHERE l.spotify_id = e.spotify_id)"
+    ):
+        try:
+            if row["platform"] == "youtube":
+                if row["source_key"]:
+                    keys.add(normalise_key(T.KIND_YOUTUBE_CHANNEL, row["source_key"]))
+            elif row["show"]:
+                keys.add(normalise_key(T.KIND_PODCAST_SHOW, row["show"]))
+        except LabelError:
+            continue
+    if keys:
+        for row in conn.execute("SELECT id, kind, source_key FROM sources"):
+            if (row["kind"], row["source_key"]) in keys:
+                ids.add(row["id"])
+    return ids
+
+
+def sources_needing_label(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
+                          limit: int = 8) -> list[Source]:
+    """The next sources to ask the user about, oldest first.
+
+    Only sources that are unlabelled, not covered by a better measurement
+    (asking to label "YouTube" the app would be a decision that changes
+    nothing), actually observed at least once, and not prompted within
+    `PROMPT_COOLDOWN`. Selection is a filter over stored facts; nothing about
+    how much or how long a source was used affects whether or when it is asked.
+    `settings` is part of the fixed contract signature and currently unused.
+    """
+    if limit <= 0:
+        return []
+    cutoff = clock.iso(clk.now() - PROMPT_COOLDOWN)
+    evidenced = _sources_with_evidence(conn)
+    rows = conn.execute(
+        "SELECT * FROM sources WHERE label IS NULL AND (prompted_at IS NULL OR prompted_at <= ?) "
+        "ORDER BY first_seen_at ASC, id ASC",
+        (cutoff,),
+    ).fetchall()
+    out: list[Source] = []
+    for row in rows:
+        source = _to_source(row)
+        if source.id not in evidenced or is_covered_elsewhere(source):
+            continue
+        out.append(source)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def mark_prompted(conn: sqlite3.Connection, clk: Clock, source_ids) -> None:
+    """Stamp sources as just asked about. Commits: the message has already gone."""
+    ids = list(source_ids)
+    if not ids:
+        return
+    now = clock.iso(clk.now())
+    conn.executemany("UPDATE sources SET prompted_at = ? WHERE id = ?", [(now, i) for i in ids])
+    conn.commit()
+
+
+def list_sources(conn: sqlite3.Connection, *, kind: str | None = None,
+                 label: str | None = None) -> list[Source]:
+    """Sources for the label manager, optionally filtered.
+
+    `label` is 'wasteful', 'worthwhile', 'unlabelled' (stored NULL), or None
+    for all. Unlabelled is kept distinct from wasteful here even though it
+    resolves to wasteful: "never decided" and "decided" are different facts.
+    """
+    clauses, params = [], []
+    if kind is not None:
+        if kind not in T.SOURCE_KINDS:
+            raise LabelError(f"unknown source kind {kind!r}")
+        clauses.append("kind = ?")
+        params.append(kind)
+    if label == UNLABELLED:
+        clauses.append("label IS NULL")
+    elif label is not None:
+        _check_label(label)
+        clauses.append("label = ?")
+        params.append(label)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = conn.execute(
+        f"SELECT * FROM sources {where} ORDER BY kind, display_name COLLATE NOCASE, id", params
+    ).fetchall()
+    return [_to_source(r) for r in rows]
