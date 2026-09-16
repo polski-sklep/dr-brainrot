@@ -257,3 +257,15 @@ def test_list_sources_filters(conn, clk):
         labels.list_sources(conn, label="neutral")
     with pytest.raises(labels.LabelError):
         labels.list_sources(conn, kind="tiktok")
+
+
+def test_unknown_youtube_channel_is_never_offered_for_labelling(conn, clk, settings):
+    import evidence
+    unknown = labels.ensure_source(conn, clk, "youtube_channel", "unknown", "Unknown channel")
+    rec = evidence.begin_import(conn, clk, kind="youtube_history", parser_version="t")
+    evidence.upsert_measurement(conn, rec, source_id=unknown.id, device="account",
+                                provenance="page_extraction", period_start="2026-09-14",
+                                period_end="2026-09-14", minutes=None, status="duration_missing",
+                                item_key="vid")
+    conn.commit()
+    assert unknown.id not in [s.id for s in labels.sources_needing_label(conn, clk, settings)]

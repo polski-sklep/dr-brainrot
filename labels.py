@@ -253,6 +253,8 @@ def sources_needing_label(conn: sqlite3.Connection, clk: Clock, settings: Settin
         source = _to_source(row)
         if source.id not in evidenced or is_covered_elsewhere(source):
             continue
+        if source.kind == T.KIND_YOUTUBE_CHANNEL and source.source_key == T.UNKNOWN_YOUTUBE_CHANNEL_KEY:
+            continue
         out.append(source)
         if len(out) >= limit:
             break

@@ -825,3 +825,10 @@ diagnostic-end notice. POP's `poll.py`/`triage.py` schedules are unchanged.
 - For Screen Time, fixtures are recorded OCR observations (JSON), sanitised the same way; images are not committed.
 - A test may read `/Users/Jacob/Projects/drbr/inputs/` only as an optional local check that `pytest.skip`s when absent, and it must not print personal content.
 - Nothing from the vault is committed.
+
+## §13 Amendments made at integration (Phase 2.5)
+
+- §1 Settings: `go_live: str` (`DRBR_GO_LIVE`, local date). `evidence.finish_import` never fixes `diagnostic_start` before it. (DR2.2)
+- §6.1: minutes rule for partial regular videos prefers `resume_s` (DR2.1); one fact per regular video per sync under its newest date, one per distinct day for Shorts (DR2.3); entries before `settings.go_live` are skipped and counted in meta (DR2.2); cursor also stores `youtube_cursor_date`, and `GET /api/youtube/cursor` returns `{cursor, cursor_date}` (DR2.4); a failed import answers HTTP 422 with the Outcome body; the key is sent as the `X-Goog-Api-Key` header; `PARSER_VERSION = "youtube-2"`.
+- §3: `drbr_types.UNKNOWN_YOUTUBE_CHANNEL_KEY`; §5 `sources_needing_label` excludes it (DR2.5).
+- §6.4: `scan` records a failed import when `settings.vault_path` is unset or missing (DR2.6). `/labels` sends immediately, ignoring the once-per-day `prompts_sent` gate but keeping the 7-day and per-source cooldowns.

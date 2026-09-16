@@ -146,7 +146,10 @@ def finish_import(conn: sqlite3.Connection, clk: Clock, settings: Settings, rec:
     )
     conn.commit()
     if period_start is not None and rec.kind != "vault_scan":
-        ensure_diagnostic_start(conn, period_start)
+        # Evidence reaching back before go-live cannot start the clock early.
+        first = max(period_start, settings.go_live) if settings.go_live else period_start
+        if period_end is None or first <= period_end:
+            ensure_diagnostic_start(conn, first)
     _after_import(conn, clk, settings)
     return final
 

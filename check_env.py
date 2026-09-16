@@ -45,6 +45,7 @@ REQUIRED = {
     "DRBR_RAW_DIR":           r"\S+",
     "DRBR_DIAGNOSTIC_WEEKS":  r"[1-9]\d*",
     "DRBR_DASHBOARD_PORT":    r"\d{4,5}",
+    "DRBR_GO_LIVE":           r"\d{4}-\d{2}-\d{2}",
     "DRBR_INGEST_TOKEN":      r"[A-Za-z0-9_-]{32,}",
 }
 SECRET_KEYS = {

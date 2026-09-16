@@ -47,6 +47,7 @@ class Settings:
     diagnostic_weeks: int = 8
     dashboard_port: int = 8750
     ingest_token: str = ""
+    go_live: str = ""              # local date DRBR measurement starts; earlier data is not counted
 
     @property
     def lock_seconds(self) -> int:
@@ -93,6 +94,7 @@ def load(env_path: pathlib.Path | None = None, **overrides) -> Settings:
         diagnostic_weeks=int(get("DRBR_DIAGNOSTIC_WEEKS", "8")),
         dashboard_port=int(get("DRBR_DASHBOARD_PORT", "8750")),
         ingest_token=get("DRBR_INGEST_TOKEN"),
+        go_live=get("DRBR_GO_LIVE"),
     )
 
 
@@ -115,6 +117,7 @@ _KEYS = {
     "POP_TZ", "LOCK_HOURS", "LIFESPAN_CYCLES", "POP_DB_PATH",
     "YOUTUBE_API_KEY", "DRBR_VAULT_PATH", "DRBR_VAULT_INBOX", "DRBR_CAPTURE_OUTBOX",
     "DRBR_RAW_DIR", "DRBR_DIAGNOSTIC_WEEKS", "DRBR_DASHBOARD_PORT", "DRBR_INGEST_TOKEN",
+    "DRBR_GO_LIVE",
 }
 
 

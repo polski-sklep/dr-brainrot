@@ -64,7 +64,7 @@ __all__ = [
     "current_cursor_date",
 ]
 
-PARSER_VERSION = "youtube-1"
+PARSER_VERSION = "youtube-2"
 PAYLOAD_SCHEMA = 1
 IMPORT_KIND = "youtube_history"
 
@@ -77,7 +77,7 @@ CURSOR_DATE_KEY = "youtube_cursor_date"
 #: Used only when the Data API no longer returns a video (removed, private) and
 #: the page named no single channel for it. The measurement still needs a
 #: source row; inventing a channel would be worse than admitting there is none.
-UNKNOWN_CHANNEL_KEY = "unknown"
+UNKNOWN_CHANNEL_KEY = T.UNKNOWN_YOUTUBE_CHANNEL_KEY
 UNKNOWN_CHANNEL_NAME = "Unknown channel (video unavailable in the Data API)"
 
 log = logging.getLogger("drbr.youtube")
@@ -709,6 +709,12 @@ def _ingest_bytes(conn: sqlite3.Connection, clk: Clock, settings: Settings, data
                 + f"; history older than {parsed.entries[-1].watch_date} may be missing"
             )
         facts = _collapse(fresh)
+        if settings.go_live:
+            # History before DRBR went live is evidence, not diagnostic data:
+            # the first sync alone reaches weeks back (DECISIONS DR2.2).
+            before = [f for f in facts if f[0].watch_date < settings.go_live]
+            facts = [f for f in facts if f[0].watch_date >= settings.go_live]
+            rec.meta["skipped_before_go_live"] = len(before)
         rec.meta.update({"appearances": len(parsed.entries), "new_appearances": len(fresh),
                          "cursor_found": found, "newest_video": newest.video_id,
                          "newest_date": newest.watch_date})
@@ -773,6 +779,12 @@ def _write_fact(conn: sqlite3.Connection, clk: Clock, rec: evidence.ImportRecord
     elif duration_s is None:
         status = "duration_missing"
         rec.warnings.append(f"{label}: the Data API gave no duration (live or upcoming stream?); not measured")
+    elif e.resume_s is not None and e.percent < 100:
+        # The account's saved resume position, read off the page. The progress
+        # bar never renders below 10%, so for a barely-started video the
+        # percentage overstates by up to 10% of the length; the position is the
+        # measured value (DECISIONS DR2.1). Same idea as Spotify's resume_point.
+        minutes = min(e.resume_s, duration_s) / 60
     else:
         minutes = e.percent / 100 * duration_s / 60
 
@@ -786,6 +798,10 @@ def _write_fact(conn: sqlite3.Connection, clk: Clock, rec: evidence.ImportRecord
         "live_badge": e.live_badge,
         "also_listed_on": other_dates,
         "page_order": e.order,
+        "minutes_basis": ("resume_position" if (status == "ok" and not e.is_short and e.resume_s is not None
+                                                 and e.percent is not None and e.percent < 100)
+                          else "assumed_full_short" if (status == "ok" and e.is_short)
+                          else "percent" if status == "ok" else None),
     }
     evidence.upsert_measurement(
         conn, rec, source_id=source.id, device=T.DEVICE_ACCOUNT, provenance=T.PROV_PAGE,

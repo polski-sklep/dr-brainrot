@@ -105,6 +105,11 @@ def report_group(kind: str, device: str | None = None) -> str:
     raise ValueError(f"unknown source kind {kind!r}")
 
 
+#: Placeholder YouTube source for videos neither the page nor the Data API
+#: attributes to one channel. Its minutes are real; it is never offered for a
+#: label, because a label on "unknown" would apply to unrelated channels.
+UNKNOWN_YOUTUBE_CHANNEL_KEY = "unknown"
+
 # --- YouTube video facts ------------------------------------------------------
 
 @dataclass(frozen=True)

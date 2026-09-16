@@ -1117,3 +1117,48 @@ import row, whose facts replace the old ones on their natural key.
 
 ### DR1.22 — An unmeasured value is NULL with a status, never zero
 Enforced three times: the `measurements` CHECK constraint, `evidence.upsert_measurement`, and the report layer counting `unmeasured_items` separately.
+
+## Phase 2.5 — integration decisions
+
+### DR2.1 — YouTube minutes use the saved resume position when the page carries one
+Found by Agent A in the real page: `startPercent` never renders below 10, and
+17 of the 22 videos at exactly 10% carry `watchEndpoint.startTimeSeconds` with a
+true position of 0.3–7.6%. Using the percentage would count 57 s into a
+47-minute video as 4.7 min. For partial videos with a saved position,
+`minutes = min(resume_s, duration_s)/60`; otherwise the percentage formula;
+Shorts unchanged. This reads a stored value, the YouTube equivalent of Spotify's
+`resume_point`, so nothing is inferred. `detail.minutes_basis` records which
+rule applied. `PARSER_VERSION` is now `youtube-2`.
+
+### DR2.2 — Measurement starts at a fixed go-live date (`DRBR_GO_LIVE=2026-09-13`)
+The first YouTube sync reaches about 3.5 weeks back from the initial page alone,
+which would have set `diagnostic_start` to 24 August and burned weeks of the
+eight-week window before DRBR existed. Go-live is the Sunday of the week DRBR
+was built, so this week's Cold Turkey export counts. YouTube history before
+go-live is kept as raw evidence and counted in import meta
+(`skipped_before_go_live`), but not measured. `finish_import` never sets
+the diagnostic start earlier than go-live.
+
+### DR2.3 — A regular YouTube video is one fact per sync, under its newest listing date
+History relists a video under every day it was watched, each time with the same
+current position. Writing that position under every date would turn one
+position into several viewings. One fact per sync goes under the newest date,
+with the other dates in `detail.also_listed_on`. A Short is one fact per
+distinct day, since each day is a separate complete viewing. This consistently
+undercounts rewatches, which the brief accepts.
+
+### DR2.4 — The YouTube cursor carries a date
+When the cursor video is rewatched it reappears at the top. An id-only cursor
+would then stop the next sync immediately and drop a week. A match needs the
+same id and a listing date ≤ the stored cursor date. The cursor never moves
+backwards, and `reparse` reapplies the cursor recorded in the original import.
+
+### DR2.5 — The "unknown channel" placeholder is never offered for a label
+A video neither the page nor the API attributes to a channel goes under
+`youtube_channel/unknown`. Labelling that placeholder would apply to unrelated
+videos, so `sources_needing_label` skips it. Its minutes still count as
+unlabelled, which means wasteful.
+
+### DR2.6 — A vault scan fails when the vault root is missing
+Agent C's addition. Otherwise an unmounted or misconfigured vault would
+mark every capture `excluded` and silently empty the denominator.

@@ -418,8 +418,11 @@ def test_ingest_writes_one_fact_per_video(conn, clk, settings, api, initial, con
     assert set(m) == set(DURATIONS)
 
     expected_minutes = {
-        "fxVideo0004": 4.5, "fxVideo0005": 20.0, "fxVideo0006": 62.05, "fxVideo0007": 1.0,
-        "fxVideo0008": 10.05, "fxVideo0013": 4.6, "fxVideo0014": 10.0, "fxVideo0015": 10.0,
+        # Partial videos with a saved resume position use it (DR2.1): 245 s, 377 s,
+        # and 0013's 527 s clamped to its 300 s duration. 0007 shows the 10% floor
+        # with no resume position, so the percentage is all there is.
+        "fxVideo0004": 245 / 60, "fxVideo0005": 20.0, "fxVideo0006": 62.05, "fxVideo0007": 1.0,
+        "fxVideo0008": 377 / 60, "fxVideo0013": 5.0, "fxVideo0014": 10.0, "fxVideo0015": 10.0,
         "fxVideo0016": 3.0,
         # Shorts: assumed full, true API duration.
         "fxVideo0001": 0.75, "fxVideo0002": 3.0, "fxVideo0003": 1.0, "fxVideo0010": 1.0,
@@ -456,7 +459,7 @@ def test_partially_watched_detail(conn, clk, settings, api, initial):
     assert json.loads(r["detail"]) == {
         "percent": 45.0, "duration_s": 600, "is_short": False, "assumed_full": False,
         "page_channel_id": "UCfixtureChannel00000001", "resume_s": 245, "live_badge": False,
-        "also_listed_on": [], "page_order": 3,
+        "also_listed_on": [], "page_order": 3, "minutes_basis": "resume_position",
     }
 
 
@@ -734,7 +737,9 @@ def test_reparse_writes_a_new_import_and_replaces_facts(conn, clk, settings, api
     second = youtube.reparse(conn, clk, settings, first.import_id, api)
     assert second.import_id != first.import_id and second.duplicate_of is None
     r = rows(conn)["fxVideo0004"]
-    assert r["import_id"] == second.import_id and r["minutes"] == pytest.approx(9.0)
+    # Minutes come from the saved 245 s position, which a longer API duration doesn't change.
+    assert r["import_id"] == second.import_id and r["minutes"] == pytest.approx(245 / 60)
+    assert r["item_title"] == "retitled"
     assert conn.execute("SELECT COUNT(*) FROM measurements").fetchone()[0] == 13
     assert conn.execute("SELECT COUNT(*) FROM imports").fetchone()[0] == 2
 
@@ -760,3 +765,40 @@ def test_reparse_unknown_import(conn, clk, settings, api):
 def test_diagnostic_start_fixed_by_first_youtube_import(conn, clk, settings, api, initial):
     youtube.ingest(conn, clk, settings, payload([initial]), api)
     assert evidence.get_meta(conn, evidence.DIAGNOSTIC_START_KEY) == "2026-09-09"
+
+
+def test_resume_position_beats_the_ten_percent_display_floor(conn, clk, settings, api, initial):
+    """A barely-started video renders a 10% bar; the saved position is the measurement."""
+    page = json.loads(json.dumps(initial))
+    for obj in _walk(page):
+        if isinstance(obj, dict) and obj.get("contentId") == "fxVideo0004":
+            for bar in _walk(obj):
+                if isinstance(bar, dict) and "thumbnailOverlayProgressBarViewModel" in bar:
+                    bar["thumbnailOverlayProgressBarViewModel"]["startPercent"] = 10
+            for cmd in _walk(obj):
+                if isinstance(cmd, dict) and "startTimeSeconds" in cmd:
+                    cmd["startTimeSeconds"] = 57
+    youtube.ingest(conn, clk, settings, payload([page]), api)
+    r = rows(conn)["fxVideo0004"]
+    assert r["minutes"] == pytest.approx(57 / 60)          # not 10% of 600 s = 1.0
+    assert json.loads(r["detail"])["minutes_basis"] == "resume_position"
+
+
+def test_history_before_go_live_is_not_measured(conn, clk, api, initial, tmp_path):
+    live = config.test_settings(tz="Europe/Warsaw", raw_dir=tmp_path / "raw2", go_live="2026-09-13")
+    out = youtube.ingest(conn, clk, live, payload([initial]), api)
+    assert out.period_start >= "2026-09-13"
+    assert all(r["period_start"] >= "2026-09-13" for r in rows(conn).values())
+    meta = json.loads(conn.execute("SELECT meta FROM imports WHERE id = ?", (out.import_id,)).fetchone()[0])
+    assert meta["skipped_before_go_live"] > 0
+    assert evidence.get_meta(conn, "diagnostic_start") == out.period_start
+
+
+def _walk(obj):
+    yield obj
+    if isinstance(obj, dict):
+        for v in obj.values():
+            yield from _walk(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _walk(v)
