@@ -849,3 +849,12 @@ All additive and defaulted; every earlier call site stays valid. Reasons and tes
 - §6.1 `EvidenceError`/`LabelError` during YouTube ingest fail the import like a `ParseError`.
 - Part I §5 `triage.render_item`, `render_deadline_notice` and `render_week_header` take keyword `tz=None`; callers with `Settings` pass `settings.tz`.
 - §8 The bot's capture confirmation distinguishes an override typed in this note from one stored by an earlier capture of the same item.
+
+## §15 Post-build amendment — automated Cold Turkey (DR5.1)
+
+- `config.Settings.coldturkey_db: Path | None` (`DRBR_COLDTURKEY_DB`); None = manual exports only.
+- `sources/coldturkey_local.py`: `hostname(url) -> str | None`; `read_host_minutes(db_path, *, first_day, last_day, tz) -> dict[(date, host), minutes]` (read-only, raises `ColdTurkeyLocalError`); `export_document(totals) -> bytes`; `window(clk, settings) -> (first, last) | None`; `sync(conn, clk, settings) -> Outcome | None`.
+- `coldturkey.ingest(..., origin="export" | "local_db")`; import `meta.origin`, measurement `detail.origin`; `reparse` keeps the origin.
+- `jobs.run_daily` step `coldturkey_local` runs before `import_prompts`.
+- `handlers_imports.prompt_text(kind, week, *, automated_coldturkey=False)`.
+- `check_env.py` step 8 checks the database is readable (counts only).

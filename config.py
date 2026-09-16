@@ -47,6 +47,7 @@ class Settings:
     diagnostic_weeks: int = 8
     dashboard_port: int = 8750
     ingest_token: str = ""
+    coldturkey_db: pathlib.Path | None = None   # Cold Turkey's local browser statistics; None = manual export only
     go_live: str = ""              # local date DRBR measurement starts; earlier data is not counted
 
     @property
@@ -95,6 +96,7 @@ def load(env_path: pathlib.Path | None = None, **overrides) -> Settings:
         dashboard_port=int(get("DRBR_DASHBOARD_PORT", "8750")),
         ingest_token=get("DRBR_INGEST_TOKEN"),
         go_live=get("DRBR_GO_LIVE"),
+        coldturkey_db=_path_or_none(get("DRBR_COLDTURKEY_DB")),
     )
 
 
@@ -117,7 +119,7 @@ _KEYS = {
     "POP_TZ", "LOCK_HOURS", "LIFESPAN_CYCLES", "POP_DB_PATH",
     "YOUTUBE_API_KEY", "DRBR_VAULT_PATH", "DRBR_VAULT_INBOX", "DRBR_CAPTURE_OUTBOX",
     "DRBR_RAW_DIR", "DRBR_DIAGNOSTIC_WEEKS", "DRBR_DASHBOARD_PORT", "DRBR_INGEST_TOKEN",
-    "DRBR_GO_LIVE",
+    "DRBR_GO_LIVE", "DRBR_COLDTURKEY_DB",
 }
 
 

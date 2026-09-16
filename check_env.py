@@ -53,7 +53,7 @@ SECRET_KEYS = {
     "SPOTIFY_REFRESH_TOKEN", "TELEGRAM_BOT_TOKEN",
     "YOUTUBE_API_KEY", "DRBR_INGEST_TOKEN",
 }
-STEPS = 7
+STEPS = 8
 
 failures: list[str] = []
 unavailable_list: list[str] = []
@@ -293,6 +293,35 @@ def check_vision() -> None:
     ok("Vision and Quartz frameworks importable (no network involved)")
 
 
+def check_coldturkey(env: dict[str, str]) -> None:
+    print(f"\n[8/{STEPS}] Cold Turkey statistics — read-only, counts only (no URLs printed)")
+    path = env.get("DRBR_COLDTURKEY_DB", "")
+    if not path:
+        ok("DRBR_COLDTURKEY_DB unset: Cold Turkey arrives by manual export")
+        return
+    import sqlite3  # noqa: PLC0415
+    import urllib.parse  # noqa: PLC0415
+
+    db_path = pathlib.Path(path)
+    if not db_path.exists():
+        fail("DRBR_COLDTURKEY_DB does not exist (is Cold Turkey Blocker installed?)")
+        return
+    try:
+        conn = sqlite3.connect(f"file:{urllib.parse.quote(str(db_path))}?mode=ro", uri=True, timeout=10)
+        try:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(stats)")}
+            if not {"date", "domain", "seconds"} <= cols:
+                fail("Cold Turkey stats table lacks date/domain/seconds; its format changed")
+                return
+            (latest,) = conn.execute("SELECT MAX(date) FROM stats").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        fail(f"Cold Turkey statistics not readable ({type(e).__name__})")
+        return
+    ok("Cold Turkey statistics readable" + ("" if latest else " (no rows yet)"))
+
+
 def main() -> int:
     ping = "--ping" in sys.argv
     print("DRBR — environment and credential check")
@@ -304,6 +333,7 @@ def main() -> int:
     check_youtube(env)
     check_paths(env)
     check_vision()
+    check_coldturkey(env)
 
     print("\n" + "=" * 60)
     if failures:

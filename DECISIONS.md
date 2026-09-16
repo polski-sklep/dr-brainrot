@@ -1219,3 +1219,37 @@ same week and resets at rollover; debt, alerts and reports read consumption
 through the current labels and do change at once (DR2.7). A refund would need
 per-promotion cost records, which POP never stored, to undo a decision that
 was correctly priced when it was made.
+
+## Post-build — user-requested changes
+
+### DR5.1 — Cold Turkey is read automatically from this Mac's own statistics, hostnames only
+User request (2026-09-16): "Can we automate cold turkey?" The brief assumed no
+automated route. In fact Cold Turkey Blocker keeps its statistics in a local
+SQLite file (`/Library/Application Support/Cold Turkey/data-browser.db`,
+table `stats(date, domain, seconds, user)`, one row per minute). Checked
+against the user's manual export: summed per hostname per local day, it
+reproduced every finished day's figure to the hundredth of a minute. It also
+lists every domain (76–187 a day in the first week), where the export listed 5.
+
+**Privacy.** The `domain` column actually holds full URLs, search queries
+included. The user approved a **hostname-only** version. Rows are reduced
+to hostnames in memory while reading, and nothing finer is stored anywhere: not
+in the database, not in raw evidence, not in logs. This deliberately narrows
+"preserve raw evidence": the stored evidence is the hostname/day/minutes
+document, in Cold Turkey's own export shape. The full-URL table is never copied.
+
+**Mechanics:**
+- `jobs.py daily` calls `sources/coldturkey_local.sync` before sending prompts.
+- It reads finished local days only (never today), from the later of go-live and 8 days ago, so late corrections replace facts on their natural key. An unchanged window is a duplicate import.
+- It feeds the existing `coldturkey.ingest`, so every tested rule still applies, with `origin="local_db"`.
+- Local day = `POP_TZ`. The first week had no activity near midnight, so it could not tell local days from UTC days; local matches the rest of DRBR.
+- Provenance keeps the `manual_export` key, so these facts replace any earlier export facts for the same domain and day. The display text is now "Cold Turkey statistics (this Mac)" and `detail.origin` says which route.
+- Desktop app time (`data-helper.db`) is not read. The brief scopes Cold Turkey to websites.
+
+**Fallback.** If the database can't be read, the job step fails loudly, the
+week stays uncovered, and the Monday reminder asks for a manual export,
+saying the automatic read failed. Manual exports sent to the bot still work.
+`DRBR_COLDTURKEY_DB` unset means manual exports only. Tests never read the real file.
+
+**Blind spots updated.** "Top domains only" is claimed only while any
+manual-export import exists. "This Mac only" always stands.

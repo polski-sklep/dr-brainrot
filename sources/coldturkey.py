@@ -46,6 +46,13 @@ SERIES_KEYS = frozenset({"label", "data"})
 UNLISTED_NOTE = ("Cold Turkey exports only the domains shown in its chart; every other domain is unmeasured "
                  "for these days, not zero.")
 
+#: Where the export-shaped bytes came from. `export` is a file the user sent;
+#: `local_db` is the daily read of this Mac's own Cold Turkey statistics
+#: (sources/coldturkey_local.py), which lists every domain (DECISIONS DR5.1).
+ORIGIN_EXPORT = "export"
+ORIGIN_LOCAL_DB = "local_db"
+ORIGINS = (ORIGIN_EXPORT, ORIGIN_LOCAL_DB)
+
 
 class ColdTurkeyParseError(evidence.ParseError):
     """The file is not a Cold Turkey website-usage export this parser understands."""
@@ -167,14 +174,17 @@ def _point(label: str, point) -> tuple[date, float]:
 # --- ingest --------------------------------------------------------------------------
 
 def ingest(conn: sqlite3.Connection, clk: Clock, settings: Settings, data: bytes, *,
-           filename: str | None = None) -> evidence.Outcome:
+           filename: str | None = None, origin: str = ORIGIN_EXPORT) -> evidence.Outcome:
     """Store the export, then record one fact per listed domain per finished day."""
+    if origin not in ORIGINS:
+        raise ValueError(f"unknown Cold Turkey origin {origin!r}")
     rel, sha = evidence.store_raw(settings, KIND, data, ".json")
     dup = evidence.find_import_by_sha(conn, KIND, sha)
     if dup is not None:
         return evidence.Outcome(dup["id"], dup["status"], 0, (), None, dup["period_start"], dup["period_end"],
                                 duplicate_of=dup["id"])
-    return _run(conn, clk, settings, rel, sha, data, filename=filename, received_at=clock.iso(clk.now()))
+    return _run(conn, clk, settings, rel, sha, data, filename=filename, received_at=clock.iso(clk.now()),
+                origin=origin)
 
 
 def reparse(conn: sqlite3.Connection, clk: Clock, settings: Settings, import_id: int) -> evidence.Outcome:
@@ -196,12 +206,14 @@ def reparse(conn: sqlite3.Connection, clk: Clock, settings: Settings, import_id:
         evidence.fail_import(conn, rec, msg)
         return evidence.Outcome(rec.id, T.IMPORT_FAILED, 0, error=msg)
     return _run(conn, clk, settings, row["raw_path"], row["raw_sha256"], data, filename=meta.get("filename"),
-                received_at=meta.get("received_at") or row["received_at"], replaces=import_id)
+                received_at=meta.get("received_at") or row["received_at"], replaces=import_id,
+                origin=meta.get("origin", ORIGIN_EXPORT))
 
 
-def _run(conn, clk, settings, rel, sha, data, *, filename, received_at, replaces=None) -> evidence.Outcome:
+def _run(conn, clk, settings, rel, sha, data, *, filename, received_at, replaces=None,
+         origin=ORIGIN_EXPORT) -> evidence.Outcome:
     rec = evidence.begin_import(conn, clk, kind=KIND, parser_version=PARSER_VERSION, raw_path=rel, raw_sha256=sha)
-    rec.meta.update({"filename": filename, "received_at": received_at})
+    rec.meta.update({"filename": filename, "received_at": received_at, "origin": origin})
     if replaces is not None:
         rec.meta["reparse_of"] = replaces
     try:
@@ -219,10 +231,12 @@ def _run(conn, clk, settings, rel, sha, data, *, filename, received_at, replaces
             "not recorded. Export again after the week ends.")
     rec.meta.update({
         "listed_domain_count": parsed.listed_domains,
-        "unlisted_domains": UNLISTED_NOTE,
+        "unlisted_domains": (UNLISTED_NOTE if origin == ORIGIN_EXPORT
+                             else "Read from this Mac's own Cold Turkey statistics: every domain is listed."),
         "days_in_file": [d.isoformat() for d in parsed.days],
         "days_not_recorded_unfinished": [d.isoformat() for d in unfinished],
-        "machine": "one desktop export; other machines are not included",
+        "machine": ("one desktop export; other machines are not included" if origin == ORIGIN_EXPORT
+                    else "this Mac only; Cold Turkey does not sync between machines"),
     })
     written = 0
     recorded_days: list[date] = []
@@ -239,7 +253,7 @@ def _run(conn, clk, settings, rel, sha, data, *, filename, received_at, replaces
                 conn, rec, source_id=source.id, device=T.DEVICE_DESKTOP, provenance=T.PROV_EXPORT,
                 period_start=day.isoformat(), period_end=day.isoformat(),
                 minutes=minutes, status="ok" if minutes is not None else "unreadable",
-                item_key=item_key, item_title=label, detail={"label": label},
+                item_key=item_key, item_title=label, detail={"label": label, "origin": origin},
             )
             written += 1
             recorded_days.append(day)

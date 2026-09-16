@@ -397,7 +397,7 @@ def test_pop_funnel_counts_youtube_played_as_measured_watching(conn, clk, settin
 def test_blind_spots_list_the_standing_gaps(conn, clk, settings):
     clk.set(WED)
     text = "\n".join(report.blind_spots(conn, clk, settings))
-    for needle in ("outside the queue is invisible", "top domains", "one desktop machine",
+    for needle in ("outside the queue is invisible", "top domains", "this Mac only",
                    "rewatches", "time of day"):
         assert needle in text
 

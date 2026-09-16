@@ -261,7 +261,7 @@ def register(app) -> None:
 PROMPT_KINDS = ("screentime", "coldturkey", "youtube")
 
 
-def prompt_text(kind: str, week: T.MeasurementWeek) -> str:
+def prompt_text(kind: str, week: T.MeasurementWeek, *, automated_coldturkey: bool = False) -> str:
     span = f"Sun {week.sunday:%d %b} – Sat {week.saturday:%d %b}"
     if kind == "screentime":
         return (f"Screen Time for last week ({span}) hasn't arrived.\n"
@@ -274,7 +274,10 @@ def prompt_text(kind: str, week: T.MeasurementWeek) -> str:
                 "On the desktop: Cold Turkey Blocker → Statistics → the Websites usage (time) view, not "
                 f"\"Websites Blocked\" → show the week {span} → Export → send the JSON file here. "
                 "Export after Saturday has ended; days not yet over are not recorded. Each machine only knows its "
-                "own usage, so export from every desktop you use.")
+                "own usage, so export from every desktop you use."
+                + ("\n\nDRBR normally reads Cold Turkey's statistics on this Mac by itself every day, so this "
+                   "means that automatic read failed. Check logs/jobs.log; exporting by hand covers the week "
+                   "meanwhile." if automated_coldturkey else ""))
     if kind == "youtube":
         return (f"YouTube history for last week ({span}) hasn't been synced.\n"
                 "On the desktop browser: open youtube.com/feed/history while signed in, click the DRBR extension "
@@ -324,7 +327,7 @@ def send_due_prompts(conn: sqlite3.Connection, clk: Clock, settings: Settings, b
                                (kind, week.start, today.isoformat())).fetchone()
         if already:
             continue
-        triage.send(bot, settings, prompt_text(kind, week))
+        triage.send(bot, settings, prompt_text(kind, week, automated_coldturkey=settings.coldturkey_db is not None))
         conn.execute("INSERT OR IGNORE INTO prompts_sent (kind, period_start, sent_on, sent_at) VALUES (?, ?, ?, ?)",
                      (kind, week.start, today.isoformat(), clock.iso(clk.now())))
         conn.commit()

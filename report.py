@@ -74,7 +74,7 @@ GROUP_BLIND_SPOTS: dict[str, tuple[str, ...]] = {
         "Rewatches overwrite progress and undercount; dates have no time of day.",
     ),
     T.GROUP_X: (
-        "Minutes come from Screen Time (OCR) and Cold Turkey (top domains only); "
+        "Minutes come from Screen Time (OCR) and Cold Turkey (this Mac's browser only); "
         "keepers from vault captures of X posts and articles.",
     ),
     T.GROUP_IPHONE: (
@@ -82,7 +82,7 @@ GROUP_BLIND_SPOTS: dict[str, tuple[str, ...]] = {
         "No keeper path: vault captures are not attributed to iPhone apps.",
     ),
     T.GROUP_DESKTOP: (
-        "Cold Turkey lists only its top domains; only one desktop machine is exported.",
+        "Cold Turkey covers this Mac's browsers only; a manual export lists only its top domains.",
         "No keeper path: vault captures are not attributed to web domains.",
     ),
     T.GROUP_WEB: ("No minutes source: articles are counted as keepers only.",),
@@ -617,8 +617,7 @@ def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> lis
     """What this diagnostic cannot see, stated rather than silently absorbed."""
     out = [
         "Podcast listening outside the queue is invisible: only captured episodes are polled.",
-        "Cold Turkey lists only its top domains; unlisted domains are unmeasured, not zero.",
-        "Only one desktop machine is exported to Cold Turkey; a second machine would be unmeasured.",
+        *_coldturkey_blind_spots(conn),
         "YouTube rewatches overwrite progress and undercount; history dates have no time of day or sittings.",
         "Screen Time figures are parsed from screenshots (OCR) and carry lower confidence than API figures.",
         "iPhone YouTube/Spotify app and youtube.com/open.spotify.com minutes are excluded as covered "
@@ -647,6 +646,29 @@ def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> lis
                 out.append(f"{names[kind]} for the week {week.start} to {week.end} has not been received.")
         sunday += timedelta(days=7)
     return out
+
+
+def _coldturkey_blind_spots(conn: sqlite3.Connection) -> list[str]:
+    """Cold Turkey's caveat depends on how its minutes arrived (DECISIONS DR5.1).
+
+    The daily read of this Mac's own statistics lists every domain; a manual
+    export lists only the chart's top domains. Claim the smaller blind spot
+    only when every Cold Turkey import that wrote minutes came from the
+    automatic read.
+    """
+    origins = {
+        (json.loads(r["meta"] or "{}").get("origin") or "export")
+        for r in conn.execute("SELECT meta FROM imports WHERE kind = 'coldturkey' AND status != 'failed'")
+    }
+    spots = ["Cold Turkey measures this Mac only; Cold Turkey does not sync, so another computer would be "
+             "unmeasured."]
+    if origins == {"local_db"}:
+        spots.append("Cold Turkey minutes are read from this Mac's own statistics (hostnames only), so every "
+                     "visited domain is listed.")
+    else:
+        spots.append("Cold Turkey manual exports list only the chart's top domains; unlisted domains are "
+                     "unmeasured, not zero.")
+    return spots
 
 
 def records(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, group: str | None = None,

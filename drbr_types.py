@@ -53,7 +53,7 @@ KEEPER_GROUPS = ("x", "youtube", "podcasts", "web", "other")
 PROV_API = "api"                         # Spotify resume_point polling
 PROV_PAGE = "page_extraction"            # YouTube history page data x Data API duration
 PROV_SCREENSHOT = "screenshot_ocr"       # Screen Time via on-device Apple Vision OCR
-PROV_EXPORT = "manual_export"            # Cold Turkey statistics JSON
+PROV_EXPORT = "manual_export"            # Cold Turkey statistics (local database read or JSON export)
 PROV_VAULT = "vault_scan"                # Obsidian capture-ID scan (counts, never minutes)
 PROV_LABEL = "user_label"                # explicit user labels
 PROVENANCES = (PROV_API, PROV_PAGE, PROV_SCREENSHOT, PROV_EXPORT, PROV_VAULT, PROV_LABEL)
@@ -62,7 +62,7 @@ PROVENANCE_TEXT = {
     PROV_API: "API (Spotify resume position)",
     PROV_PAGE: "Page data (YouTube history) x API duration",
     PROV_SCREENSHOT: "Parsed screenshot (OCR) — lower confidence",
-    PROV_EXPORT: "Manual export (Cold Turkey)",
+    PROV_EXPORT: "Cold Turkey statistics (this Mac)",
     PROV_VAULT: "Vault scan (count, not minutes)",
     PROV_LABEL: "Your label",
 }

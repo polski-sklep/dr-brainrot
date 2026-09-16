@@ -7,11 +7,13 @@ the functions each source owns:
 
 1. `vault.read_outbox` then `vault.scan` — new obsidian-ingest captures first,
    so a note captured yesterday is already in the denominator when scanned.
-2. `handlers_imports.send_due_prompts` — Screen Time / Cold Turkey / YouTube
+2. `coldturkey_local.sync` — this Mac's Cold Turkey statistics, hostnames only
+   (DR5.1), before the prompts so a week it covers is never asked for.
+3. `handlers_imports.send_due_prompts` — Screen Time / Cold Turkey / YouTube
    for the last complete week, once per day until each arrives.
-3. `handlers_labels.send_label_batch` — newly seen sources, once the
+4. `handlers_labels.send_label_batch` — newly seen sources, once the
    diagnostic has run a week.
-4. One diagnostic-end notice, ever.
+5. One diagnostic-end notice, ever.
 
 Each step is isolated: a vault failure must not cost the user their Monday
 prompt, and a Telegram outage must not stop the scan. Every failure is logged
@@ -31,7 +33,7 @@ import handlers_imports
 import handlers_labels
 from clock import Clock
 from config import Settings
-from sources import vault
+from sources import coldturkey_local, vault
 from triage import SyncBot, send
 
 log = logging.getLogger("drbr.jobs")
@@ -54,6 +56,7 @@ def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
 
     step("read_outbox", lambda: _outbox(conn, clk, settings))
     step("vault_scan", lambda: _scan(conn, clk, settings))
+    step("coldturkey_local", lambda: _coldturkey(conn, clk, settings))
     step("import_prompts", lambda: handlers_imports.send_due_prompts(conn, clk, settings, bot))
     step("label_batch", lambda: handlers_labels.send_label_batch(conn, clk, settings, bot))
     step("diagnostic_end", lambda: send_end_notice(conn, clk, settings, bot))
@@ -74,6 +77,21 @@ def _scan(conn, clk: Clock, settings: Settings) -> str:
     if outcome.status == "failed":
         raise RuntimeError(f"vault scan failed: {outcome.error}")
     return f"import {outcome.import_id} {outcome.status}"
+
+
+def _coldturkey(conn, clk: Clock, settings: Settings) -> str:
+    if settings.coldturkey_db is None:
+        return "not configured (DRBR_COLDTURKEY_DB unset): manual exports only"
+    outcome = coldturkey_local.sync(conn, clk, settings)
+    if outcome is None:
+        return "no finished days to read yet"
+    if outcome.duplicate_of is not None:
+        return f"unchanged since import {outcome.duplicate_of}"
+    for warning in outcome.warnings:
+        log.warning("cold turkey: %s", warning)
+    if outcome.status == "failed":
+        raise RuntimeError(f"cold turkey import failed: {outcome.error}")
+    return f"import {outcome.import_id} {outcome.status}, {outcome.measurements_written} domain-day figures"
 
 
 def send_end_notice(conn, clk: Clock, settings: Settings, bot) -> str:

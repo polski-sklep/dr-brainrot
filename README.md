@@ -72,6 +72,7 @@ All configuration is in `.env`. `.env.example` lists every key with placeholders
 | `DRBR_VAULT_INBOX` | Folder whose notes count as unprocessed (`01-Inbox`, including subfolders) |
 | `DRBR_CAPTURE_OUTBOX` | JSONL file obsidian-ingest appends captures to (`data/vault_captures.jsonl`) |
 | `DRBR_RAW_DIR` | Raw evidence kept for re-parsing (`data/raw`) |
+| `DRBR_COLDTURKEY_DB` | Cold Turkey's local statistics database, read daily (hostnames only). Empty = manual exports |
 | `DRBR_GO_LIVE` | First local date that counts (a Sunday). Earlier history is evidence only |
 | `DRBR_DIAGNOSTIC_WEEKS` | Length of the diagnostic (8) |
 | `DRBR_DASHBOARD_PORT` | Dashboard and extension ingest port on 127.0.0.1 (8750) |
@@ -113,7 +114,7 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 | `com.jacob.pop.bot` | always on | Telegram: capture, triage buttons, screenshot/export imports, labels |
 | `com.jacob.pop.poll` | daily 09:17 | Spotify positions, lock lifts, deadline posts, allowance alerts |
 | `com.jacob.pop.triage` | Sunday 18:00 | Week rollover, debt, expiry, the triage post |
-| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, weekly import prompts, label batches, end notice |
+| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, weekly import prompts, label batches, end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
 
 launchd, not cron, because macOS cron skips runs missed while the Mac sleeps.
@@ -138,7 +139,7 @@ One bot (POP's), commands `/start`, `/queue`, `/stats`, `/labels`. Only
 - **Triage** (Sunday 18:00): each unlocked item comes with Promote / Drop /
   Still holds?. A wasteful promotion costs its remaining minutes. A
   worthwhile one costs 0, but still waits out the lock (DR1.3).
-- **Imports:** send the Screen Time screenshots and the Cold Turkey JSON
+- **Imports:** send the Screen Time screenshots (and a Cold Turkey JSON export only if its automatic read fails)
   straight to the bot (below). It replies with what it stored, what it couldn't
   read, or why it failed.
 - **Labels:** after the first week, newly seen sources arrive one per message
@@ -194,18 +195,25 @@ Misread app names are kept as read, and each becomes a source you label. On
 the dashboard, screenshot figures are marked **parsed screenshot, lower
 confidence**.
 
-## Cold Turkey import procedure
+## Cold Turkey (automatic)
 
-Weekly: **Cold Turkey → Statistics → Websites** usage view (time, not
-"Websites Blocked") → **Export** → send the JSON file to the bot.
+Nothing to do weekly. Every day, `jobs.py daily` reads Cold Turkey's own
+statistics on this Mac (`DRBR_COLDTURKEY_DB`), read-only:
 
-- Minutes are per domain per day.
-- Days that haven't finished yet are dropped (the export fills them with zeros).
-- Cold Turkey exports only the domains its chart lists, so unlisted sites are
-  a stated blind spot, not zero.
-- The blocked-count export is rejected.
-- One desktop machine is assumed. A second machine that isn't exported is a
-  blind spot.
+- **Hostnames only.** Cold Turkey stores full URLs, search terms included.
+  They are reduced to hostnames while reading, and nothing finer is stored
+  anywhere (DR5.1).
+- **Finished days only.** It reads from go-live up to yesterday, and re-reads
+  the last 8 days so late corrections land.
+- **Every visited domain.** A manual export lists only its chart's top 5.
+- **This Mac only.** Cold Turkey doesn't sync between machines.
+
+**If the automatic read fails,** the daily job logs it (`logs/jobs.log`) and
+the Monday reminder asks for a manual export. Manual export: **Cold Turkey →
+Statistics → Websites** usage view (time, not "Websites Blocked") →
+**Export** → send the JSON to the bot. Unfinished days are dropped, and the
+blocked-count export is rejected. Leaving `DRBR_COLDTURKEY_DB` empty turns the
+automatic read off.
 
 ## Obsidian / vault procedure
 
@@ -272,7 +280,7 @@ migration are in `~/Projects/drbr-backup-20260916/`.
 | Any time | Capture instead of play: send links to the POP bot, with a why and optionally `#worthwhile` |
 | Any time | Capture reading/watching material via obsidian-ingest as usual; process notes out of `01-Inbox` when they earn it |
 | Sunday 18:00 | Triage the queue post in Telegram |
-| Monday+ | Send Screen Time "Last Week" screenshots and the Cold Turkey export; run the extension's weekly sync |
+| Monday+ | Send Screen Time "Last Week" screenshots; run the extension's weekly sync (Cold Turkey is automatic) |
 | When asked | Label new sources (buttons) |
 | Weekly | Glance at the dashboard: reflex share, cost per keeper |
 | Week 8 | Name the decision, or shut DRBR down (`./drbr stop`) |
@@ -339,7 +347,7 @@ Accepted deliberately, and stated on the dashboard rather than absorbed:
   above 1x undercounts. Completion is Spotify's `fully_played` flag.
 - **YouTube:** rewatches overwrite position and undercount; there is no time of
   day; the bar floor is handled by using the resume position.
-- **Cold Turkey:** only the chart's listed domains; one machine.
+- **Cold Turkey:** this Mac's browsers only; hostnames, not pages.
 - **Screen Time:** OCR, lower confidence than the API figures; only full past
   weeks count; YouTube and Spotify app minutes are excluded as double counts;
   Spotify music is out of scope.
