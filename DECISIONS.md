@@ -1346,3 +1346,11 @@ reading as 0 minutes. Stale-data handling:
   warning stops once the diagnostic ends.
 - **Dashboard:** `blind_spots` says the same when the latest Qbserve import is
   more than 36 hours old, or when none exists while Qbserve is configured.
+
+### DR5.4 — The week opening 13 Sep was corrected to the 360-minute allowance
+User decision (2026-09-17): "set this week to 360". That week's row was opened
+with POP's old 180-minute snapshot before the user chose 360 in Phase 0, so
+it showed 127 min over. It is the first diagnostic week, and the only row
+changed: `weeks.allowance_min` went 180 → 360 for `2026-09-13T16:00:00+00:00`,
+then overage was re-recorded. Earlier pre-diagnostic weeks keep 180. A backup
+was taken first (`drbr-backup-20260916/pop-pre-360.db`).
