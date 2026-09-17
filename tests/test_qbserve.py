@@ -253,7 +253,8 @@ def test_window_excludes_today_and_clamps_to_go_live(clk, settings):
 def test_sync_imports_app_minutes_and_never_stores_titles(conn, clk, settings):
     out = qb.sync(conn, clk, settings)
     assert out.status == "ok" and out.measurements_written == 5
-    assert (out.period_start, out.period_end) == ("2026-09-13", "2026-09-15")
+    # Nothing was recorded on the 13th, so coverage starts at the 14th rather than claiming a zero.
+    assert (out.period_start, out.period_end) == ("2026-09-14", "2026-09-15")
     got = facts(conn)
     assert got == {
         ("desktop_app", "com.tinyspeck.slackmacgap", "com.tinyspeck.slackmacgap", "2026-09-14"): 2.5,
@@ -328,7 +329,7 @@ def test_days_after_qbserve_stopped_are_uncovered_not_zero(conn, settings, tmp_p
     s = config.test_settings(**{**settings.__dict__, "qbserve_db": stopped})
     clk = clock.FrozenClock("2026-09-17T10:00:00+00:00")
     out = qb.sync(conn, clk, s)
-    assert (out.period_start, out.period_end) == ("2026-09-13", "2026-09-14")
+    assert (out.period_start, out.period_end) == ("2026-09-14", "2026-09-14")
 
     silent = make_qb_db(tmp_path / "silent.sqlite", rows=[("2026-09-01T08:00:00", 3, 60)])
     s2 = config.test_settings(**{**settings.__dict__, "qbserve_db": silent})
@@ -510,3 +511,15 @@ def test_check_env_qbserve_step(tmp_path, qb_db, capsys, monkeypatch):
     old = make_qb_db(tmp_path / "old.sqlite", rows=[("2026-01-05T08:00:00", 3, 60)])
     out, failed = _check({"DRBR_QBSERVE_DB": str(old)}, capsys)
     assert not failed and "WARN" in out and "open at login" in out    # stale is a note, never a failure
+
+
+def test_days_before_qbserve_resumed_are_uncovered_not_zero(conn, settings, tmp_path):
+    """The live case: Qbserve closed for days, then reopened. The gap is not zero use."""
+    resumed = make_qb_db(tmp_path / "resumed.sqlite", rows=[
+        ("2026-08-31T08:00:00", 3, 60),                      # before the gap
+        ("2026-09-16T08:00:00", 3, 60), ("2026-09-16T08:01:00", 1, 60),   # reopened on the 16th
+    ])
+    s = config.test_settings(**{**settings.__dict__, "qbserve_db": resumed})
+    out = qb.sync(conn, clock.FrozenClock("2026-09-17T10:00:00+00:00"), s)
+    assert (out.period_start, out.period_end) == ("2026-09-16", "2026-09-16")
+    assert out.measurements_written == 1

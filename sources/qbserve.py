@@ -33,9 +33,13 @@ itself (the database is never copied). An unchanged window is a duplicate.
 
 **Absence is not zero.** Qbserve records nothing while it is not running, which
 looks exactly like a day without app use. So an import only claims to cover
-days up to the local day of Qbserve's newest record (`covered_through`); days
+from the first day in the window with any Qbserve record (browsers included)
+to the local day of its newest record (`covered_through`). Days before or
 after that stay uncovered ("not received") rather than reading as 0 minutes,
-and the daily job warns when that record is more than 36 hours old.
+and the daily job warns when the newest record is more than 36 hours old.
+Checked against the live data on 2026-09-17: Qbserve was closed 1–16 Sep and
+resumed that morning, so without the lower bound 13–16 Sep would have read as
+zero desktop-app minutes.
 """
 from __future__ import annotations
 
@@ -120,6 +124,7 @@ def read_app_minutes(db_path: pathlib.Path, *, first_day: date, last_day: date,
         names: dict[str, str] = {}
         browser_min = 0.0
         latest: float | None = None
+        first_recorded: date | None = None
         for table in tables:
             if not isinstance(table, str) or not _HISTORY_TABLE.fullmatch(table):
                 continue                                   # never interpolate an unexpected name into SQL
@@ -133,6 +138,8 @@ def read_app_minutes(db_path: pathlib.Path, *, first_day: date, last_day: date,
                 f"SELECT activity_id, start_time, duration FROM {table} WHERE start_time >= ? AND start_time < ?",
                 (start, end))
             for activity_id, started, duration in rows:
+                recorded = datetime.fromtimestamp(float(started), timezone.utc).astimezone(zone).date()
+                first_recorded = recorded if first_recorded is None else min(first_recorded, recorded)
                 app_id = activity_app.get(activity_id)
                 if app_id is None or duration is None or duration < 0:
                     continue
@@ -151,7 +158,8 @@ def read_app_minutes(db_path: pathlib.Path, *, first_day: date, last_day: date,
         conn.close()
     out = [AppDay(b, names[b], d, m) for (b, d), m in sorted(totals.items(), key=lambda kv: (kv[0][1], kv[0][0]))]
     facts = {"browser_apps_skipped": len(browsers), "browser_minutes_skipped": round(browser_min, 2),
-             "latest_record_at": clock.iso(datetime.fromtimestamp(latest, timezone.utc)) if latest else None}
+             "latest_record_at": clock.iso(datetime.fromtimestamp(latest, timezone.utc)) if latest else None,
+             "first_recorded_day": first_recorded.isoformat() if first_recorded else None}
     return out, facts
 
 
@@ -174,6 +182,7 @@ def document(rows: list[AppDay], facts: dict, *, first_day: date, last_day: date
         "v": 1,
         "first_day": first_day.isoformat(),
         "last_day": last_day.isoformat(),
+        "covered_from": facts.get("first_recorded_day"),
         "covered_through": through.isoformat() if through else None,
         "browser_apps_skipped": facts["browser_apps_skipped"],
         "apps": [{"bundle": r.bundle, "name": r.name, "day": r.day.isoformat(), "minutes": round(r.minutes, 2)}
@@ -182,11 +191,13 @@ def document(rows: list[AppDay], facts: dict, *, first_day: date, last_day: date
 
 
 def parse(data: bytes) -> tuple[date, date | None, list[AppDay]]:
-    """-> (first day read, last day covered or None when nothing is covered, rows)."""
+    """-> (first day covered, last day covered or None when nothing is covered, rows)."""
     try:
         doc = json.loads(data.decode("utf-8"))
         first = date.fromisoformat(doc["first_day"])
         date.fromisoformat(doc["last_day"])
+        if doc.get("covered_from"):
+            first = max(first, date.fromisoformat(doc["covered_from"]))
         last = date.fromisoformat(doc["covered_through"]) if doc["covered_through"] else None
         if last is not None and last < first:
             last = None
@@ -229,8 +240,9 @@ def _record(conn, clk, settings, data: bytes, rel: str, sha: str, *, facts: dict
                 item_key=r.bundle.casefold(), item_title=r.name, detail={"bundle": r.bundle},
             )
             written += 1
-        # The read covered every day up to Qbserve's newest record, including days
-        # with no app use, so the period runs to there, not just to days with rows.
+        # The period runs from the first day Qbserve recorded anything to its newest
+        # record: days inside it with no app use are real zeros, days outside are
+        # unknown (Qbserve not running) and stay uncovered.
         # Nothing recorded inside the window: evidence only, with a NULL period, so
         # the week reads "not received" instead of 0 minutes.
         if last is None:
