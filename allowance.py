@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 import clock
 import db
@@ -398,38 +398,32 @@ def _youtube_promoted_by(conn: sqlite3.Connection, settings: Settings, video_id:
 
 
 # --------------------------------------------------------------------------
-# Debt
+# Overage: recorded, never carried (DECISIONS DR5.2)
 # --------------------------------------------------------------------------
 
-def debt_for(closed: db.Week, pooled: PooledMinutes) -> int:
-    """clamp(pooled wasteful − effective allowance, 0, allowance_min).
+def overage_for(week: db.Week, pooled: PooledMinutes) -> int:
+    """max(0, pooled wasteful − the week's allowance), in whole minutes.
 
-    POP's D1.5 and D1.6 unchanged in shape; only the minutes widened from
-    Spotify listening to pooled wasteful consumption (DR1.4).
+    The user's rule: how far a week goes over is recorded, in full and
+    unclamped, and never reduces any other week's allowance. This replaces
+    POP's carried debt (D1.5/D1.6).
     """
-    raw = whole_minutes(pooled.wasteful_min) - closed.effective_allowance_min
-    return max(0, min(raw, closed.allowance_min))
+    return max(0, whole_minutes(pooled.wasteful_min) - week.allowance_min)
 
 
 def on_measurements_changed(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> None:
-    """Recompute `debt_min` for every week row that has a predecessor. Commits.
+    """Re-record `overage_min` for every week row. Commits.
 
     Screen Time, Cold Turkey and YouTube evidence arrives after Sunday's
-    rollover has already fixed a debt (DR1.5). Weeks are walked oldest first
-    so a recomputed debt feeds the next week's effective allowance, exactly as
-    successive rollovers would have. A week's predecessor is the most recent
-    week row before it — the same rule `db.roll_over_week` closes by — and
-    allowances already snapshotted in `weeks` are never rewritten.
+    rollover, and labels can change later, so every week's overage is
+    recomputed from current evidence and labels. The current week's figure is
+    "so far". Each week is judged against its own snapshotted allowance only;
+    no week's figure touches another's. `debt_min` is held at 0 (DR5.2).
     """
-    rows = conn.execute("SELECT * FROM weeks ORDER BY week_start").fetchall()
-    previous: db.Week | None = None
-    for row in rows:
+    for row in conn.execute("SELECT * FROM weeks ORDER BY week_start").fetchall():
         week = db._to_week(row)
-        if previous is not None:
-            debt = debt_for(previous, pooled_minutes(conn, settings, previous.week_start))
-            if debt != week.debt_min:
-                conn.execute("UPDATE weeks SET debt_min = ? WHERE week_start = ?",
-                             (debt, week.week_start))
-                week = replace(week, debt_min=debt)
-        previous = week
+        overage = overage_for(week, pooled_minutes(conn, settings, week.week_start))
+        if overage != week.overage_min or week.debt_min != 0:
+            conn.execute("UPDATE weeks SET overage_min = ?, debt_min = 0 WHERE week_start = ?",
+                         (overage, week.week_start))
     conn.commit()

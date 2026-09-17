@@ -223,8 +223,8 @@ def test_render_item_carries_the_week_remaining(conn):
     settings = config.test_settings()
     item = seed(conn, clk, settings, SHORT)
 
-    text, _ = triage.render_item(item, _week(debt_min=60, promoted_min=40), False)
-    assert "80 min left this week" in text     # 180 - 60 - 40
+    text, _ = triage.render_item(item, _week(promoted_min=100), False)
+    assert "80 min left this week" in text     # 180 - 100 promoted
 
 
 # ==========================================================================
@@ -546,7 +546,7 @@ def test_deadline_exempt_item_surfaces_inside_its_lock(conn, settings, spotify):
 # The week header
 # ==========================================================================
 
-def test_week_header_is_posted_last_with_allowance_debt_and_remaining(
+def test_week_header_is_posted_last_with_allowance_and_remaining(
         conn, settings, spotify):
     clk = clock.FrozenClock(CAPTURED)
     seed(conn, clk, settings, SHORT)
@@ -559,10 +559,12 @@ def test_week_header_is_posted_last_with_allowance_debt_and_remaining(
     assert header.startswith("Week of")
     assert "Allowance 180 min" in header
     assert "Remaining 180 min" in header
+    assert "Debt" not in header
+    assert "went" not in header                 # nothing over, so no overage line
 
 
-def test_week_header_reports_carried_debt(conn, settings, spotify):
-    """A blown week hands its overage to the next one, visible in the header."""
+def test_week_header_reports_last_weeks_overage_without_carrying_it(conn, settings, spotify):
+    """A blown week's overage is recorded and shown; the next week still starts whole (DR5.2)."""
     clk = clock.FrozenClock(CAPTURED)
     seed(conn, clk, settings, SHORT)
 
@@ -576,8 +578,21 @@ def test_week_header_reports_carried_debt(conn, settings, spotify):
     triage.run_triage(conn, clk, settings, spotify, bot)
 
     header = bot.texts[-1]
-    assert "Debt carried 60 min" in header
-    assert "Remaining 120 min" in header
+    assert "Last week went 60 min over (recorded, not carried)" in header
+    assert "Debt" not in header
+    assert "Allowance 180 min" in header
+    assert "Remaining 180 min" in header
+
+
+def test_render_week_header_overage_line_only_when_over():
+    week = _week()
+    for none_or_zero in (None, 0):
+        text = triage.render_week_header(week, last_week_wasteful_min=150.0,
+                                         last_week_overage_min=none_or_zero)
+        assert "went" not in text and "over" not in text
+    text = triage.render_week_header(week, last_week_wasteful_min=240.0, last_week_overage_min=60)
+    assert "Last week went 60 min over (recorded, not carried)" in text
+    assert "Debt" not in text
 
 
 def test_empty_queue_still_posts_the_header(conn, settings, spotify):

@@ -381,7 +381,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         if new_label not in T.LABELS:
             abort(400, description=f"label must be one of {', '.join(T.LABELS)}")
         source = labels.set_source_label(c, clk, source_id, new_label)
-        # DECISIONS DR2.7: a relabel changes carried debt now, not at the next import.
+        # DECISIONS DR2.7/DR5.2: a relabel re-records each week's overage now, not at the next import.
         allowance.on_measurements_changed(c, clk, settings)
         log.info("source %d labelled %s from the dashboard", source_id, new_label)
         if request.headers.get("HX-Request") == "true":

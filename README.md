@@ -113,7 +113,7 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 |---|---|---|
 | `com.jacob.pop.bot` | always on | Telegram: capture, triage buttons, screenshot/export imports, labels |
 | `com.jacob.pop.poll` | daily 09:17 | Spotify positions, lock lifts, deadline posts, allowance alerts |
-| `com.jacob.pop.triage` | Sunday 18:00 | Week rollover, debt, expiry, the triage post |
+| `com.jacob.pop.triage` | Sunday 18:00 | Week rollover (records last week's overage), expiry, the triage post |
 | `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, weekly import prompts, label batches, end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
 
@@ -244,13 +244,13 @@ cross-site posts. Every page shows the countdown to the end date.
   - weekly totals by source, with provenance badges (API / page data / parsed
     screenshot / manual export);
   - wasteful vs worthwhile per week;
-  - allowance spent, remaining and debt;
+  - allowance spent, remaining, and how far each week went over (recorded, never carried into the next week);
   - the **reflex** figure: wasteful minutes that never passed through the queue;
   - gated vs ungated per group;
   - cost per keeper, ranked;
   - funnels, blind spots, and the latest import per kind with warnings.
 - **Labels:** every source with an inline wasteful/worthwhile toggle.
-  Changing a label recomputes carried debt immediately.
+  Changing a label re-records each week's overage immediately.
 - **Records:** the raw measurements, filterable by group, label and date.
 
 No targets, scores or streaks, by design.

@@ -858,3 +858,12 @@ All additive and defaulted; every earlier call site stays valid. Reasons and tes
 - `jobs.run_daily` step `coldturkey_local` runs before `import_prompts`.
 - `handlers_imports.prompt_text(kind, week, *, automated_coldturkey=False)`.
 - `check_env.py` step 8 checks the database is readable (counts only).
+
+## §16 Post-build amendment — no debt carry-over (DR5.2)
+
+- Migration `0003_no_debt.sql`, schema_version 3: `weeks.overage_min INTEGER NULL CHECK >= 0`; `debt_min` zeroed.
+- `db.Week.overage_min: int | None`; `effective_allowance_min` = `allowance_min` (ignores `debt_min`).
+- `db.roll_over_week` records `closed.overage_min` and opens the new week with `debt_min = 0`.
+- `allowance.debt_for` removed → `allowance.overage_for(week, pooled) -> int`; `on_measurements_changed` re-records `overage_min` for every week.
+- `report.AllowanceStatus.debt_min` → `overage_min`; `report.WeekSplit` gains `allowance_min`, `overage_min`.
+- `triage.render_week_header(..., last_week_overage_min=None)`.

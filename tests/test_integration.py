@@ -279,7 +279,8 @@ def test_full_lifecycle(conn, settings, spotify):
     assert s.played_rate == 1.0 and s.fully_played_rate == 0.5
 
     # ------------------------------------------------------------------
-    # 5. Week rollover WITH debt, and 6. the promotion lapse. Same triage.
+    # 5. Week rollover OVER the allowance: recorded, never carried (DR5.2),
+    #    and 6. the promotion lapse. Same triage.
     # ------------------------------------------------------------------
     clk.set(TRIAGE_2)
     bot = FakeBot()
@@ -288,13 +289,15 @@ def test_full_lifecycle(conn, settings, spotify):
     closed = db._to_week(conn.execute(                      # noqa: SLF001 — assertion only
         "SELECT * FROM weeks WHERE week_start = ?", (WEEK_1,)).fetchone())
     assert closed.listened_min == 235
+    assert closed.overage_min == 55                          # 235 listened - 180, recorded
 
     week = db.current_week(conn, clk, settings)
     assert week.week_start == WEEK_2
-    assert week.debt_min == 55                               # 235 listened - 180 effective
-    assert week.effective_allowance_min == 125               # debt bites next week
-    assert week.remaining_min == 125
-    assert "Debt carried 55 min" in bot.texts[-1]
+    assert week.debt_min == 0                                # nothing carried
+    assert week.effective_allowance_min == 180               # the full allowance again
+    assert week.remaining_min == 180
+    assert "Last week went 55 min over (recorded, not carried)" in bot.texts[-1]
+    assert "Debt" not in bot.texts[-1]
 
     # 6. The lapse: promoted-but-not-played returns to the queue. The played
     #    item is terminal and is not touched. promoted_at survives both.
@@ -383,12 +386,12 @@ def test_the_gate_accepts_the_exact_remainder_and_refuses_one_minute_more(
     assert week.promoted_min == 180 and week.remaining_min == 0
 
 
-def test_debt_shrinks_the_gate_not_just_the_report(conn, settings, spotify):
-    """Debt has to reduce what the gate will actually let through."""
+def test_last_weeks_overage_never_shrinks_the_gate(conn, settings, spotify):
+    """Going over is recorded on the week it happened; the next week's gate lets the full allowance through (DR5.2)."""
     clk = clock.FrozenClock(TRIAGE_1)
     item = _capture(conn, clk, settings, A, "why")
     db.current_week(conn, clk, settings)
-    # DRBR: debt is driven by pooled wasteful minutes computed from evidence,
+    # DRBR: overage is driven by pooled wasteful minutes computed from evidence,
     # so the overage is real listening on another (unlabelled) episode rather
     # than a hand-set `listened_min`.
     db.upsert_episode(conn, B.spotify_id, B.title, B.show, B.description,
@@ -396,13 +399,14 @@ def test_debt_shrinks_the_gate_not_just_the_report(conn, settings, spotify):
     db.record_listening(conn, clk, B.spotify_id, 260 * MIN, 260 * MIN, False)
 
     clk.set(TRIAGE_2)
-    _closed, opened = db.roll_over_week(conn, clk, settings)
-    assert opened.debt_min == 80 and opened.effective_allowance_min == 100
+    closed, opened = db.roll_over_week(conn, clk, settings)
+    assert closed.overage_min == 80
+    assert opened.debt_min == 0 and opened.effective_allowance_min == 180
 
     db.lift_expired_locks(conn, clk, settings)
-    with pytest.raises(db.AllowanceExceeded) as excinfo:
-        db.promote(conn, clk, settings, item.id)      # 120 min against 100
-    assert excinfo.value.overage_min == 20
+    promoted = db.promote(conn, clk, settings, item.id)      # 120 min against the full 180
+    assert promoted.state == "promoted"
+    assert db.current_week(conn, clk, settings).remaining_min == 60
 
 
 def test_a_locked_item_cannot_be_promoted_but_a_deadline_exempt_one_can(
@@ -587,7 +591,7 @@ def test_a_part_heard_episode_does_not_arrive_with_phantom_listening_time(
 #
 # Bot capture (Spotify and YouTube, with an override) -> triage posts labels
 # -> promotion prices by label -> poll listens -> YouTube history arrives ->
-# rollover sets debt -> a late Screen Time import raises it -> the report
+# rollover records overage -> a late Screen Time import re-records it -> the report
 # reads it all back. One database, one clock, fakes for every client.
 # ==========================================================================
 
@@ -703,18 +707,25 @@ def test_drbr_pooled_label_aware_week_end_to_end(tmp_path):
     pooled = report.label_split(conn, clk, settings, weeks=1)[0]
     assert (pooled.wasteful_min, pooled.worthwhile_min) == (80, 25)
 
-    # --- rollover: 80 wasteful against 180, no debt yet
+    # --- rollover: 80 wasteful against 180, not over
     clk.set(next_week)
     triage.run_triage(conn, clk, settings, spotify, FakeBot())
     assert db.current_week(conn, clk, settings).debt_min == 0
+
+    def overage(week_start):
+        return conn.execute("SELECT overage_min FROM weeks WHERE week_start = ?", (week_start,)).fetchone()[0]
+
+    assert overage(week) == 0
     assert db.get_item(conn, talk.id).state == "queued"                    # lapsed, never "played"
 
-    # --- Monday: last week's Screen Time arrives and the debt follows it
+    # --- Monday: last week's Screen Time arrives and the recorded overage follows it
     clk.set("2026-09-14T08:00:00+00:00")
     _measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-09-06",
              end="2026-09-12", minutes=150.0)
+    assert overage(week) == 50                                             # 230 - 180, on that week
     status = report.allowance_status(conn, clk, settings)
-    assert (status.debt_min, status.effective_min) == (50, 130)            # 230 - 180
+    assert (status.overage_min, status.effective_min) == (0, 180)          # this week: nothing carried
+    assert db.current_week(conn, clk, settings).debt_min == 0
 
     gated = {r.group: r for r in report.gated_vs_ungated(conn, clk, settings, week)}
     assert gated[T.GROUP_PODCASTS].gated_min == pytest.approx(50)

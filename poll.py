@@ -305,9 +305,10 @@ def check_alerts(conn, clk: Clock, settings: Settings, bot) -> None:
     repeat.
 
     DRBR: the figure compared is pooled **wasteful** minutes across every
-    source, rounded to whole minutes the same way debt is
-    (`allowance.whole_minutes`), so an alert and the debt it predicts never
-    disagree. Worthwhile minutes are never counted here.
+    source, rounded to whole minutes the same way the recorded overage is
+    (`allowance.whole_minutes`), so an alert and the overage it reports never
+    disagree. Worthwhile minutes are never counted here. Nothing carries into
+    next week (DR5.2).
     """
     week = db.current_week(conn, clk, settings)
     effective = week.effective_allowance_min
@@ -315,8 +316,7 @@ def check_alerts(conn, clk: Clock, settings: Settings, bot) -> None:
         allowance.pooled_minutes(conn, settings, week.week_start).wasteful_min
     )
 
-    # With the whole allowance eaten by debt, "80% of nothing" is not a
-    # meaningful warning — every poll would trip it at zero minutes used.
+    # A zero allowance would make "80% of nothing" trip at zero minutes used.
     # Only the crossing is reported in that case.
     approaching = effective > 0 and used >= APPROACHING_FRACTION * effective
     exceeded = used > effective
@@ -342,8 +342,8 @@ def _exceeded_text(week, used: int) -> str:
     over = used - week.effective_allowance_min
     return (
         f"Over the allowance: {used} min used across sources (wasteful only) "
-        f"against {week.effective_allowance_min} min. {over} min over — that "
-        "comes off next week."
+        f"against {week.effective_allowance_min} min. {over} min over. That is "
+        "recorded for this week; next week still starts with the full allowance."
     )
 
 

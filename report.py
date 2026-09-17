@@ -133,6 +133,8 @@ class WeekSplit:
     wasteful_min: float
     worthwhile_min: float
     screenshot_ocr_min: float = 0.0
+    allowance_min: int | None = None    # that week's allowance (its snapshot, or config if never opened)
+    overage_min: int = 0                # recorded, never carried (DR5.2); "so far" for the current week
 
 
 @dataclass(frozen=True)
@@ -140,14 +142,15 @@ class AllowanceStatus:
     """The current allowance week.
 
     `spent_wasteful_min` is pooled wasteful consumption across sources and
-    `remaining_min` is what is left of the effective allowance after it —
-    consumption, the figure debt is computed from. `promoted_min` is POP's
-    promoted commitment, reported alongside and never mixed in.
+    `remaining_min` is what is left of the allowance after it. `overage_min` is
+    how far past the allowance it has gone: recorded, never carried into the
+    next week (DR5.2). `promoted_min` is POP's promoted commitment, reported
+    alongside and never mixed in.
     """
 
     week_start: str
     allowance_min: int
-    debt_min: int
+    overage_min: int
     effective_min: int
     spent_wasteful_min: float
     remaining_min: int
@@ -417,30 +420,27 @@ def label_split(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         if floor is not None and T.measurement_week_for_allowance_week(start, settings.tz).end < floor:
             continue
         pooled = allowance.pooled_minutes(conn, settings, start)
-        out.append(WeekSplit(start, pooled.wasteful_min, pooled.worthwhile_min, pooled.screenshot_ocr_min))
+        row = conn.execute("SELECT allowance_min FROM weeks WHERE week_start = ?", (start,)).fetchone()
+        allowed = row["allowance_min"] if row else settings.weekly_allowance_min
+        over = allowance.overage_for(db.Week(start, allowed, 0, 0, 0), pooled)
+        out.append(WeekSplit(start, pooled.wasteful_min, pooled.worthwhile_min, pooled.screenshot_ocr_min,
+                             allowed, over))
     return out
 
 
 def allowance_status(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> AllowanceStatus:
-    """Spent, remaining and debt carried for the week containing now.
+    """Spent, remaining and overage so far for the week containing now.
 
     Read-only: if no process has opened this week's row yet, the week is
-    described as rollover would open it (fresh allowance, debt from the
-    previous row's pooled wasteful minutes) without writing it.
+    described as rollover would open it (the full allowance from config)
+    without writing it. Nothing from any earlier week reduces it (DR5.2).
     """
     start = _current_week_start(clk, settings)
     row = conn.execute("SELECT * FROM weeks WHERE week_start = ?", (start,)).fetchone()
     if row is not None:
         week = db._to_week(row)
     else:
-        prior = conn.execute(
-            "SELECT * FROM weeks WHERE week_start < ? ORDER BY week_start DESC LIMIT 1", (start,)
-        ).fetchone()
-        debt = 0
-        if prior is not None:
-            closed = db._to_week(prior)
-            debt = allowance.debt_for(closed, allowance.pooled_minutes(conn, settings, closed.week_start))
-        week = db.Week(start, settings.weekly_allowance_min, debt, 0, 0)
+        week = db.Week(start, settings.weekly_allowance_min, 0, 0, 0)
 
     pooled = allowance.pooled_minutes(conn, settings, start)
     spent = pooled.wasteful_min
@@ -448,7 +448,7 @@ def allowance_status(conn: sqlite3.Connection, clk: Clock, settings: Settings) -
     return AllowanceStatus(
         week_start=start,
         allowance_min=week.allowance_min,
-        debt_min=week.debt_min,
+        overage_min=allowance.overage_for(week, pooled),
         effective_min=effective,
         spent_wasteful_min=spent,
         remaining_min=max(0, effective - allowance.whole_minutes(spent)),

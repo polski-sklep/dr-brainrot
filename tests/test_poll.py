@@ -483,6 +483,21 @@ def test_exceeded_fires_once_and_never_repeats(conn, settings):
     assert quiet.sent == []
 
 
+def test_exceeded_text_records_the_overage_and_takes_nothing_from_next_week(conn, settings):
+    """DR5.2: going over is recorded for this week; nothing comes off next week."""
+    clk = clock.FrozenClock(MONDAY)
+    db.current_week(conn, clk, settings)
+    use_minutes(conn, clk, 200)
+    bot = FakeBot()
+    poll.check_alerts(conn, clk, settings, bot)
+    exceeded = [t for t in bot.texts if t.startswith("Over the allowance")]
+    assert exceeded == [
+        "Over the allowance: 200 min used across sources (wasteful only) against 180 min. 20 min over. "
+        "That is recorded for this week; next week still starts with the full allowance."
+    ]
+    assert "comes off" not in exceeded[0] and "debt" not in exceeded[0].lower()
+
+
 def test_a_new_week_alerts_again(conn, settings):
     clk = clock.FrozenClock(CAPTURED)
     seed(conn, clk, settings, LONG)
@@ -518,10 +533,10 @@ def test_check_alerts_is_safe_to_call_directly_and_repeatedly(conn, settings):
 
 
 def test_a_zero_effective_allowance_reports_the_crossing_not_the_approach(conn, settings):
-    """Debt can eat the whole allowance. "80% of nothing" is not a warning."""
+    """A zero allowance (debt can no longer cause one, DR5.2). "80% of nothing" is not a warning."""
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET debt_min = 180 WHERE week_start = ?", (WEEK_START,))
+    conn.execute("UPDATE weeks SET allowance_min = 0 WHERE week_start = ?", (WEEK_START,))
     conn.commit()
 
     silent = FakeBot()

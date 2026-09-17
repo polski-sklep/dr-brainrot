@@ -5,7 +5,7 @@ test"). Written by the verifier, not by any agent that built the code.
 
 Why one long scenario rather than many small tests: the defects this guards
 against live *between* modules — a label set in Telegram that the dashboard
-never sees, a late import that never reaches the debt, a source identifier
+never sees, a late import that never reaches the recorded overage, a source identifier
 the vault and Cold Turkey spell differently, a provenance that is flattened
 on the way to the page. Unit tests already pin each module alone. Here the
 whole chain runs once, in order, on a frozen clock, and each numbered block
@@ -20,7 +20,7 @@ becomes observable. Numbers in the comments match the Phase 4 checklist:
   [6] wasteful allowance rules      [15] provenance to report and HTML
   [7] pooled spending across sources[16] duplicate ingestion, every source
   [8] week rollover                 [17] parser failure, every source
-  [9] debt, incl. late recompute
+  [9] overage recorded, never carried (DR5.2), incl. late re-record
 
 Everything external is faked at its boundary and nothing else: FakeSpotify
 and an httpx.MockTransport SpotifyClient, FakeYouTubeApi behind the real
@@ -412,8 +412,12 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     db.init_db(conn)
     db.migrate(conn)
     db.init_db(conn)
-    db.migrate(conn)                                   # a restart re-runs both; still version 2, nothing doubled
-    assert evidence.get_meta(conn, "schema_version") == "2"
+    db.migrate(conn)                                   # a restart re-runs both; still version 3, nothing doubled
+    assert evidence.get_meta(conn, "schema_version") == "3"
+    # Migration 0003 adds `weeks.overage_min` (NULL until computed) and zeroes debt_min;
+    # these POP weeks already had debt 0, so the POP columns below are byte-identical.
+    assert [tuple(r) for r in conn.execute("SELECT week_start, overage_min FROM weeks ORDER BY 1")] == \
+        [(OLDER_WEEK, None), (LEGACY_WEEK, None)]
     for table, cols in POP_TABLES.items():
         assert [tuple(r) for r in conn.execute(f"SELECT {cols} FROM {table} ORDER BY 1")] == \
             [tuple(r) for r in before[table]], table
@@ -445,6 +449,9 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
         q = Query(f"d:lbl:{code}:{source_id}")
         run(handlers_labels.on_label_callback(Update(query=q), ctx))
         return q
+
+    def overage(week_start: str) -> int | None:
+        return conn.execute("SELECT overage_min FROM weeks WHERE week_start = ?", (week_start,)).fetchone()[0]
 
     def debt(week_start: str) -> int:
         return conn.execute("SELECT debt_min FROM weeks WHERE week_start = ?", (week_start,)).fetchone()[0]
@@ -657,13 +664,15 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
         assert row["state"] == "queued" and row["promoted_at"] == "2026-09-16T07:05:00+00:00"
     nxt = db._to_week(conn.execute("SELECT * FROM weeks WHERE week_start = ?", (NEXT_WEEK,)).fetchone())
     assert (nxt.allowance_min, nxt.promoted_min) == (1000, 0)
-    # [9] debt from pooled wasteful: Spotify 100 + YouTube channel B 69.33 = 169 < 1000
-    assert nxt.debt_min == 0
+    # [9] overage from pooled wasteful: Spotify 100 + YouTube channel B 69.33 = 169 < 1000
+    assert overage(GO_LIVE_WEEK) == 0
+    assert nxt.debt_min == 0 and nxt.effective_allowance_min == 1000
     posts = [m["text"] for m in tg.sent[sent_before:]]
     assert any("Quantum Gravity" in p and "Label: worthwhile (source label) · costs 0 min — worthwhile" in p
                for p in posts)
     assert any("API title 4" in p and "Label: worthwhile (your tag at capture)" in p for p in posts)
     assert "Last week spent 169 min wasteful across sources" in posts[-1]
+    assert "went" not in posts[-1] and "Debt" not in posts[-1]
 
     # ------------------------------------------------------------------
     # Mon 21 07:30Z — Screen Time screenshots through the photo handler
@@ -696,8 +705,9 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     last = send_screenshots(shots, st_ingest(recorded_ocr(pages), recorded_region(recovery)))
     assert "Screen Time (10 screenshots): 39 app figures recorded for 2026-09-13 – 2026-09-19 (complete)." \
         == last.replies[0]
-    # [9] late import: the closed week's minutes changed, so the carried debt did too
-    assert debt(NEXT_WEEK) == 81                     # 169.33 + 911.97 = 1081 -> 81 over 1000
+    # [9] late import: the closed week's minutes changed, so its recorded overage did too
+    assert overage(GO_LIVE_WEEK) == 81               # 169.33 + 911.97 = 1081 -> 81 over 1000
+    assert debt(NEXT_WEEK) == 0                      # and nothing is carried
 
     again = send_screenshots(shots, st_ingest(recorded_ocr(pages), recorded_region(recovery)))      # [16]
     assert "already imported" in again.replies[0]
@@ -708,12 +718,14 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert "don't look like Screen Time" in junk.replies[0]
     assert count(conn, "measurements", "provenance = 'screenshot_ocr'") == 39
     assert count(conn, "imports", "kind = 'screentime' AND status = 'failed'") == 1
-    assert debt(NEXT_WEEK) == 81
+    assert overage(GO_LIVE_WEEK) == 81
+    assert debt(NEXT_WEEK) == 0
 
-    # A label from the Telegram batch buttons changes the carried debt at once.
+    # A label from the Telegram batch buttons re-records the overage at once.
     clk.set("2026-09-21T07:40:00+00:00")
     label_in_telegram("iphone_app", "chatterbox", "v")
-    assert debt(NEXT_WEEK) == 43                     # 38 minutes moved to worthwhile
+    assert overage(GO_LIVE_WEEK) == 43               # 38 minutes moved to worthwhile
+    assert debt(NEXT_WEEK) == 0
 
     # ------------------------------------------------------------------
     # Mon 21 08:00Z — Cold Turkey export through the document handler
@@ -728,7 +740,8 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     export = coldturkey_export()
     ct_msg = send_document(export, "Cold Turkey Blocker Website Statistics.json")
     assert ct_msg.replies[0] == "Cold Turkey: 49 domain-day figures recorded for 2026-09-13 – 2026-09-19 (complete)."
-    assert debt(NEXT_WEEK) == 135                    # + 92.07 wasteful; youtube.com's 40 excluded as covered
+    assert overage(GO_LIVE_WEEK) == 135              # + 92.07 wasteful; youtube.com's 40 excluded as covered
+    assert debt(NEXT_WEEK) == 0
     assert "already imported" in send_document(export, "again.json").replies[0]                       # [16]
     blocked = send_document((FIXTURES / "coldturkey" / "websites_blocked.json").read_bytes(), "blocked.json")
     assert "import failed, nothing was recorded" in blocked.replies[0] and "counts blocks" in blocked.replies[0]  # [17]
@@ -858,9 +871,11 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert split[GO_LIVE_WEEK].wasteful_min == pytest.approx(1135.37)
 
     status = report.allowance_status(conn, clk, settings)
-    assert (status.week_start, status.debt_min, status.effective_min) == (NEXT_WEEK, 135, 865)
+    # Last week's 135 over is recorded on that week; this week keeps its full 1000.
+    assert (status.week_start, status.overage_min, status.effective_min) == (NEXT_WEEK, 0, 1000)
     assert status.spent_wasteful_min == pytest.approx(3.0)        # the channel-B Short watched on Sunday 20th
-    assert status.remaining_min == 862
+    assert status.remaining_min == 997
+    assert (split[GO_LIVE_WEEK].allowance_min, split[GO_LIVE_WEEK].overage_min) == (1000, 135)
 
     gated = {r.group: r for r in report.gated_vs_ungated(conn, clk, settings, GO_LIVE_WEEK)}
     assert (gated[T.GROUP_PODCASTS].gated_min, gated[T.GROUP_PODCASTS].ungated_min,
@@ -931,8 +946,12 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
             f"SELECT {POP_TABLES[table]} FROM {table} ORDER BY 1")][:len(before[table])]
         assert rows_now == [tuple(r) for r in before[table]], table
     assert [tuple(r) for r in conn.execute(
-        "SELECT * FROM weeks WHERE week_start IN (?, ?) ORDER BY 1", (OLDER_WEEK, LEGACY_WEEK))] == \
-        [tuple(r) for r in before["weeks"]]
+        f"SELECT {POP_TABLES['weeks']} FROM weeks WHERE week_start IN (?, ?) ORDER BY 1",
+        (OLDER_WEEK, LEGACY_WEEK))] == [tuple(r) for r in before["weeks"]]
+    # The only DRBR addition to those rows: an overage recorded against their own 180 (neither went over).
+    assert [tuple(r) for r in conn.execute(
+        "SELECT week_start, overage_min FROM weeks WHERE week_start IN (?, ?) ORDER BY 1",
+        (OLDER_WEEK, LEGACY_WEEK))] == [(OLDER_WEEK, 0), (LEGACY_WEEK, 0)]
     assert [tuple(r) for r in conn.execute("SELECT * FROM queue WHERE id IN (1, 2) ORDER BY id")] == \
         [tuple(r) for r in before["queue"]]
     assert real_writer or not OBSIDIAN_INGEST.exists()

@@ -241,27 +241,57 @@ def test_label_split_is_weekly_oldest_first(conn, clk, settings):
     assert (splits[2].wasteful_min, splits[2].worthwhile_min) == (0, 0)
 
 
-def test_allowance_status_reports_spent_remaining_debt_and_promoted(conn, clk, settings):
+def test_allowance_status_reports_spent_remaining_overage_and_promoted(conn, clk, settings):
     seed_week(conn, clk, settings)
     item = spotify_item(conn, clk, settings, "PromoteEpisode00000000", show="Pod", minutes=25)
     db.promote(conn, clk, settings, item.id)
     status = report.allowance_status(conn, clk, settings)
     assert status.week_start == WEEK
-    assert (status.allowance_min, status.debt_min, status.effective_min) == (180, 0, 180)
+    assert (status.allowance_min, status.overage_min, status.effective_min) == (180, 0, 180)
+    assert not hasattr(status, "debt_min")
     assert status.spent_wasteful_min == pytest.approx(132)
     assert status.remaining_min == 48
     assert status.promoted_min == 25
 
 
+def test_allowance_status_reports_this_weeks_overage_so_far(conn, clk, settings):
+    seed_week(conn, clk, settings)                              # 132 wasteful so far
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-09",
+            minutes=118.0)                                      # 250 wasteful against 180
+    status = report.allowance_status(conn, clk, settings)
+    assert status.overage_min == 70
+    assert status.remaining_min == 0
+    assert status.effective_min == 180
+
+
 def test_allowance_status_does_not_create_the_week_row(conn, clk, settings):
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="TikTok", day="2026-08-30",
             period_end="2026-09-05", minutes=230.0)
-    db.current_week(conn, clk, settings)                       # the week of 30 Aug exists
+    db.current_week(conn, clk, settings)                       # the week of 30 Aug exists, 50 over
     clk.set(WED)                                                # next week: no row yet
     status = report.allowance_status(conn, clk, settings)
-    assert status.debt_min == 50                                # what rollover would carry
-    assert status.effective_min == 130
+    # Described as rollover would open it: the full allowance, nothing carried (DR5.2).
+    assert status.overage_min == 0                              # nothing spent this week yet
+    assert status.effective_min == 180
+    assert status.remaining_min == 180
     assert conn.execute("SELECT COUNT(*) FROM weeks WHERE week_start = ?", (WEEK,)).fetchone()[0] == 0
+
+
+def test_label_split_carries_each_weeks_allowance_and_overage(conn, clk, settings):
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="TikTok", day="2026-08-30",
+            period_end="2026-09-05", minutes=230.0)
+    clk.set("2026-09-01T10:00:00+00:00")
+    db.current_week(conn, clk, settings)
+    conn.execute("UPDATE weeks SET allowance_min = 200")        # a snapshotted allowance wins over config
+    conn.commit()
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="TikTok", day="2026-09-06",
+            period_end="2026-09-12", minutes=190.0)
+    clk.set(WED)                                                # no row for this week: config's 180
+    by_week = {w.week_start: w for w in report.label_split(conn, clk, settings, weeks=4)}
+    first = by_week["2026-08-30T16:00:00+00:00"]
+    assert (first.allowance_min, first.overage_min) == (200, 30)
+    # Week 2 is judged against its own 180, not reduced by week 1's 30.
+    assert (by_week[WEEK].allowance_min, by_week[WEEK].overage_min) == (180, 10)
 
 
 # ==========================================================================

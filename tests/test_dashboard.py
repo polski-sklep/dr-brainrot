@@ -300,9 +300,30 @@ def test_vault_numbers_are_never_minutes(client, conn, clk, settings):
 def test_allowance_status_is_plain_numbers(client, conn, clk, settings):
     populate(conn, clk, settings)
     allowance_html = flat(section(text(client.get("/")), "allowance"))
-    for label in ("Spent", "Remaining", "Debt carried from last week"):
+    for label in ("Spent", "Remaining", "Over the allowance so far", "Allowance",
+                  "Weeks over the allowance"):
         assert label in allowance_html
+    assert "debt" not in allowance_html.lower() and "effective" not in allowance_html.lower()
     assert "target" not in allowance_html.lower() and "score" not in allowance_html.lower()
+    assert "No week in the diagnostic window has gone over." in allowance_html   # 132 of 180
+
+
+def test_weeks_over_the_allowance_table_lists_each_weeks_own_overage(client, conn, clk, settings):
+    populate(conn, clk, settings)                                   # week of 6 Sep: 132 wasteful
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-09",
+            minutes=118.0)                                          # 250 against 180
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-14",
+            minutes=200.0)                                          # current week: 20 over so far
+    html = section(text(client.get("/")), "allowance")
+    table = html.split("Weeks over the allowance", 1)[1]
+    rows = body_rows(table)
+    assert len(rows) == 2
+    closed = flat(row_for(rows, "2026-09-06"))
+    assert "180 min" in closed and closed.endswith("70 min")
+    current = flat(row_for(rows, "2026-09-13"))
+    assert "(in progress)" in current and current.endswith("20 min")   # not reduced by last week's 70
+    status = flat(html.split("Weeks over the allowance", 1)[0])
+    assert "Over the allowance so far 20 min" in status
 
 
 def test_gated_vs_ungated_shows_the_reflex_share(client, conn, clk, settings):
@@ -337,27 +358,33 @@ def test_labels_page_filters_by_kind_and_label(client, conn, clk):
     assert client.get("/labels?kind=nonsense").status_code == 400
 
 
-def _debt_scenario(conn, clk, settings):
-    """A closed week with 500 wasteful minutes: 140 debt carried into the next."""
+def _overage_scenario(conn, clk, settings):
+    """A closed week with 500 wasteful minutes: 140 over, recorded on it, nothing carried."""
     clk.set("2026-09-14T10:00:00+00:00")
     db.current_week(conn, clk, settings)
     src = measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="news.example", day="2026-09-15",
                   minutes=500.0)
     clk.set("2026-09-20T16:30:00+00:00")
-    _closed, opened = db.roll_over_week(conn, clk, settings)
-    assert opened.debt_min == 140
-    return src, opened
+    closed, opened = db.roll_over_week(conn, clk, settings)
+    assert closed.overage_min == 140
+    assert opened.debt_min == 0
+    return src, closed, opened
+
+
+def _week_figures(conn, week_start):
+    row = conn.execute("SELECT overage_min, debt_min FROM weeks WHERE week_start = ?", (week_start,)).fetchone()
+    return row["overage_min"], row["debt_min"]
 
 
 @pytest.fixture
-def debt_settings(tmp_path):
-    return make_settings(tmp_path, db_path=tmp_path / "debt.db", weekly_allowance_min=360)
+def overage_settings(tmp_path):
+    return make_settings(tmp_path, db_path=tmp_path / "overage.db", weekly_allowance_min=360)
 
 
-def test_label_toggle_via_htmx_returns_the_row_and_recomputes_debt(debt_settings, clk):
-    conn = open_db(debt_settings)
-    src, opened = _debt_scenario(conn, clk, debt_settings)
-    client = dashboard_app.create_app(debt_settings, clk, lambda: db.connect(debt_settings)).test_client()
+def test_label_toggle_via_htmx_returns_the_row_and_re_records_overage(overage_settings, clk):
+    conn = open_db(overage_settings)
+    src, closed, opened = _overage_scenario(conn, clk, overage_settings)
+    client = dashboard_app.create_app(overage_settings, clk, lambda: db.connect(overage_settings)).test_client()
 
     resp = client.post(f"/labels/{src.id}", data={"label": T.WORTHWHILE}, headers={"HX-Request": "true"})
     assert resp.status_code == 200
@@ -366,26 +393,32 @@ def test_label_toggle_via_htmx_returns_the_row_and_recomputes_debt(debt_settings
     assert "<html" not in fragment and "<strong>worthwhile</strong>" in fragment
 
     assert labels.get_source(conn, src.id).label == T.WORTHWHILE
-    week = conn.execute("SELECT debt_min FROM weeks WHERE week_start = ?", (opened.week_start,)).fetchone()
-    assert week["debt_min"] == 0
+    assert _week_figures(conn, closed.week_start) == (0, 0)      # now worthwhile: never over
+    assert _week_figures(conn, opened.week_start) == (0, 0)
     conn.close()
 
 
-def test_label_toggle_via_plain_post_redirects_and_recomputes_debt(debt_settings, clk):
-    conn = open_db(debt_settings)
-    src, opened = _debt_scenario(conn, clk, debt_settings)
+def test_label_toggle_via_plain_post_redirects_and_re_records_overage(overage_settings, clk):
+    conn = open_db(overage_settings)
+    src, closed, opened = _overage_scenario(conn, clk, overage_settings)
     labels.set_source_label(conn, clk, src.id, T.WORTHWHILE)
-    conn.execute("UPDATE weeks SET debt_min = 0 WHERE week_start = ?", (opened.week_start,))
+    conn.execute("UPDATE weeks SET overage_min = 0 WHERE week_start = ?", (closed.week_start,))
     conn.commit()
-    client = dashboard_app.create_app(debt_settings, clk, lambda: db.connect(debt_settings)).test_client()
+    client = dashboard_app.create_app(overage_settings, clk, lambda: db.connect(overage_settings)).test_client()
 
     resp = client.post(f"/labels/{src.id}", data={"label": T.WASTEFUL, "f_kind": "web_domain"})
     assert resp.status_code == 303
     assert resp.headers["Location"].endswith(f"/labels?kind=web_domain#source-{src.id}")
     assert labels.get_source(conn, src.id).label == T.WASTEFUL
-    week = conn.execute("SELECT debt_min FROM weeks WHERE week_start = ?", (opened.week_start,)).fetchone()
-    assert week["debt_min"] == 140
+    assert _week_figures(conn, closed.week_start) == (140, 0)    # re-recorded on the closed week
+    assert _week_figures(conn, opened.week_start) == (0, 0)      # and never carried
     conn.close()
+
+
+def test_labels_page_says_a_relabel_re_records_overage(client):
+    page = flat(text(client.get("/labels")))
+    assert "re-records each week's overage" in page
+    assert "debt" not in page.lower()
 
 
 def test_unknown_youtube_channel_is_shown_but_not_toggleable(client, conn, clk):

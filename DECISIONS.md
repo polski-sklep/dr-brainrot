@@ -1253,3 +1253,31 @@ saying the automatic read failed. Manual exports sent to the bot still work.
 
 **Blind spots updated.** "Top domains only" is claimed only while any
 manual-export import exists. "This Mac only" always stands.
+
+### DR5.2 — Going over the allowance is recorded, never carried as debt
+User decision (2026-09-17): "This notion of the carryover of debt needs to go.
+I need it recorded. How much I go over, I don't want to carry debt over."
+This retires POP's D1.5/D1.6 (debt from listening, clamped at one allowance)
+and DRBR's DR1.4/DR1.5 debt recompute.
+
+- **Recorded:** `weeks.overage_min` (migration 0003) = max(0, pooled wasteful
+  minutes − that week's own allowance), in whole minutes and **unclamped**. The
+  current week's figure is "so far".
+- **Re-recorded:** late imports and relabels update it through
+  `allowance.on_measurements_changed`, which now updates every week
+  independently. No week's figure affects another.
+- **Never carried:** every week opens with the full allowance.
+  `weeks.debt_min` stays in POP's schema but was zeroed by migration 0003 and
+  is ignored by `Week.effective_allowance_min`, so even a stray write can't
+  shrink the gate.
+- **Unchanged:** the gate still refuses a wasteful promotion that exceeds what
+  is left this week, and alerts still fire at 80% and on crossing. The
+  "exceeded" message now says the overage is recorded and next week starts
+  full.
+- **Where it shows:**
+  - dashboard: "Over the allowance so far" and a "Weeks over the allowance" table;
+  - Sunday triage header: "Last week went N min over (recorded, not carried)".
+- **Live data:** the one existing non-zero debt (21 min on the week of 13 Sep)
+  was zeroed by the migration. That week's overage is recomputed from evidence.
+- **Stale comments:** `schema.sql`'s comments still describe the debt formula.
+  That file is the frozen v1 baseline and is deliberately not edited.

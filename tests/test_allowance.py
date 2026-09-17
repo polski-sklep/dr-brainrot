@@ -8,7 +8,7 @@ against private shortcuts.
 The matrix at the top is the important part: every combination of
 {item override worthwhile / wasteful / none} x {source label worthwhile /
 wasteful / unlabelled} x {spotify, youtube} is run through promotion cost,
-refusal, lock enforcement, debt and alerts. The rule under test is short —
+refusal, lock enforcement, recorded overage and alerts. The rule under test is short —
 override beats source beats the wasteful default, and only wasteful spends —
 and the matrix is what proves no path quietly disagrees with it.
 """
@@ -226,20 +226,20 @@ def test_refusal_applies_to_wasteful_only(conn, clk, settings, override, source_
     item = matrix_item(conn, clk, settings, override, source_label, platform, minutes=60)
     clk.set(WED)
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET debt_min = 150 WHERE week_start = ?", (WEEK,))  # effective 30
+    conn.execute("UPDATE weeks SET promoted_min = 150 WHERE week_start = ?", (WEEK,))  # 30 left
     conn.commit()
     label, _ = expected(override, source_label)
 
     if label == T.WORTHWHILE:
         promoted = db.promote(conn, clk, settings, item.id)
         assert promoted.state == "promoted"
-        assert week_row(conn, WEEK).promoted_min == 0            # spends nothing
+        assert week_row(conn, WEEK).promoted_min == 150          # spends nothing
     else:
         with pytest.raises(db.AllowanceExceeded) as excinfo:
             db.promote(conn, clk, settings, item.id)
         assert excinfo.value.overage_min == 30
         assert db.get_item(conn, item.id).state == "queued"      # nothing written
-        assert week_row(conn, WEEK).promoted_min == 0
+        assert week_row(conn, WEEK).promoted_min == 150
 
 
 @pytest.mark.parametrize("override,source_label,platform", MATRIX)
@@ -255,8 +255,8 @@ def test_the_lock_holds_for_every_label(conn, clk, settings, override, source_la
 
 
 @pytest.mark.parametrize("override,source_label,platform", MATRIX)
-def test_debt_comes_only_from_wasteful_consumption(conn, clk, settings,
-                                                   override, source_label, platform):
+def test_overage_comes_only_from_wasteful_consumption(conn, clk, settings,
+                                                      override, source_label, platform):
     item = matrix_item(conn, clk, settings, override, source_label, platform, minutes=300)
     clk.set(WED)
     db.current_week(conn, clk, settings)
@@ -266,7 +266,11 @@ def test_debt_comes_only_from_wasteful_consumption(conn, clk, settings,
     closed, opened = db.roll_over_week(conn, clk, settings)
     label, _ = expected(override, source_label)
     assert closed.week_start == WEEK
-    assert opened.debt_min == (60 if label == T.WASTEFUL else 0)
+    assert closed.overage_min == (60 if label == T.WASTEFUL else 0)
+    assert week_row(conn, WEEK).overage_min == closed.overage_min      # persisted, not just returned
+    # Recorded, never carried (DR5.2): the next week starts whole for every label.
+    assert opened.debt_min == 0
+    assert opened.effective_allowance_min == settings.weekly_allowance_min
 
 
 @pytest.mark.parametrize("override,source_label,platform", MATRIX)
@@ -339,7 +343,7 @@ def test_pooled_minutes_across_every_source_in_one_week(conn, clk, settings):
     assert bot.texts == ["145 of 180 min used this week across sources (wasteful only). 35 min left."]
 
 
-def test_covered_elsewhere_rows_never_reach_allowance_or_debt(conn, clk, settings):
+def test_covered_elsewhere_rows_never_reach_allowance_or_overage(conn, clk, settings):
     clk.set(WED)
     db.current_week(conn, clk, settings)
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="YouTube", day="2026-09-06",
@@ -354,7 +358,8 @@ def test_covered_elsewhere_rows_never_reach_allowance_or_debt(conn, clk, setting
     poll.check_alerts(conn, clk, settings, bot)
     assert bot.texts == []
     clk.set(NEXT_WEEK)
-    _, opened = db.roll_over_week(conn, clk, settings)
+    closed, opened = db.roll_over_week(conn, clk, settings)
+    assert closed.overage_min == 0
     assert opened.debt_min == 0
 
 
@@ -376,7 +381,8 @@ def test_worthwhile_consumption_is_counted_but_never_charged(conn, clk, settings
     poll.check_alerts(conn, clk, settings, bot)
     assert bot.texts == []
     clk.set(NEXT_WEEK)
-    _, opened = db.roll_over_week(conn, clk, settings)
+    closed, opened = db.roll_over_week(conn, clk, settings)
+    assert closed.overage_min == 0
     assert opened.debt_min == 0
     # POP's listened_min keeps its meaning: raw Spotify minutes, all labels.
     assert week_row(conn, WEEK).listened_min == 300
@@ -430,7 +436,7 @@ def test_week_attribution_across_the_dst_boundary(conn, clk, settings):
     assert allowance.pooled_minutes(conn, settings, after_dst).wasteful_min == pytest.approx(27)
 
 
-def test_rollover_debt_across_the_dst_boundary(conn, clk, settings):
+def test_rollover_overage_across_the_dst_boundary(conn, clk, settings):
     clk.set("2026-10-20T10:00:00+00:00")
     db.current_week(conn, clk, settings)
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="TikTok", day="2026-10-18",
@@ -439,21 +445,30 @@ def test_rollover_debt_across_the_dst_boundary(conn, clk, settings):
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.week_start == "2026-10-18T16:00:00+00:00"
     assert opened.week_start == "2026-10-25T17:00:00+00:00"
-    assert opened.debt_min == 70
+    assert closed.overage_min == 70                        # 250 - 180, on the closed week
+    assert opened.debt_min == 0
+    assert opened.effective_allowance_min == 180
 
 
 # ==========================================================================
-# Debt
+# Overage: recorded, never carried (DECISIONS DR5.2)
 # ==========================================================================
 
-def test_debt_for_clamps_at_the_allowance_and_floors_at_zero():
-    closed = db.Week(WEEK, allowance_min=180, debt_min=0, promoted_min=0, listened_min=0)
+def test_overage_for_is_unclamped_and_floors_at_zero():
+    week = db.Week(WEEK, allowance_min=180, debt_min=0, promoted_min=0, listened_min=0)
     pooled = lambda m: allowance.PooledMinutes(wasteful_min=m, worthwhile_min=0.0)  # noqa: E731
-    assert allowance.debt_for(closed, pooled(100)) == 0
-    assert allowance.debt_for(closed, pooled(240)) == 60
-    assert allowance.debt_for(closed, pooled(5000)) == 180
-    indebted = db.Week(WEEK, allowance_min=180, debt_min=60, promoted_min=0, listened_min=0)
-    assert allowance.debt_for(indebted, pooled(150)) == 30
+    assert allowance.overage_for(week, pooled(100)) == 0
+    assert allowance.overage_for(week, pooled(180)) == 0
+    assert allowance.overage_for(week, pooled(240)) == 60
+    assert allowance.overage_for(week, pooled(5000)) == 4820          # no clamp at the allowance
+    # Judged against the week's own allowance, never an "effective" one.
+    legacy = db.Week(WEEK, allowance_min=180, debt_min=60, promoted_min=0, listened_min=0)
+    assert allowance.overage_for(legacy, pooled(150)) == 0
+    assert allowance.overage_for(legacy, pooled(240)) == 60
+
+
+def test_debt_for_is_gone():
+    assert not hasattr(allowance, "debt_for")
 
 
 def test_whole_minutes_matches_pops_rounding():
@@ -461,36 +476,40 @@ def test_whole_minutes_matches_pops_rounding():
         assert allowance.whole_minutes(ms / MIN) == db.ms_to_min(ms)
 
 
-def test_pooled_debt_is_clamped_at_rollover(conn, clk, settings):
+def test_pooled_overage_is_recorded_unclamped_at_rollover(conn, clk, settings):
     clk.set(WED)
     db.current_week(conn, clk, settings)
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="TikTok", day="2026-09-06",
             period_end="2026-09-12", minutes=2000.0)
     clk.set(NEXT_WEEK)
-    _, opened = db.roll_over_week(conn, clk, settings)
-    assert opened.debt_min == 180
-    assert opened.effective_allowance_min == 0
+    closed, opened = db.roll_over_week(conn, clk, settings)
+    assert closed.overage_min == 1820                        # 2000 - 180, not clamped at 180
+    assert opened.debt_min == 0
+    assert opened.effective_allowance_min == 180             # a blown week never zeroes the next
 
 
-def test_a_late_import_recomputes_debt(conn, clk, settings):
-    """Screen Time arrives Monday, after Sunday's rollover fixed a debt of 0."""
+def test_a_late_import_re_records_overage(conn, clk, settings):
+    """Screen Time arrives Monday, after Sunday's rollover recorded an overage of 0."""
     clk.set(WED)
     db.current_week(conn, clk, settings)
     ep = spotify_item(conn, clk, settings, "LateEpisode00000000000", show="Pod", minutes=300)
     listen(conn, clk, ep.spotify_id, 150)
 
     clk.set(NEXT_WEEK)
-    _, opened = db.roll_over_week(conn, clk, settings)
+    closed, opened = db.roll_over_week(conn, clk, settings)
+    assert closed.overage_min == 0
     assert opened.debt_min == 0
 
     clk.set("2026-09-14T08:00:00+00:00")        # Monday: last week's screenshot arrives
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-09-06",
             period_end="2026-09-12", minutes=100.0)
-    assert week_row(conn, NEXT_WEEK).debt_min == 70          # 250 - 180
-    assert week_row(conn, WEEK).debt_min == 0                # no predecessor: untouched
+    assert week_row(conn, WEEK).overage_min == 70            # 250 - 180, on the week it happened
+    assert week_row(conn, NEXT_WEEK).debt_min == 0           # nothing carried
+    assert week_row(conn, NEXT_WEEK).overage_min == 0        # the current week, so far
+    assert week_row(conn, NEXT_WEEK).effective_allowance_min == 180
 
 
-def test_a_late_import_cascades_through_later_weeks(conn, clk, settings):
+def test_a_late_import_never_cascades_through_later_weeks(conn, clk, settings):
     clk.set(WED)
     db.current_week(conn, clk, settings)
     clk.set(NEXT_WEEK)
@@ -498,13 +517,51 @@ def test_a_late_import_cascades_through_later_weeks(conn, clk, settings):
     clk.set("2026-09-20T16:00:00+00:00")
     db.roll_over_week(conn, clk, settings)
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-09-13",
-            period_end="2026-09-19", minutes=150.0)                # week 2: 150 vs 180, no debt
-    assert week_row(conn, "2026-09-20T16:00:00+00:00").debt_min == 0
+            period_end="2026-09-19", minutes=150.0)                # week 2: 150 vs 180, not over
+    assert week_row(conn, NEXT_WEEK).overage_min == 0
 
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="TikTok", day="2026-09-06",
             period_end="2026-09-12", minutes=280.0)                # week 1 blown by 100
-    assert week_row(conn, NEXT_WEEK).debt_min == 100               # effective 80 in week 2
-    assert week_row(conn, "2026-09-20T16:00:00+00:00").debt_min == 70   # 150 - 80
+    assert week_row(conn, WEEK).overage_min == 100
+    # Week 1's overage does not shrink week 2: 150 against its full 180 is still not over.
+    assert week_row(conn, NEXT_WEEK).overage_min == 0
+    assert week_row(conn, NEXT_WEEK).debt_min == 0
+    assert week_row(conn, NEXT_WEEK).effective_allowance_min == 180
+    assert week_row(conn, "2026-09-20T16:00:00+00:00").debt_min == 0
+    assert week_row(conn, "2026-09-20T16:00:00+00:00").effective_allowance_min == 180
+
+
+def test_overage_is_judged_per_week_independently(conn, clk, settings):
+    """Two weeks both over: each records its own full overage; neither reduces the other."""
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="TikTok", day="2026-09-06",
+            period_end="2026-09-12", minutes=300.0)                # week 1: 120 over
+    clk.set(NEXT_WEEK)
+    db.roll_over_week(conn, clk, settings)
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="TikTok", day="2026-09-13",
+            period_end="2026-09-19", minutes=200.0)                # week 2: 20 over its own 180
+    clk.set("2026-09-20T16:00:00+00:00")
+    closed, opened = db.roll_over_week(conn, clk, settings)
+    assert closed.week_start == NEXT_WEEK
+    assert closed.overage_min == 20                                # not 140 (compounded)
+    assert week_row(conn, WEEK).overage_min == 120
+    assert opened.debt_min == 0 and opened.effective_allowance_min == 180
+
+
+def test_on_measurements_changed_records_overage_and_zeroes_legacy_debt(conn, clk, settings):
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="TikTok", day="2026-09-06",
+            period_end="2026-09-12", minutes=240.0)
+    clk.set(NEXT_WEEK)
+    db.roll_over_week(conn, clk, settings)
+    conn.execute("UPDATE weeks SET debt_min = 45, overage_min = NULL")   # stale state
+    conn.commit()
+    allowance.on_measurements_changed(conn, clk, settings)
+    assert week_row(conn, WEEK).overage_min == 60
+    assert week_row(conn, NEXT_WEEK).overage_min == 0
+    assert [r["debt_min"] for r in conn.execute("SELECT debt_min FROM weeks")] == [0, 0]
 
 
 def test_on_measurements_changed_is_idempotent_and_never_touches_allowances(conn, clk, settings):
@@ -514,11 +571,15 @@ def test_on_measurements_changed_is_idempotent_and_never_touches_allowances(conn
     db.roll_over_week(conn, clk, settings)
     conn.execute("UPDATE weeks SET allowance_min = 360 WHERE week_start = ?", (NEXT_WEEK,))
     conn.commit()
+    allowances = [(r["week_start"], r["allowance_min"])
+                  for r in conn.execute("SELECT * FROM weeks ORDER BY week_start")]
+    allowance.on_measurements_changed(conn, clk, settings)      # first run records overage
     before = conn.execute("SELECT * FROM weeks ORDER BY week_start").fetchall()
-    allowance.on_measurements_changed(conn, clk, settings)
     allowance.on_measurements_changed(conn, clk, settings)
     after = conn.execute("SELECT * FROM weeks ORDER BY week_start").fetchall()
     assert [tuple(r) for r in before] == [tuple(r) for r in after]
+    assert [(r["week_start"], r["allowance_min"]) for r in after] == allowances
+    assert all(r["overage_min"] is not None for r in after)
 
 
 # ==========================================================================

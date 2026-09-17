@@ -1,8 +1,8 @@
 """Phase 2.5 integration: the seams between the four Phase 2 components.
 
 Each component is unit-tested on its own branch. These tests exercise only
-what integration added or connected: the daily job, relabel-driven debt
-recomputation, the go-live floor across modules, and the bot's handler set
+what integration added or connected: the daily job, relabel-driven overage
+re-recording, the go-live floor across modules, and the bot's handler set
 with every real extension module installed.
 """
 from __future__ import annotations
@@ -104,16 +104,17 @@ def test_end_notice_is_sent_once_and_only_after_the_end(conn, clk, settings):
     assert len(b.sent) == 1 and "shut DRBR down" in b.sent[0]["text"]
 
 
-# --- relabel recomputes debt ------------------------------------------------
+# --- relabel re-records overage ------------------------------------------------
 
-def test_relabelling_a_source_recomputes_carried_debt_immediately(conn, clk, settings):
+def test_relabelling_a_source_re_records_overage_immediately(conn, clk, settings):
     clk.set("2026-09-14T10:00:00+00:00")
     closed = db.current_week(conn, clk, settings)
     src = _minutes(conn, clk, settings, kind="web_domain", key="news.example", day="2026-09-15", minutes=500)
     clk.set("2026-09-20T16:30:00+00:00")        # after Sunday 18:00 Warsaw
     _closed, opened = db.roll_over_week(conn, clk, settings)
     assert _closed.week_start == closed.week_start
-    assert opened.debt_min == 140                # 500 wasteful - 360
+    assert _closed.overage_min == 140            # 500 wasteful - 360, recorded on the closed week
+    assert opened.debt_min == 0                  # never carried (DR5.2)
 
     app_data = {"settings": settings, "conn": conn, "clk": clk}
 
@@ -138,8 +139,12 @@ def test_relabelling_a_source_recomputes_carried_debt_immediately(conn, clk, set
         bot_data = app_data
 
     asyncio.run(handlers_labels.on_label_callback(Update(), Ctx()))
-    week = conn.execute("SELECT debt_min FROM weeks WHERE week_start = ?", (opened.week_start,)).fetchone()
-    assert week["debt_min"] == 0                  # now worthwhile: never charged
+    was = conn.execute("SELECT overage_min, debt_min FROM weeks WHERE week_start = ?",
+                       (closed.week_start,)).fetchone()
+    assert (was["overage_min"], was["debt_min"]) == (0, 0)       # now worthwhile: never over
+    now = conn.execute("SELECT overage_min, debt_min FROM weeks WHERE week_start = ?",
+                       (opened.week_start,)).fetchone()
+    assert now["debt_min"] == 0
 
 
 # --- go-live across modules -------------------------------------------------

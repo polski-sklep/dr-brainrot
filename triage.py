@@ -239,25 +239,26 @@ def _fmt_local(when: str, tz: str | None) -> str:
 
 
 def render_week_header(week: Week, *, spent_wasteful_min: float | None = None,
-                       last_week_wasteful_min: float | None = None, tz: str | None = None) -> str:
-    """Allowance, debt carried, remaining. Posted after the items.
+                       last_week_wasteful_min: float | None = None, last_week_overage_min: int | None = None,
+                       tz: str | None = None) -> str:
+    """Allowance, remaining, and last week's recorded overage. Posted after the items.
 
     DRBR adds pooled wasteful minutes spent across sources — this week so far,
-    and the week just closed, which is the figure the debt above came from.
-    "Remaining" keeps POP's meaning: minutes still promotable.
+    and the week just closed. Going over is recorded and shown, never carried
+    (DR5.2). "Remaining" keeps POP's meaning: minutes still promotable.
     """
     lines = [
         f"Week of {_fmt_local(week.week_start, tz)}",
         f"Allowance {week.allowance_min} min",
     ]
-    if week.debt_min:
-        lines.append(f"Debt carried {week.debt_min} min")
     lines.append(f"Remaining {week.remaining_min} min")
     if last_week_wasteful_min is not None:
         lines.append(
             f"Last week spent {allowance.whole_minutes(last_week_wasteful_min)} min "
             "wasteful across sources"
         )
+    if last_week_overage_min:
+        lines.append(f"Last week went {last_week_overage_min} min over (recorded, not carried)")
     if spent_wasteful_min is not None:
         lines.append(
             f"Spent so far {allowance.whole_minutes(spent_wasteful_min)} min "
@@ -382,6 +383,7 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
         current,
         spent_wasteful_min=allowance.pooled_minutes(conn, settings, current.week_start).wasteful_min,
         last_week_wasteful_min=allowance.pooled_minutes(conn, settings, closed.week_start).wasteful_min,
+        last_week_overage_min=closed.overage_min,
         tz=settings.tz,
     ))
 

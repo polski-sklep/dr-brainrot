@@ -43,8 +43,9 @@ unchanged. What changed:
 * ``promote()`` prices an item through ``allowance.promotion_cost``: a
   worthwhile item costs 0 and is never refused. The lock re-check runs first
   and is identical for every label (DR1.3).
-* ``roll_over_week()`` drives debt from pooled **wasteful** minutes across
-  sources (``allowance.debt_for``, DR1.4), still clamped. ``listened_min``
+* ``roll_over_week()`` records the closed week's overage from pooled
+  **wasteful** minutes across sources and opens the next week with its full
+  allowance: nothing carries over (``allowance.overage_for``, DR5.2). ``listened_min``
   keeps its POP meaning: raw Spotify minutes.
 * ``funnel_stats()`` "played" for a YouTube item is measured watching after
   promotion, because YouTube has no ``fully_played`` flag (DR1.14).
@@ -64,7 +65,7 @@ from config import Settings
 ROOT = pathlib.Path(__file__).resolve().parent
 SCHEMA_PATH = ROOT / "schema.sql"
 MIGRATIONS_DIR = ROOT / "migrations"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 ACTIVE_STATES = ("locked", "queued", "promoted")
 TERMINAL_STATES = ("dropped", "expired", "played")
@@ -152,11 +153,19 @@ class Week:
     debt_min: int
     promoted_min: int
     listened_min: int
+    #: How far pooled wasteful consumption went past the allowance (DR5.2).
+    #: Recorded, never carried. None until computed.
+    overage_min: int | None = None
 
     @property
     def effective_allowance_min(self) -> int:
-        """This week's allowance after last week's debt. Floored at zero."""
-        return max(0, self.allowance_min - self.debt_min)
+        """The week's full allowance. Nothing from an earlier week reduces it (DR5.2).
+
+        `debt_min` survives only as a column in POP's schema. It is zeroed by
+        migration 0003 and deliberately ignored here, so even a stray write
+        could never shrink the gate again.
+        """
+        return max(0, self.allowance_min)
 
     @property
     def remaining_min(self) -> int:
@@ -283,6 +292,7 @@ def _to_week(row: sqlite3.Row) -> Week:
         debt_min=row["debt_min"],
         promoted_min=row["promoted_min"],
         listened_min=row["listened_min"],
+        overage_min=row["overage_min"] if "overage_min" in row.keys() else None,
     )
 
 
@@ -662,21 +672,18 @@ def roll_over_week(conn: sqlite3.Connection, clk: Clock,
 
     1. Lapse every `promoted` item back to `queued`. Anything actually played
        is already in `played` and is not touched. `promoted_at` survives.
-    2. `debt = clamp(pooled wasteful - effective_allowance_min, 0, allowance_min)`.
-       Debt is driven by **consumed** minutes, not promoted ones: the gate makes
-       over-promotion impossible, so the only way to exceed the allowance is to
-       actually consume past it. DRBR widens POP's listened minutes to pooled
-       wasteful minutes across every source (`allowance.debt_for`, DR1.4);
-       worthwhile consumption never creates debt. The clamp at `allowance_min`
-       stops one blown week from zeroing out several later ones. A late import
-       recomputes it through `allowance.on_measurements_changed` (DR1.5).
-    3. Open the new week with that debt and a fresh allowance from config.
+    2. Record the closed week's overage: pooled **wasteful** minutes across
+       every source past its allowance (`allowance.overage_for`). Consumed
+       minutes, not promoted ones; worthwhile consumption never counts. A late
+       import re-records it through `allowance.on_measurements_changed`.
+    3. Open the new week with the full allowance from config. **Nothing carries
+       over** (DECISIONS DR5.2, which retires POP's D1.5/D1.6 debt).
 
     Note which week gets closed. Triage runs *at* Sunday 18:00, and a Sunday at
     exactly 18:00 already belongs to the new week, so the week being closed is
     the most recent one that opened **before** the one containing `now` — not
     `current_week()`, which by then is the new one. Closing `current_week()`
-    here would silently compute every debt from an empty week.
+    here would silently record every overage from an empty week.
     """
     now = clk.now()
     opened_start = clock.iso(clock.week_start_for(now, settings.tz))
@@ -695,7 +702,7 @@ def roll_over_week(conn: sqlite3.Connection, clk: Clock,
         # First run, or no week was ever opened. Materialise the immediately
         # preceding week — one second before the opening boundary lands inside
         # it — so there is something honest to return as `closed`. Its counters
-        # are zero, so it carries no debt.
+        # are zero, so it records no overage.
         previous_start = clock.iso(
             clock.week_start_for(
                 clock.parse(opened_start) - _dt.timedelta(seconds=1), settings.tz
@@ -705,23 +712,24 @@ def roll_over_week(conn: sqlite3.Connection, clk: Clock,
     else:
         closed = _to_week(prior)
 
-    # 2. Debt from pooled wasteful minutes, clamped.
+    # 2. Record how far the closed week went over. Recorded, never carried.
     import allowance  # noqa: PLC0415 — allowance imports db; lazy breaks the cycle
 
-    debt = allowance.debt_for(closed, allowance.pooled_minutes(conn, settings, closed.week_start))
+    overage = allowance.overage_for(closed, allowance.pooled_minutes(conn, settings, closed.week_start))
+    conn.execute("UPDATE weeks SET overage_min = ? WHERE week_start = ?", (overage, closed.week_start))
 
-    # 3. Open the new week. If the row already exists (a repeated triage run,
-    #    or promotions made before rollover), refresh its debt and allowance
-    #    but leave promoted/listened accounting alone.
+    # 3. Open the new week with the full allowance. If the row already exists (a
+    #    repeated triage run, or promotions made before rollover), refresh its
+    #    allowance but leave promoted/listened accounting alone.
     conn.execute(
         """
         INSERT INTO weeks (week_start, allowance_min, debt_min, promoted_min, listened_min)
-        VALUES (?, ?, ?, 0, 0)
+        VALUES (?, ?, 0, 0, 0)
         ON CONFLICT(week_start) DO UPDATE SET
             allowance_min = excluded.allowance_min,
-            debt_min      = excluded.debt_min
+            debt_min      = 0
         """,
-        (opened_start, settings.weekly_allowance_min, debt),
+        (opened_start, settings.weekly_allowance_min),
     )
     conn.commit()
 

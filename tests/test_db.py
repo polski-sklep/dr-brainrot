@@ -372,12 +372,14 @@ def test_current_week_creates_the_row(conn, clk, settings):
 
 
 def test_week_properties():
-    w = db.Week(WEEK_1, allowance_min=180, debt_min=60, promoted_min=40, listened_min=0)
-    assert w.effective_allowance_min == 120
-    assert w.remaining_min == 80
-    blown = db.Week(WEEK_1, allowance_min=180, debt_min=999, promoted_min=0, listened_min=0)
-    assert blown.effective_allowance_min == 0
-    assert blown.remaining_min == 0
+    w = db.Week(WEEK_1, allowance_min=180, debt_min=0, promoted_min=40, listened_min=0)
+    assert w.effective_allowance_min == 180
+    assert w.remaining_min == 140
+    legacy = db.Week(WEEK_1, allowance_min=180, debt_min=999, promoted_min=0, listened_min=0)
+    assert legacy.effective_allowance_min == 180      # DR5.2: debt never reduces the allowance
+    assert legacy.remaining_min == 180
+    spent = db.Week(WEEK_1, allowance_min=180, debt_min=0, promoted_min=180, listened_min=0)
+    assert spent.remaining_min == 0
 
 
 # --- the allocation gate ----------------------------------------------------
@@ -462,15 +464,24 @@ def test_gate_refuses_the_second_item_once_the_week_is_spent(conn, clk, settings
     assert db.current_week(conn, clk, settings).promoted_min == 120
 
 
-def test_gate_accounts_for_debt(conn, clk, settings):
+def test_gate_accounts_for_what_is_already_promoted(conn, clk, settings):
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET debt_min = 100")
+    conn.execute("UPDATE weeks SET promoted_min = 100")
     conn.commit()
     item = item_in_state(conn, clk, settings, "queued", minutes=90)
     with pytest.raises(db.AllowanceExceeded) as exc:
         db.promote(conn, clk, settings, item.id)
-    assert exc.value.remaining_min == 80        # 180 - 100 debt
+    assert exc.value.remaining_min == 80        # 180 - 100 promoted
     assert exc.value.overage_min == 10
+
+
+def test_a_stray_legacy_debt_never_shrinks_the_gate(conn, clk, settings):
+    """DR5.2: debt is gone. Even a non-zero debt_min left in a row is ignored."""
+    db.current_week(conn, clk, settings)
+    conn.execute("UPDATE weeks SET debt_min = 100")
+    conn.commit()
+    item = item_in_state(conn, clk, settings, "queued", minutes=90)
+    assert db.promote(conn, clk, settings, item.id).state == "promoted"
 
 
 def test_partly_heard_item_fits_where_the_full_one_would_not(conn, clk, settings):
@@ -524,7 +535,7 @@ def test_record_listening_without_a_week_still_stores_the_row(conn, clk, setting
     assert conn.execute("SELECT COUNT(*) FROM listening").fetchone()[0] == 1
 
 
-# --- rollover, lapse and debt ----------------------------------------------
+# --- rollover, lapse and overage (recorded, never carried: DR5.2) ----------------------------------------------
 
 def listen(conn, clk, sid, minutes):
     db.record_listening(conn, clk, sid, position_ms=minutes * MIN_MS,
@@ -560,59 +571,71 @@ def test_roll_over_opens_the_next_week_with_a_fresh_allowance(conn, clk, setting
     assert opened.promoted_min == 0 and opened.listened_min == 0
 
 
-def test_no_debt_when_the_week_stayed_inside_the_allowance(conn, clk, settings):
+def test_no_overage_when_the_week_stayed_inside_the_allowance(conn, clk, settings):
     db.current_week(conn, clk, settings)
     listen(conn, clk, make_episode(conn, "epL", minutes=300), 150)
     clk.advance(days=7)
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.listened_min == 150
+    assert closed.overage_min == 0
     assert opened.debt_min == 0
     assert opened.effective_allowance_min == 180
 
 
-def test_debt_carries_into_the_next_week(conn, clk, settings):
+def test_overage_is_recorded_and_never_carried(conn, clk, settings):
     db.current_week(conn, clk, settings)
     listen(conn, clk, make_episode(conn, "epL", minutes=300), 240)
     clk.advance(days=7)
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.listened_min == 240
-    assert opened.debt_min == 60                       # 240 - 180
-    assert opened.effective_allowance_min == 120
-    assert opened.remaining_min == 120
+    assert closed.overage_min == 60                    # 240 - 180, recorded on the closed week
+    row = conn.execute("SELECT overage_min, debt_min FROM weeks WHERE week_start = ?",
+                       (closed.week_start,)).fetchone()
+    assert (row["overage_min"], row["debt_min"]) == (60, 0)
+    assert opened.debt_min == 0                        # nothing carried
+    assert opened.effective_allowance_min == 180
+    assert opened.remaining_min == 180
 
 
-def test_debt_is_clamped_at_the_allowance(conn, clk, settings):
+def test_overage_is_recorded_in_full_not_clamped(conn, clk, settings):
     db.current_week(conn, clk, settings)
     listen(conn, clk, make_episode(conn, "epL", minutes=2000), 1000)
     clk.advance(days=7)
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.listened_min == 1000
-    assert opened.debt_min == 180                      # not 820
-    assert opened.effective_allowance_min == 0
-    assert opened.remaining_min == 0
+    assert closed.overage_min == 820                   # the full figure, not clamped at 180
+    assert opened.debt_min == 0
+    assert opened.effective_allowance_min == 180       # a blown week never zeroes the next
+    assert opened.remaining_min == 180
 
 
-def test_debt_is_driven_by_listening_not_promotion(conn, clk, settings):
+def test_overage_is_driven_by_listening_not_promotion(conn, clk, settings):
     item = item_in_state(conn, clk, settings, "queued", minutes=180)
     db.promote(conn, clk, settings, item.id)           # 180 promoted, 0 listened
     clk.advance(days=7)
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.promoted_min == 180
+    assert closed.overage_min == 0
     assert opened.debt_min == 0
 
 
-def test_debt_uses_the_effective_allowance_so_it_compounds_honestly(conn, clk, settings):
+def test_overage_never_compounds_across_weeks(conn, clk, settings):
     db.current_week(conn, clk, settings)
     listen(conn, clk, make_episode(conn, "epL", minutes=3000), 240)
     clk.advance(days=7)
-    _, week2 = db.roll_over_week(conn, clk, settings)
-    assert week2.debt_min == 60 and week2.effective_allowance_min == 120
+    closed1, week2 = db.roll_over_week(conn, clk, settings)
+    assert closed1.overage_min == 60
+    assert week2.debt_min == 0 and week2.effective_allowance_min == 180
 
-    listen(conn, clk, make_episode(conn, "epM", minutes=3000), 150)  # 30 over 120
+    listen(conn, clk, make_episode(conn, "epM", minutes=3000), 150)  # 150 against the full 180
     clk.advance(days=7)
     closed2, week3 = db.roll_over_week(conn, clk, settings)
     assert closed2.listened_min == 150
-    assert week3.debt_min == 30
+    assert closed2.overage_min == 0                    # was "30 over 120" under carried debt
+    assert week3.debt_min == 0 and week3.effective_allowance_min == 180
+    # Week 1's record is untouched by week 2's rollover.
+    assert db._to_week(conn.execute("SELECT * FROM weeks WHERE week_start = ?",
+                                    (closed1.week_start,)).fetchone()).overage_min == 60
 
 
 def test_roll_over_from_an_empty_database(conn, clk, settings):

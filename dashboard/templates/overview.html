@@ -131,13 +131,22 @@
       <tr><th>Spent (wasteful, pooled across sources)</th><td class="num">{{ allowance.spent_wasteful_min|min }}</td></tr>
       <tr><th>… of which from parsed screenshots</th><td class="num">{{ allowance.spent_screenshot_ocr_min|min }}{% if allowance.spent_screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
       <tr><th>Remaining</th><td class="num">{{ allowance.remaining_min }} min</td></tr>
-      <tr><th>Debt carried from last week</th><td class="num">{{ allowance.debt_min }} min</td></tr>
-      <tr><th>Base allowance</th><td class="num">{{ allowance.allowance_min }} min</td></tr>
-      <tr><th>Effective allowance (base minus debt)</th><td class="num">{{ allowance.effective_min }} min</td></tr>
+      <tr><th>Over the allowance so far</th><td class="num">{{ allowance.overage_min }} min</td></tr>
+      <tr><th>Allowance</th><td class="num">{{ allowance.allowance_min }} min</td></tr>
       <tr><th>Promoted in the POP queue (a commitment, reported separately)</th><td class="num">{{ allowance.promoted_min }} min</td></tr>
     </tbody>
   </table>
-  <p class="note">Week opening {{ allowance.week_start|local_dt }}. Weekly evidence (Screen Time, Cold Turkey, YouTube) arrives late, so spent can rise after the week is over.</p>
+  <p class="note">Week opening {{ allowance.week_start|local_dt }}. Weekly evidence (Screen Time, Cold Turkey, YouTube) arrives late, so spent can rise after the week is over. Going over is recorded per week and never carried: every week starts with the full allowance.</p>
+  {% set over_weeks = chart.bars|selectattr("split.overage_min")|list %}
+  <h3>Weeks over the allowance</h3>
+  {% if over_weeks %}
+  <table class="compact">
+    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Allowance</th><th class="num">Over by</th></tr></thead>
+    <tbody>{% for b in over_weeks %}<tr><td>{{ b.sunday }}{% if b.current %} (in progress){% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.allowance_min }} min</td><td class="num">{{ b.split.overage_min }} min</td></tr>{% endfor %}</tbody>
+  </table>
+  {% else %}
+  <p class="note">No week in the diagnostic window has gone over.</p>
+  {% endif %}
 </section>
 
 {# ------------------------------------------------------------------ 4 #}

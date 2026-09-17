@@ -22,3 +22,6 @@ inputs/
 
 # agent worktrees
 .claude/worktrees/
+
+# local backups (database and .env copies) — never commit
+drbr-backup-*/
