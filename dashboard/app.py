@@ -78,6 +78,7 @@ GROUP_NAMES = {
     T.GROUP_X: "X",
     T.GROUP_IPHONE: "iPhone apps",
     T.GROUP_DESKTOP: "Desktop web",
+    T.GROUP_DESKTOP_APPS: "Desktop apps",
     T.GROUP_WEB: "Web articles",
     T.GROUP_OTHER: "Other captures",
 }
@@ -88,6 +89,7 @@ KIND_NAMES = {
     T.KIND_IPHONE_APP: "iPhone app",
     T.KIND_WEB_DOMAIN: "web domain",
     T.KIND_X: "X",
+    T.KIND_DESKTOP_APP: "Mac app",
 }
 
 IMPORT_KIND_NAMES = {
@@ -95,6 +97,7 @@ IMPORT_KIND_NAMES = {
     "screentime": "Screen Time",
     "coldturkey": "Cold Turkey",
     "vault_scan": "Vault scan",
+    "qbserve": "Qbserve",
 }
 
 #: (short text, css tier) per provenance. The long text is T.PROVENANCE_TEXT.
@@ -103,6 +106,7 @@ PROVENANCE_BADGES = {
     T.PROV_PAGE: ("page data", "page"),
     T.PROV_SCREENSHOT: ("parsed screenshot", "screenshot"),
     T.PROV_EXPORT: ("manual export", "export"),
+    T.PROV_APP_TRACKER: ("app tracker", "apptracker"),
     T.PROV_VAULT: ("vault scan · count", "vault"),
     T.PROV_LABEL: ("your label", "label"),
 }

@@ -9,11 +9,14 @@ the functions each source owns:
    so a note captured yesterday is already in the denominator when scanned.
 2. `coldturkey_local.sync` — this Mac's Cold Turkey statistics, hostnames only
    (DR5.1), before the prompts so a week it covers is never asked for.
-3. `handlers_imports.send_due_prompts` — Screen Time / Cold Turkey / YouTube
+3. `qbserve.sync` — desktop app minutes from Qbserve, browsers skipped
+   (DR5.3), with a once-a-day Telegram warning while Qbserve has not
+   recorded for more than 36 hours.
+4. `handlers_imports.send_due_prompts` — Screen Time / Cold Turkey / YouTube
    for the last complete week, once per day until each arrives.
-4. `handlers_labels.send_label_batch` — newly seen sources, once the
+5. `handlers_labels.send_label_batch` — newly seen sources, once the
    diagnostic has run a week.
-5. One diagnostic-end notice, ever.
+6. One diagnostic-end notice, ever.
 
 Each step is isolated: a vault failure must not cost the user their Monday
 prompt, and a Telegram outage must not stop the scan. Every failure is logged
@@ -22,23 +25,27 @@ swallowed into a success.
 """
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from collections.abc import Callable
 
 import clock
 import db
+import drbr_types as T
 import evidence
 import handlers_imports
 import handlers_labels
 from clock import Clock
 from config import Settings
-from sources import coldturkey_local, vault
+from sources import coldturkey_local, qbserve, vault
 from triage import SyncBot, send
 
 log = logging.getLogger("drbr.jobs")
 
 END_KIND = "diagnostic_end"
+QBSERVE_STALE_KIND = "qbserve_stale"
+QBSERVE_STALE_HOURS = 36
 
 
 def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
@@ -57,6 +64,7 @@ def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
     step("read_outbox", lambda: _outbox(conn, clk, settings))
     step("vault_scan", lambda: _scan(conn, clk, settings))
     step("coldturkey_local", lambda: _coldturkey(conn, clk, settings))
+    step("qbserve", lambda: _qbserve(conn, clk, settings, bot))
     step("import_prompts", lambda: handlers_imports.send_due_prompts(conn, clk, settings, bot))
     step("label_batch", lambda: handlers_labels.send_label_batch(conn, clk, settings, bot))
     step("diagnostic_end", lambda: send_end_notice(conn, clk, settings, bot))
@@ -92,6 +100,60 @@ def _coldturkey(conn, clk: Clock, settings: Settings) -> str:
     if outcome.status == "failed":
         raise RuntimeError(f"cold turkey import failed: {outcome.error}")
     return f"import {outcome.import_id} {outcome.status}, {outcome.measurements_written} domain-day figures"
+
+
+def _qbserve(conn, clk: Clock, settings: Settings, bot) -> str:
+    if settings.qbserve_db is None:
+        return "not configured (DRBR_QBSERVE_DB unset): desktop apps not measured"
+    try:
+        outcome = qbserve.sync(conn, clk, settings)
+        if outcome is None:
+            result = "no finished days to read yet"
+        elif outcome.duplicate_of is not None:
+            result = f"unchanged since import {outcome.duplicate_of}"
+        else:
+            for warning in outcome.warnings:
+                log.warning("qbserve: %s", warning)
+            if outcome.status == "failed":
+                raise RuntimeError(f"qbserve import failed: {outcome.error}")
+            result = f"import {outcome.import_id} {outcome.status}, {outcome.measurements_written} app-day figures"
+    except Exception:
+        # Warn even when this read failed: a stale earlier import is still the last
+        # word. Roll back first so the warning's commit can't carry half a write.
+        conn.rollback()
+        try:
+            _qbserve_stale_warning(conn, clk, settings, bot)
+        except Exception:  # noqa: BLE001 — the read failure is the error to report
+            log.exception("qbserve stale warning failed")
+        raise
+    return f"{result}; {_qbserve_stale_warning(conn, clk, settings, bot)}"
+
+
+def _qbserve_stale_warning(conn, clk: Clock, settings: Settings, bot) -> str:
+    """One Telegram message a day while Qbserve has not recorded for over 36 hours (DR5.3)."""
+    hours = qbserve.staleness_hours(conn, clk)
+    if hours is None or hours <= QBSERVE_STALE_HOURS:
+        return "qbserve recording is current" if hours is not None else "no qbserve record to judge staleness"
+    if evidence.diagnostic(conn, clk, settings).ended:
+        return "qbserve stale; diagnostic ended, no warning"
+    today = T.iso_date(T.local_date(clk.now(), settings.tz))
+    if conn.execute("SELECT 1 FROM prompts_sent WHERE kind = ? AND sent_on = ?",
+                    (QBSERVE_STALE_KIND, today)).fetchone():
+        return "qbserve stale; warning already sent today"
+    row = conn.execute("SELECT meta FROM imports WHERE kind = ? AND status != 'failed' ORDER BY id DESC LIMIT 1",
+                       (qbserve.KIND,)).fetchone()
+    latest = json.loads(row["meta"] or "{}").get("latest_record_at")
+    send(bot, settings, (
+        f"Qbserve hasn't recorded anything since {clock.fmt_local(latest, settings.tz)}.\n\n"
+        "Desktop app time is missing from DRBR until it runs again. "
+        "Open Qbserve, and set it to open at login so this doesn't recur."
+    ))
+    conn.execute(
+        "INSERT OR IGNORE INTO prompts_sent (kind, period_start, sent_on, sent_at) VALUES (?, ?, ?, ?)",
+        (QBSERVE_STALE_KIND, today, today, clock.iso(clk.now())),
+    )
+    conn.commit()
+    return "qbserve stale; warning sent"
 
 
 def send_end_notice(conn, clk: Clock, settings: Settings, bot) -> str:

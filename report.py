@@ -52,6 +52,7 @@ IMPORT_KIND_FOR_PROVENANCE = {
     T.PROV_PAGE: "youtube_history",
     T.PROV_SCREENSHOT: "screentime",
     T.PROV_EXPORT: "coldturkey",
+    T.PROV_APP_TRACKER: "qbserve",
 }
 
 #: The rows a week *should* have from weekly evidence, so an absent import
@@ -60,7 +61,13 @@ EXPECTED_WEEKLY = (
     ("youtube_history", T.GROUP_YOUTUBE, T.PROV_PAGE, T.DEVICE_ACCOUNT, "YouTube history"),
     ("screentime", T.GROUP_IPHONE, T.PROV_SCREENSHOT, T.DEVICE_IPHONE, "Screen Time"),
     ("coldturkey", T.GROUP_DESKTOP, T.PROV_EXPORT, T.DEVICE_DESKTOP, "Cold Turkey"),
+    # Expected only while DRBR_QBSERVE_DB is configured (see weekly_totals): unconfigured,
+    # desktop apps are deliberately unmeasured, not an import the user owes.
+    ("qbserve", T.GROUP_DESKTOP_APPS, T.PROV_APP_TRACKER, T.DEVICE_DESKTOP, "Qbserve"),
 )
+
+#: Qbserve (DR5.3) is read daily; older than this, the job warns and blind_spots says so.
+QBSERVE_STALE_HOURS = 36
 
 IMPORT_MISSING = "missing"          # no rows and no import covering the week
 IMPORT_INCOMPLETE = "incomplete"    # rows exist, but no import covers the whole week yet
@@ -74,7 +81,8 @@ GROUP_BLIND_SPOTS: dict[str, tuple[str, ...]] = {
         "Rewatches overwrite progress and undercount; dates have no time of day.",
     ),
     T.GROUP_X: (
-        "Minutes come from Screen Time (OCR) and Cold Turkey (this Mac's browser only); "
+        "Minutes come from Screen Time (OCR), Cold Turkey (this Mac's browser only) and Qbserve "
+        "(a Mac X app, when configured); "
         "keepers from vault captures of X posts and articles.",
     ),
     T.GROUP_IPHONE: (
@@ -84,6 +92,11 @@ GROUP_BLIND_SPOTS: dict[str, tuple[str, ...]] = {
     T.GROUP_DESKTOP: (
         "Cold Turkey covers this Mac's browsers only; a manual export lists only its top domains.",
         "No keeper path: vault captures are not attributed to web domains.",
+    ),
+    T.GROUP_DESKTOP_APPS: (
+        "Measured only while Qbserve is running on this Mac.",
+        "Browsers are left out here: Cold Turkey measures them per site instead (Desktop web).",
+        "No keeper path: vault captures are not attributed to desktop apps.",
     ),
     T.GROUP_WEB: ("No minutes source: articles are counted as keepers only.",),
     T.GROUP_OTHER: ("No minutes source: captures with no attributable source.",),
@@ -391,6 +404,8 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
     for kind, group, provenance, device, _name in EXPECTED_WEEKLY:
         if (group, provenance, device) in present:
             continue
+        if kind == "qbserve" and getattr(settings, "qbserve_db", None) is None:
+            continue
         imp = _covering_import(conn, settings, kind, mweek)
         if imp is None:
             out.append(SourceTotal(group, provenance, device, None, 0, 0.0, IMPORT_MISSING))
@@ -645,7 +660,39 @@ def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> lis
             if _covering_import(conn, settings, kind, week) is None:
                 out.append(f"{names[kind]} for the week {week.start} to {week.end} has not been received.")
         sunday += timedelta(days=7)
+    out.extend(_qbserve_blind_spots(conn, clk, settings))
     return out
+
+
+def _qbserve_blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[str]:
+    """Desktop app time is only as current as Qbserve's own recording (DR5.3).
+
+    Stale when the latest usable Qbserve import was received more than
+    `QBSERVE_STALE_HOURS` ago (the daily read is not happening), or Qbserve's
+    newest record in it is that old (Qbserve is not running). No import at all
+    while `settings.qbserve_db` is configured says so too.
+    """
+    row = conn.execute("SELECT received_at, meta FROM imports WHERE kind = 'qbserve' AND status != 'failed' "
+                       "ORDER BY id DESC LIMIT 1").fetchone()
+    if row is None:
+        if getattr(settings, "qbserve_db", None) is None:
+            return []
+        return ["Qbserve is configured but no desktop app time has been imported yet; desktop apps are "
+                "unmeasured, not zero."]
+    now = clk.now()
+    try:
+        latest = json.loads(row["meta"] or "{}").get("latest_record_at")
+    except ValueError:
+        latest = None
+    received_h = (now - clock.parse(row["received_at"])).total_seconds() / 3600
+    if received_h > QBSERVE_STALE_HOURS:
+        return [f"Desktop app time was last read from Qbserve on {clock.fmt_local(row['received_at'], settings.tz)}; "
+                "later app use is unmeasured, not zero."]
+    if not latest or (now - clock.parse(latest)).total_seconds() / 3600 > QBSERVE_STALE_HOURS:
+        since = clock.fmt_local(latest, settings.tz) if latest else "the start of the read"
+        return [f"Qbserve has not recorded since {since}; desktop app time after that is unmeasured, "
+                "not zero. Keep Qbserve open at login."]
+    return []
 
 
 def _coldturkey_blind_spots(conn: sqlite3.Connection) -> list[str]:

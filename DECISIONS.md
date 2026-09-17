@@ -1281,3 +1281,68 @@ and DRBR's DR1.4/DR1.5 debt recompute.
   was zeroed by the migration. That week's overage is recomputed from evidence.
 - **Stale comments:** `schema.sql`'s comments still describe the debt formula.
   That file is the frozen v1 baseline and is deliberately not edited.
+
+### DR5.3 — Desktop app time is read from Qbserve, per app per day, browsers skipped
+User request (2026-09-17): the user asked how Qbserve could improve DRBR and
+approved adding desktop apps. Cold Turkey sees this Mac's browsers only
+(DR5.1), so native apps (chat, mail, games, the Spotify and X clients) were a
+blind spot. Qbserve, already running on this Mac, keeps its tracking in a
+local SQLite database (`~/Library/Application Support/Qbserve/UserDatabase.sqlite`).
+
+**What is read** (`sources/qbserve.py`, read-only):
+- `Apps(_id, bundle, localized_name)`, `Activities(_id, source, app_id)`, and
+  the monthly history tables listed in `HistoryTablesIndex`
+  (`activity_id, start_time, duration`).
+- Rows are summed per app bundle per local day (`POP_TZ`) while reading. Only
+  bundle, display name, day and minutes leave the module.
+- A history table name is used only if it fully matches `z_HistoryLog_YYYY_M`;
+  anything else in the index is ignored, never interpolated into SQL.
+
+**What is never read:**
+- `Activities.title`: window titles and page names. It is never selected, so it
+  can't reach the database, raw evidence or logs.
+- Qbserve's productivity ratings and categories. They are an automatic judgement
+  of value, which is exactly what DRBR refuses to make (DR1.18). Apps are
+  labelled by the user like every other source.
+
+**Browsers are detected from the data.** Any app that owns a website activity
+(`Activities.source = 222`) is a browser, and all its time is skipped. The user
+checked the real data: website activities belong almost entirely to browsers.
+There is no hard-coded browser list to go stale.
+
+**Double counting (DR1.9):**
+- Browsers: skipped here, because Cold Turkey measures them per site.
+- The Spotify client (`com.spotify.client`) is `COVERED_ELSEWHERE` by Spotify
+  polling, like the iPhone app and the web player. It is stored and shown, but
+  never pooled.
+- X clients (`com.twitter.twitter-mac`, `maccatalyst.com.atebits.Tweetie2`,
+  matched case-insensitively) fold into the one X source. Each is its own fact
+  (item key = bundle), and none overlaps Cold Turkey's x.com because a native
+  client isn't a browser.
+
+**Mechanics:**
+- New vocabulary: source kind `desktop_app` (key = bundle id, casefolded),
+  report group `desktop_apps`, provenance `app_tracker` ("App tracker (Qbserve,
+  this Mac)"), import kind `qbserve`. Migration 0004 rebuilds `sources`,
+  `imports`, `measurements` and `prompts_sent` to widen their CHECKs.
+- `jobs.py daily` runs `qbserve.sync` after the Cold Turkey read. Like DR5.1, it
+  reads finished days only, from the later of go-live and 8 days ago. An
+  unchanged window is a duplicate, and changed minutes replace facts on their
+  natural key. The stored evidence is the app/day/minutes document; the
+  database is never copied.
+- Desktop app minutes are always ungated. They count in pooled wasteful minutes
+  by label, like every other measurement.
+- `DRBR_QBSERVE_DB` unset means desktop apps are not measured, and no weekly
+  row expects them.
+
+**Absence is not zero.** Qbserve records nothing while it isn't running, which
+looks like a day without app use. So an import covers days only up to the local
+day of Qbserve's newest record. Later days stay "not received" instead of
+reading as 0 minutes. Stale-data handling:
+- **Daily warning:** while that record is more than 36 hours old, the daily job
+  sends one Telegram message a day (deduped by `prompts_sent` kind
+  `qbserve_stale`). It says since when nothing was recorded, that desktop app
+  time is missing until Qbserve runs, and to set Qbserve to open at login. The
+  warning stops once the diagnostic ends.
+- **Dashboard:** `blind_spots` says the same when the latest Qbserve import is
+  more than 36 hours old, or when none exists while Qbserve is configured.

@@ -867,3 +867,27 @@ All additive and defaulted; every earlier call site stays valid. Reasons and tes
 - `allowance.debt_for` removed → `allowance.overage_for(week, pooled) -> int`; `on_measurements_changed` re-records `overage_min` for every week.
 - `report.AllowanceStatus.debt_min` → `overage_min`; `report.WeekSplit` gains `allowance_min`, `overage_min`.
 - `triage.render_week_header(..., last_week_overage_min=None)`.
+
+## §17 Post-build amendment — desktop apps from Qbserve (DR5.3)
+
+- Migration `0004_desktop_apps.sql`, schema_version 4: rebuilds `sources`, `imports`, `measurements`, `prompts_sent` with widened CHECKs (`kind` + `desktop_app`; `provenance` + `app_tracker`; import `kind` + `qbserve`; prompt `kind` + `qbserve_stale`). Columns, constraints, indexes and rows are unchanged.
+- `db.migrate` runs each step with `PRAGMA foreign_keys=OFF` (set before `BEGIN`), runs `PRAGMA foreign_key_check` before committing, and raises `db.MigrationError` (whole step rolled back) on any violation. Foreign keys are back ON afterwards.
+- `drbr_types`: `KIND_DESKTOP_APP = "desktop_app"`, `GROUP_DESKTOP_APPS = "desktop_apps"` (in `REPORT_GROUPS`; `report_group(KIND_DESKTOP_APP)`), `PROV_APP_TRACKER = "app_tracker"` (in `PROVENANCES`, between export and vault), `IMPORT_KINDS` + `"qbserve"`, `COVERED_ELSEWHERE[("desktop_app", "com.spotify.client")]`.
+- `labels.normalise_key("desktop_app", bundle)` → bundle casefolded; known Mac X bundles → `("x", "x")`.
+- `config.Settings.qbserve_db: Path | None` (`DRBR_QBSERVE_DB`); None = desktop apps not measured.
+- `evidence.upsert_measurement` accepts `PROV_APP_TRACKER`.
+- `sources/qbserve.py`:
+  - `read_app_minutes(db_path, *, first_day, last_day, tz) -> (list[AppDay], facts)` is read-only and raises `QbserveError`;
+  - `document(rows, facts, *, first_day, last_day, tz) -> bytes` and `parse(data) -> (first, covered_through | None, rows)`;
+  - `window(clk, settings)`, `sync(conn, clk, settings) -> Outcome | None`, `reparse(conn, clk, settings, import_id)`;
+  - `staleness_hours(conn, clk) -> float | None`.
+
+  An import's period ends at the local day of Qbserve's newest record, and is NULL when nothing in the window was recorded.
+- `jobs.run_daily` step `qbserve` runs after `coldturkey_local` and before `import_prompts`. While `staleness_hours > 36` and the diagnostic hasn't ended, it sends one Telegram warning per local day.
+- `report`:
+  - `IMPORT_KIND_FOR_PROVENANCE[PROV_APP_TRACKER] = "qbserve"`;
+  - an `EXPECTED_WEEKLY` row for Qbserve, applied only while `settings.qbserve_db` is set;
+  - `GROUP_BLIND_SPOTS[GROUP_DESKTOP_APPS]`;
+  - `QBSERVE_STALE_HOURS = 36`, and `blind_spots` adds a staleness / never-imported line.
+- Dashboard: group name "Desktop apps", badge `("app tracker", "apptracker")` with its own CSS rule, and import kind name "Qbserve".
+- `reparse.py` dispatches `qbserve`. `check_env.py` step 9 checks the database shape and prints counts and timestamps only.

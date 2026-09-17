@@ -45,12 +45,14 @@ _KIND_TEXT = {
     T.KIND_IPHONE_APP: "iPhone app",
     T.KIND_WEB_DOMAIN: "Website (desktop)",
     T.KIND_X: "X",
+    T.KIND_DESKTOP_APP: "Mac app",
 }
 
 _PROVENANCE_SEEN = {
     T.PROV_PAGE: "YouTube history",
     T.PROV_SCREENSHOT: "Screen Time screenshots",
     T.PROV_EXPORT: "Cold Turkey export",
+    T.PROV_APP_TRACKER: "Qbserve (Mac apps)",
 }
 
 UNRECOGNISED = "Unrecognised button."

@@ -33,7 +33,8 @@ KIND_YOUTUBE_CHANNEL = "youtube_channel"
 KIND_IPHONE_APP = "iphone_app"
 KIND_WEB_DOMAIN = "web_domain"
 KIND_X = "x"
-SOURCE_KINDS = (KIND_PODCAST_SHOW, KIND_YOUTUBE_CHANNEL, KIND_IPHONE_APP, KIND_WEB_DOMAIN, KIND_X)
+KIND_DESKTOP_APP = "desktop_app"      # a native Mac app, from Qbserve (DR5.3); key = bundle id, casefolded
+SOURCE_KINDS = (KIND_PODCAST_SHOW, KIND_YOUTUBE_CHANNEL, KIND_IPHONE_APP, KIND_WEB_DOMAIN, KIND_X, KIND_DESKTOP_APP)
 
 #: Keeper / reporting groups: the rows of the cost-per-keeper table.
 GROUP_PODCASTS = "podcasts"
@@ -41,9 +42,10 @@ GROUP_YOUTUBE = "youtube"
 GROUP_X = "x"
 GROUP_IPHONE = "iphone_apps"
 GROUP_DESKTOP = "desktop_web"
+GROUP_DESKTOP_APPS = "desktop_apps"   # native Mac apps (Qbserve, DR5.3); browsers stay in desktop_web
 GROUP_WEB = "web"          # vault keepers from articles; has no minutes source
 GROUP_OTHER = "other"      # vault keepers with no attributable source
-REPORT_GROUPS = (GROUP_PODCASTS, GROUP_YOUTUBE, GROUP_X, GROUP_IPHONE, GROUP_DESKTOP)
+REPORT_GROUPS = (GROUP_PODCASTS, GROUP_YOUTUBE, GROUP_X, GROUP_IPHONE, GROUP_DESKTOP, GROUP_DESKTOP_APPS)
 KEEPER_GROUPS = ("x", "youtube", "podcasts", "web", "other")
 
 # --- provenance -------------------------------------------------------------
@@ -54,15 +56,17 @@ PROV_API = "api"                         # Spotify resume_point polling
 PROV_PAGE = "page_extraction"            # YouTube history page data x Data API duration
 PROV_SCREENSHOT = "screenshot_ocr"       # Screen Time via on-device Apple Vision OCR
 PROV_EXPORT = "manual_export"            # Cold Turkey statistics (local database read or JSON export)
+PROV_APP_TRACKER = "app_tracker"         # Qbserve's per-app time on this Mac (DR5.3)
 PROV_VAULT = "vault_scan"                # Obsidian capture-ID scan (counts, never minutes)
 PROV_LABEL = "user_label"                # explicit user labels
-PROVENANCES = (PROV_API, PROV_PAGE, PROV_SCREENSHOT, PROV_EXPORT, PROV_VAULT, PROV_LABEL)
+PROVENANCES = (PROV_API, PROV_PAGE, PROV_SCREENSHOT, PROV_EXPORT, PROV_APP_TRACKER, PROV_VAULT, PROV_LABEL)
 
 PROVENANCE_TEXT = {
     PROV_API: "API (Spotify resume position)",
     PROV_PAGE: "Page data (YouTube history) x API duration",
     PROV_SCREENSHOT: "Parsed screenshot (OCR) — lower confidence",
     PROV_EXPORT: "Cold Turkey statistics (this Mac)",
+    PROV_APP_TRACKER: "App tracker (Qbserve, this Mac)",
     PROV_VAULT: "Vault scan (count, not minutes)",
     PROV_LABEL: "Your label",
 }
@@ -73,7 +77,7 @@ DEVICE_ACCOUNT = "account"   # account-level: YouTube history spans every device
 
 MEASUREMENT_STATUSES = ("ok", "progress_missing", "duration_missing", "unreadable")
 
-IMPORT_KINDS = ("youtube_history", "screentime", "coldturkey", "vault_scan")
+IMPORT_KINDS = ("youtube_history", "screentime", "coldturkey", "vault_scan", "qbserve")
 IMPORT_OK, IMPORT_PARTIAL, IMPORT_FAILED = "ok", "partial", "failed"
 
 # --- double counting --------------------------------------------------------
@@ -87,6 +91,7 @@ COVERED_ELSEWHERE: dict[tuple[str, str], str] = {
     (KIND_WEB_DOMAIN, "youtube.com"): "YouTube history (account-level)",
     (KIND_IPHONE_APP, "spotify"): "Spotify polling (podcasts only; music is out of scope)",
     (KIND_WEB_DOMAIN, "open.spotify.com"): "Spotify polling (podcasts only; music is out of scope)",
+    (KIND_DESKTOP_APP, "com.spotify.client"): "Spotify polling (podcasts only; music is out of scope)",
 }
 
 
@@ -102,6 +107,8 @@ def report_group(kind: str, device: str | None = None) -> str:
         return GROUP_IPHONE
     if kind == KIND_WEB_DOMAIN:
         return GROUP_DESKTOP
+    if kind == KIND_DESKTOP_APP:
+        return GROUP_DESKTOP_APPS
     raise ValueError(f"unknown source kind {kind!r}")
 
 

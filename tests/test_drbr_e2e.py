@@ -412,8 +412,8 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     db.init_db(conn)
     db.migrate(conn)
     db.init_db(conn)
-    db.migrate(conn)                                   # a restart re-runs both; still version 3, nothing doubled
-    assert evidence.get_meta(conn, "schema_version") == "3"
+    db.migrate(conn)                                   # a restart re-runs both; still the current version, nothing doubled
+    assert evidence.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
     # Migration 0003 adds `weeks.overage_min` (NULL until computed) and zeroes debt_min;
     # these POP weeks already had debt 0, so the POP columns below are byte-identical.
     assert [tuple(r) for r in conn.execute("SELECT week_start, overage_min FROM weeks ORDER BY 1")] == \

@@ -65,7 +65,7 @@ from config import Settings
 ROOT = pathlib.Path(__file__).resolve().parent
 SCHEMA_PATH = ROOT / "schema.sql"
 MIGRATIONS_DIR = ROOT / "migrations"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 ACTIVE_STATES = ("locked", "queued", "promoted")
 TERMINAL_STATES = ("dropped", "expired", "played")
@@ -110,6 +110,10 @@ class AllowanceExceeded(Exception):
         self.overage_min = overage_min
         self.remaining_min = remaining_min
         self.cost_min = cost_min
+
+
+class MigrationError(Exception):
+    """A migration step would have committed an inconsistent database. Nothing was committed."""
 
 
 class ItemNotFound(LookupError):
@@ -219,20 +223,37 @@ def migrate(conn: sqlite3.Connection) -> None:
     transaction together with its version bump — SQLite DDL is transactional —
     so a step that fails part-way leaves the database exactly at the previous
     version and is retried whole on the next start.
+
+    Foreign keys are switched OFF for each step, *before* ``BEGIN`` (the pragma
+    is a no-op inside a transaction), because a step may rebuild a referenced
+    table to widen a CHECK (0004): with enforcement on, dropping the old table
+    would fail or cascade. Before the step commits, ``PRAGMA foreign_key_check``
+    must come back empty, or the whole step rolls back and ``MigrationError``
+    is raised. Enforcement is switched back ON afterwards, whatever happened.
     """
     row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
     version = int(row["value"]) if row else 1
     for target in range(version + 1, SCHEMA_VERSION + 1):
         (path,) = sorted(MIGRATIONS_DIR.glob(f"{target:04d}_*.sql"))
+        if conn.in_transaction:
+            conn.commit()
+        conn.execute("PRAGMA foreign_keys = OFF")
         try:
             conn.executescript(
                 "BEGIN;\n"
                 + path.read_text()
                 + "\nINSERT INTO meta (key, value) VALUES ('schema_version', "
                 + f"'{target}') ON CONFLICT(key) DO UPDATE SET value = excluded.value;\n"
-                + "COMMIT;"
             )
-        except sqlite3.Error:
+            problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if problems:
+                raise MigrationError(
+                    f"migration {path.name} left {len(problems)} foreign key violation(s) "
+                    f"(first: table {problems[0][0]}, rowid {problems[0][1]}, parent {problems[0][2]}); "
+                    "rolled back"
+                )
+            conn.execute("COMMIT")
+        except (sqlite3.Error, MigrationError):
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
             raise

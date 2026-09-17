@@ -53,7 +53,7 @@ SECRET_KEYS = {
     "SPOTIFY_REFRESH_TOKEN", "TELEGRAM_BOT_TOKEN",
     "YOUTUBE_API_KEY", "DRBR_INGEST_TOKEN",
 }
-STEPS = 8
+STEPS = 9
 
 failures: list[str] = []
 unavailable_list: list[str] = []
@@ -322,6 +322,60 @@ def check_coldturkey(env: dict[str, str]) -> None:
     ok("Cold Turkey statistics readable" + ("" if latest else " (no rows yet)"))
 
 
+def check_qbserve(env: dict[str, str]) -> None:
+    print(f"\n[9/{STEPS}] Qbserve — read-only, counts and timestamps only (no titles printed)")
+    path = env.get("DRBR_QBSERVE_DB", "")
+    if not path:
+        ok("DRBR_QBSERVE_DB unset: desktop apps not measured")
+        return
+    import datetime as dt  # noqa: PLC0415
+    import sqlite3  # noqa: PLC0415
+    import urllib.parse  # noqa: PLC0415
+
+    db_path = pathlib.Path(path).expanduser()
+    if not db_path.exists():
+        fail("DRBR_QBSERVE_DB does not exist (is Qbserve installed and has it run?)")
+        return
+    need = {"Apps": {"_id", "bundle", "localized_name"}, "Activities": {"_id", "source", "app_id"},
+            "HistoryTablesIndex": {"table_name", "start_date"}}
+    try:
+        conn = sqlite3.connect(f"file:{urllib.parse.quote(str(db_path))}?mode=ro", uri=True, timeout=10)
+        try:
+            for table, cols in need.items():
+                have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                if not cols <= have:
+                    fail(f"Qbserve's {table} table changed shape; the reader would refuse it")
+                    return
+            (apps,) = conn.execute("SELECT COUNT(*) FROM Apps").fetchone()
+            tables = [r[0] for r in conn.execute("SELECT table_name FROM HistoryTablesIndex")]
+            latest = None
+            for table in tables:
+                if not isinstance(table, str) or not re.fullmatch(r"z_HistoryLog_\d{4}_\d{1,2}", table):
+                    continue
+                have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                if not {"activity_id", "start_time", "duration"} <= have:
+                    fail(f"Qbserve's {table} changed shape; the reader would refuse it")
+                    return
+                (tmax,) = conn.execute(f"SELECT MAX(start_time) FROM {table}").fetchone()
+                if tmax is not None:
+                    latest = tmax if latest is None else max(latest, tmax)
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        fail(f"Qbserve database not readable ({type(e).__name__})")
+        return
+    if latest is None:
+        ok(f"Qbserve database readable: {apps} apps, {len(tables)} history table(s), no records yet")
+        return
+    newest = dt.datetime.fromtimestamp(float(latest), dt.timezone.utc)
+    ok(f"Qbserve database readable: {apps} apps, {len(tables)} history table(s), newest record "
+       f"{newest.isoformat(timespec='minutes')}")
+    age_h = (dt.datetime.now(dt.timezone.utc) - newest).total_seconds() / 3600
+    if age_h > 36:
+        print(f"  WARN  Qbserve's newest record is {age_h:.0f} h old: is Qbserve running? "
+              "Set it to open at login (not a failure)")
+
+
 def main() -> int:
     ping = "--ping" in sys.argv
     print("DRBR — environment and credential check")
@@ -334,6 +388,7 @@ def main() -> int:
     check_paths(env)
     check_vision()
     check_coldturkey(env)
+    check_qbserve(env)
 
     print("\n" + "=" * 60)
     if failures:

@@ -49,7 +49,10 @@ The database is `data/pop.db` (SQLite, gitignored). `schema.sql` is the
 version-1 POP baseline. Numbered files in `migrations/` bring it forward, one
 transaction per step (`db.migrate`), and every process runs this at start. The
 upgrade from a pre-DRBR POP database is additive: no POP row is rewritten
-(`tests/test_drbr_migration.py`, `tests/test_drbr_e2e.py`).
+(`tests/test_drbr_migration.py`, `tests/test_drbr_e2e.py`). Migration 0004
+rebuilds four DRBR tables to widen their CHECK constraints, copying every row;
+it runs with foreign keys off and refuses to commit if a foreign key check
+fails.
 
 **Back up before any upgrade:**
 
@@ -73,6 +76,7 @@ All configuration is in `.env`. `.env.example` lists every key with placeholders
 | `DRBR_CAPTURE_OUTBOX` | JSONL file obsidian-ingest appends captures to (`data/vault_captures.jsonl`) |
 | `DRBR_RAW_DIR` | Raw evidence kept for re-parsing (`data/raw`) |
 | `DRBR_COLDTURKEY_DB` | Cold Turkey's local statistics database, read daily (hostnames only). Empty = manual exports |
+| `DRBR_QBSERVE_DB` | Qbserve's database, read daily for desktop app time (per app per day; no window titles). Empty = desktop apps not measured |
 | `DRBR_GO_LIVE` | First local date that counts (a Sunday). Earlier history is evidence only |
 | `DRBR_DIAGNOSTIC_WEEKS` | Length of the diagnostic (8) |
 | `DRBR_DASHBOARD_PORT` | Dashboard and extension ingest port on 127.0.0.1 (8750) |
@@ -94,7 +98,8 @@ quota units out of 10,000 a day.
 
 Checks every key's shape, `.env` permissions, `.gitignore` coverage, live
 Telegram/Spotify/YouTube auth, the vault and inbox paths, that the outbox and
-raw-evidence locations are writable, and that Apple Vision is importable.
+raw-evidence locations are writable, that Apple Vision is importable, and
+that the Cold Turkey and Qbserve databases (when configured) are readable.
 Exit codes: 0 passed, 1 failed, 3 unproven (a provider was unreachable,
 credentials not known to be bad).
 
@@ -114,7 +119,7 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 | `com.jacob.pop.bot` | always on | Telegram: capture, triage buttons, screenshot/export imports, labels |
 | `com.jacob.pop.poll` | daily 09:17 | Spotify positions, lock lifts, deadline posts, allowance alerts |
 | `com.jacob.pop.triage` | Sunday 18:00 | Week rollover (records last week's overage), expiry, the triage post |
-| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, weekly import prompts, label batches, end notice |
+| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read (and its stale warning), weekly import prompts, label batches, end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
 
 launchd, not cron, because macOS cron skips runs missed while the Mac sleeps.
@@ -214,6 +219,33 @@ Statistics → Websites** usage view (time, not "Websites Blocked") →
 **Export** → send the JSON to the bot. Unfinished days are dropped, and the
 blocked-count export is rejected. Leaving `DRBR_COLDTURKEY_DB` empty turns the
 automatic read off.
+
+## Qbserve (automatic)
+
+Nothing to do weekly, but **keep Qbserve open at login** (System Settings →
+General → Login Items, or Qbserve's own launch-at-login setting). Every day, `jobs.py daily` reads Qbserve's
+database on this Mac (`DRBR_QBSERVE_DB`, usually
+`~/Library/Application Support/Qbserve/UserDatabase.sqlite`), read-only
+(DR5.3):
+
+- **Apps and minutes only.** Time is summed per app per day. Window titles
+  and page names are never read, so they can't be stored anywhere.
+- **Your labels, not Qbserve's.** Its productivity ratings and categories are
+  never read. New apps are offered for labelling like any other source.
+- **Browsers are skipped.** Any app that shows websites in Qbserve is treated
+  as a browser. Cold Turkey already measures browsers per site.
+- **Double counts excluded.** The Spotify app is covered by Spotify polling.
+  The X Mac app counts under X.
+- **Finished days only**, re-reading the last 8, like Cold Turkey.
+
+**If Qbserve isn't running,** nothing is recorded, and DRBR won't treat that
+as zero. Days after Qbserve's last record stay "not received". While that
+record is over 36 hours old, the bot sends one warning a day and the dashboard
+lists it under blind spots. Open Qbserve and set it to open at login.
+
+If the database can't be read, the daily job logs a failed `qbserve` step.
+Re-parse stored evidence with `reparse.py <import_id>`. Leaving
+`DRBR_QBSERVE_DB` empty turns desktop app measurement off.
 
 ## Obsidian / vault procedure
 
@@ -327,7 +359,7 @@ absent. obsidian-ingest's tests run from its own directory with the same venv.
 ```
 bot.py poll.py triage.py db.py spotify.py clock.py config.py   POP, label-aware (CONTRACTS Part I + II §7)
 drbr_types.py evidence.py labels.py allowance.py report.py     shared DRBR core
-sources/youtube.py screentime.py ocr_vision.py coldturkey.py vault.py
+sources/youtube.py screentime.py ocr_vision.py coldturkey.py coldturkey_local.py qbserve.py vault.py
 handlers_imports.py handlers_labels.py                          Telegram extensions
 ingest_api.py dashboard/ extension/                             local API, dashboard, browser extension
 jobs.py reparse.py check_env.py drbr                            daily job, re-parse CLI, env check, launcher
@@ -348,6 +380,9 @@ Accepted deliberately, and stated on the dashboard rather than absorbed:
 - **YouTube:** rewatches overwrite position and undercount; there is no time of
   day; the bar floor is handled by using the resume position.
 - **Cold Turkey:** this Mac's browsers only; hostnames, not pages.
+- **Desktop apps (Qbserve):** this Mac only, and only while Qbserve is running;
+  browsers are left to Cold Turkey; no keeper path (vault captures aren't
+  attributed to apps).
 - **Screen Time:** OCR, lower confidence than the API figures; only full past
   weeks count; YouTube and Spotify app minutes are excluded as double counts;
   Spotify music is out of scope.

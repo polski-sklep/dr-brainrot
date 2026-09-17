@@ -48,13 +48,16 @@ class ResolvedLabel:
 
 _X_APP_NAMES = {"x", "twitter"}
 _X_DOMAINS = {"x.com", "twitter.com", "mobile.twitter.com", "mobile.x.com"}
+#: X/Twitter clients for the Mac, by bundle id, casefolded (Qbserve, DR5.3).
+_X_BUNDLES = {"com.twitter.twitter-mac", "maccatalyst.com.atebits.tweetie2", "com.atebits.tweetie2"}
 
 
 def normalise_key(kind: str, raw: str) -> tuple[str, str]:
     """-> (kind, key). The only place source identity is canonicalised.
 
     X is folded into one source whichever surface reports it (iPhone app 'X',
-    desktop 'x.com'/'twitter.com'), because the brief labels X once.
+    desktop 'x.com'/'twitter.com', a Mac X client's bundle id), because the
+    brief labels X once. A desktop app's key is its bundle id, casefolded.
     """
     if kind not in T.SOURCE_KINDS:
         raise LabelError(f"unknown source kind {kind!r}")
@@ -72,6 +75,11 @@ def normalise_key(kind: str, raw: str) -> tuple[str, str]:
         if key.startswith("www."):
             key = key[4:]
         if key in _X_DOMAINS:
+            return T.KIND_X, "x"
+        return kind, key
+    if kind == T.KIND_DESKTOP_APP:
+        key = value.casefold()
+        if key in _X_BUNDLES:
             return T.KIND_X, "x"
         return kind, key
     if kind == T.KIND_PODCAST_SHOW:

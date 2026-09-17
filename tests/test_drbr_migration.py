@@ -91,8 +91,8 @@ def test_upgrade_preserves_every_pop_row_exactly(v1):
 def test_upgrade_sets_version_and_creates_drbr_tables(v1):
     db.init_db(v1)
     db.migrate(v1)
-    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "3"
-    assert db.SCHEMA_VERSION == 3
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
+    assert db.SCHEMA_VERSION == 4
     assert "overage_min" in [r[1] for r in v1.execute("PRAGMA table_info(weeks)")]
     names = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"sources", "item_labels", "imports", "measurements", "category_measurements",
@@ -161,7 +161,7 @@ def test_failed_migration_rolls_back_whole_step(v1, monkeypatch, tmp_path):
     assert "platform" not in [r[1] for r in v1.execute("PRAGMA table_info(episodes)")]
     monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
     db.migrate(v1)                                   # retried whole, succeeds
-    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "3"
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
 
 
 def test_failed_0003_rolls_back_whole_step_including_the_debt_reset(v1, monkeypatch, tmp_path):
@@ -179,7 +179,7 @@ def test_failed_0003_rolls_back_whole_step_including_the_debt_reset(v1, monkeypa
     assert v1.execute("SELECT debt_min FROM weeks").fetchone()[0] == 12       # the UPDATE rolled back too
     monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
     db.migrate(v1)                                   # retried whole, succeeds
-    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "3"
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
     assert tuple(v1.execute("SELECT debt_min, overage_min FROM weeks").fetchone()) == (0, None)
 
 
@@ -217,3 +217,163 @@ def test_measurement_check_rejects_zero_standin(v1):
         v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, "
                    "period_end, minutes, status) VALUES (1, 2, 'desktop', 'manual_export', "
                    "'2026-09-13', '2026-09-13', 0, 'unreadable')")
+
+
+# --- 0004: desktop apps (DR5.3), tables rebuilt to widen CHECKs ----------------------
+
+DRBR_TABLES = ("sources", "item_labels", "imports", "measurements", "category_measurements",
+               "vault_captures", "vault_observations", "prompts_sent")
+T0 = "2026-09-16T10:00:00+00:00"
+
+
+def _schema(c):
+    return sorted(tuple(r) for r in c.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"))
+
+
+def _v3_with_drbr_rows(v1, monkeypatch):
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
+    db.init_db(v1)
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "3"
+    v1.executescript(f"""
+        INSERT INTO sources (id, kind, source_key, display_name, label, labelled_at, first_seen_at, prompted_at)
+        VALUES (2, 'web_domain', 'google.com', 'google.com', NULL, NULL, '{T0}', '{T0}'),
+               (3, 'youtube_channel', 'UCabc', 'Chan', 'worthwhile', '{T0}', '{T0}', NULL);
+        INSERT INTO item_labels VALUES ('youtube:vid1', 'worthwhile', '{T0}', 'capture');
+        INSERT INTO imports (id, kind, received_at, raw_path, raw_sha256, parser_version, status, period_start,
+                             period_end, warnings, error, meta)
+        VALUES (1, 'coldturkey', '{T0}', 'coldturkey/a.json', 'aa', 'ct-1', 'ok', '2026-09-13', '2026-09-15',
+                '[]', NULL, '{{"origin": "local_db"}}'),
+               (2, 'vault_scan', '{T0}', NULL, NULL, 'v-1', 'partial', NULL, NULL, '["w"]', NULL, '{{}}'),
+               (3, 'screentime', '{T0}', 'screentime/b.png', 'bb', 's-1', 'failed', NULL, NULL, '[]', 'bad', '{{}}');
+        INSERT INTO measurements (id, import_id, source_id, device, provenance, item_key, item_title, period_start,
+                                  period_end, minutes, status, detail)
+        VALUES (7, 1, 2, 'desktop', 'manual_export', 'google.com', 'google.com', '2026-09-14', '2026-09-14', 1.5,
+                'ok', '{{}}'),
+               (8, 1, 3, 'account', 'page_extraction', 'vid1', 'A video', '2026-09-14', '2026-09-14', NULL,
+                'duration_missing', '{{}}');
+        INSERT INTO category_measurements (import_id, category, period_start, period_end, minutes)
+        VALUES (1, 'Social', '2026-09-13', '2026-09-19', 12.0);
+        INSERT INTO vault_captures VALUES ('cap-1', '{T0}', 'x', 'x', 1, 'https://x.com/a', 'T', '01-Inbox/a.md',
+                                           'sha', '{T0}');
+        INSERT INTO vault_observations (import_id, capture_id, scanned_at, outcome, rel_path, edited, copies)
+        VALUES (2, 'cap-1', '{T0}', 'kept', 'notes/a.md', 1, 1);
+        INSERT INTO prompts_sent VALUES ('coldturkey', '2026-09-13', '2026-09-21', '{T0}'),
+                                        ('diagnostic_end', '2026-09-13', '2026-11-07', '{T0}');
+    """)
+    v1.commit()
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+
+
+def _all_rows(c):
+    return {t: [tuple(r) for r in c.execute(f"SELECT * FROM {t} ORDER BY 1, 2")]
+            for t in (*DRBR_TABLES, *V1_ROWS, "meta") if t != "meta"} | {
+        "meta": [tuple(r) for r in c.execute("SELECT * FROM meta WHERE key != 'schema_version' ORDER BY 1")]}
+
+
+def test_v3_to_v4_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
+    _v3_with_drbr_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    assert all(before[t] for t in DRBR_TABLES)                 # rows in every DRBR table
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
+    assert _all_rows(v1) == before
+    assert v1.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+
+    fresh = sqlite3.connect(str(tmp_path / "fresh.db"))
+    fresh.row_factory = sqlite3.Row
+    db.init_db(fresh)
+    db.migrate(fresh)
+    assert _schema(fresh) == _schema(v1)
+    indexes = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"idx_imports_kind", "idx_imports_sha", "uq_measurements_fact", "idx_measurements_period"} <= indexes
+    # The natural key still holds after the rebuild.
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, item_key, period_start, "
+                   "period_end, minutes) VALUES (1, 2, 'desktop', 'manual_export', 'google.com', '2026-09-14', "
+                   "'2026-09-14', 2.0)")
+    # ...and so do the foreign keys, enforced again.
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, "
+                   "minutes) VALUES (999, 2, 'desktop', 'app_tracker', '2026-09-14', '2026-09-14', 1.0)")
+
+
+def test_v1_to_v4_reaches_the_same_schema_as_v3_to_v4(v1, monkeypatch, tmp_path):
+    straight = _v1_database(tmp_path / "straight.db")
+    db.init_db(straight)
+    db.migrate(straight)
+    _v3_with_drbr_rows(v1, monkeypatch)
+    db.migrate(v1)
+    assert _schema(straight) == _schema(v1)
+
+
+def test_v4_accepts_the_new_values_and_still_rejects_garbage(v1):
+    db.init_db(v1)
+    db.migrate(v1)
+    good = [
+        f"INSERT INTO sources (id, kind, source_key, display_name, first_seen_at) VALUES "
+        f"(50, 'desktop_app', 'com.tinyspeck.slackmacgap', 'Slack', '{T0}')",
+        f"INSERT INTO imports (id, kind, received_at, parser_version, status) VALUES (50, 'qbserve', '{T0}', 'q', 'ok')",
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes) "
+        "VALUES (50, 50, 'desktop', 'app_tracker', '2026-09-14', '2026-09-14', 2.5)",
+        f"INSERT INTO prompts_sent VALUES ('qbserve_stale', '2026-09-18', '2026-09-18', '{T0}')",
+    ]
+    for sql in good:
+        v1.execute(sql)
+    bad = [
+        f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) VALUES ('garbage', 'k', 'k', '{T0}')",
+        f"INSERT INTO imports (kind, received_at, parser_version, status) VALUES ('garbage', '{T0}', 'q', 'ok')",
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes) "
+        "VALUES (50, 50, 'desktop', 'garbage', '2026-09-15', '2026-09-15', 2.5)",
+        f"INSERT INTO prompts_sent VALUES ('garbage', '2026-09-18', '2026-09-18', '{T0}')",
+    ]
+    for sql in bad:
+        with pytest.raises(sqlite3.IntegrityError):
+            v1.execute(sql)
+
+
+def _broken_0004(tmp_path, tail: str):
+    broken = tmp_path / "migrations"
+    broken.mkdir()
+    for name in ("0002_drbr.sql", "0003_no_debt.sql"):
+        (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
+    good = (db.MIGRATIONS_DIR / "0004_desktop_apps.sql").read_text()
+    (broken / "0004_desktop_apps.sql").write_text(good + "\n" + tail + "\n")
+    return broken
+
+
+def _assert_still_v3(v1, before):
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "3"
+    assert _all_rows(v1) == before
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    with pytest.raises(sqlite3.IntegrityError):              # the old, narrower CHECK is still in place
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) "
+                   f"VALUES ('desktop_app', 'a', 'a', '{T0}')")
+
+
+def test_failed_0004_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v3_with_drbr_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0004(tmp_path, "CREATE TABLE sources (x);"))
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    _assert_still_v3(v1, before)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+    assert _all_rows(v1) == before
+
+
+def test_0004_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v3_with_drbr_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    orphan = ("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, "
+              "minutes) VALUES (999, 2, 'desktop', 'app_tracker', '2026-09-14', '2026-09-14', 1.0);")
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0004(tmp_path, orphan))
+    with pytest.raises(db.MigrationError, match="foreign key"):
+        db.migrate(v1)
+    _assert_still_v3(v1, before)

@@ -30,6 +30,10 @@ def _dispatch(kind: str, settings) -> Callable:
         from sources import coldturkey
 
         return coldturkey.reparse
+    if kind == "qbserve":
+        from sources import qbserve
+
+        return qbserve.reparse
     if kind == "screentime":
         from sources import screentime
 

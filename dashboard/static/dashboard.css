@@ -26,6 +26,7 @@ ul.tight { margin: 0; padding-left: 18px; }
 .prov-api { background: #1a1a1a; color: #fff; border: 2px solid #1a1a1a; font-weight: 700; }
 .prov-page { background: #fff; color: #1a1a1a; border: 2px solid #1a1a1a; font-weight: 600; }
 .prov-export { background: #fff; color: #333; border: 1px dotted #333; }
+.prov-apptracker { background: #fff; color: #333; border: 1px solid #333; border-left-width: 4px; }
 .prov-screenshot { background: #fff; color: #555; border: 1px dashed #777; font-style: italic; }
 .prov-vault { background: #f0f0f0; color: #333; border: 1px solid #bbb; }
 .prov-label { background: #f0f0f0; color: #333; border: 1px solid #bbb; }
