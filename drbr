@@ -11,7 +11,7 @@
 #   com.jacob.pop.poll       daily 09:17  Spotify resume_point deltas, alerts
 #   com.jacob.pop.triage     Sunday 18:00 weekly rollover and triage post
 #   com.jacob.drbr.dashboard dashboard + extension ingest on 127.0.0.1               (KeepAlive)
-#   com.jacob.drbr.jobs      daily 09:30  vault scan, import prompts, label batches
+#   com.jacob.drbr.jobs      daily 09:30  vault scan, Cold Turkey read, import prompts, label batches
 # obsidian-ingest (com.jacob.obsidian-ingest) lives in its own repo; start only
 # makes sure it is loaded, because DRBR's vault measurement depends on it.
 set -euo pipefail
@@ -38,9 +38,24 @@ stop_agents() {
   for a in "${AGENTS[@]}"; do
     if loaded "$a"; then
       launchctl bootout "$DOMAIN/$a" 2>/dev/null || true
+      # bootout returns before launchd has finished unloading; wait until it has,
+      # or the next bootstrap of the same label fails with an I/O error.
+      for _ in $(seq 1 20); do loaded "$a" || break; sleep 0.5; done
       say "  stopped  $a"
     fi
   done
+}
+
+bootstrap_agent() {
+  local a="$1" n
+  for n in 1 2 3 4 5; do
+    if launchctl bootstrap "$DOMAIN" "$AGENTS_DIR/$a.plist" 2>/dev/null; then
+      return 0
+    fi
+    loaded "$a" && return 0
+    sleep 1
+  done
+  die "could not load $a (launchctl bootstrap kept failing)"
 }
 
 start() {
@@ -66,11 +81,10 @@ print('    schema version', c.execute(\"SELECT value FROM meta WHERE key='schema
   say "3/4 installing and loading launchd agents"
   mkdir -p "$AGENTS_DIR"
   stop_agents
-  sleep 1   # bootout is asynchronous; bootstrapping the same label too soon fails with EIO
   for a in "${AGENTS[@]}"; do
     plutil -lint -s "$ROOT/launchd/$a.plist" || die "invalid plist launchd/$a.plist"
     cp "$ROOT/launchd/$a.plist" "$AGENTS_DIR/$a.plist"
-    launchctl bootstrap "$DOMAIN" "$AGENTS_DIR/$a.plist"
+    bootstrap_agent "$a"
     say "  loaded   $a"
   done
   if ! loaded "$INGEST"; then
