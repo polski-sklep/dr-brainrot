@@ -32,7 +32,12 @@ Why it is shaped like this.
    connection is opened lazily inside the request and closed on teardown.
    The ingest blueprint shares it and never closes it itself.
 
-6. **Loopback is not a trust boundary on its own.** Any page open in the
+6. **Content only (DR5.5).** DRBR measures brain-rot content. A source the
+   user labels `tool` (not content) is out of every wasteful/worthwhile figure
+   `report` produces, and its minutes are printed on their own so the label
+   cannot hide anything. The label manager offers it as a third button.
+
+7. **Loopback is not a trust boundary on its own.** Any page open in the
    browser can POST to 127.0.0.1. The ingest API has its token; the label
    toggle refuses requests the browser marks as cross-site
    (`Sec-Fetch-Site`), so a web page cannot relabel sources behind the user's
@@ -122,6 +127,9 @@ UNKNOWN_CHANNEL_REASON = (
     "A label here would apply to unrelated channels at once, so its minutes "
     "count as unlabelled (wasteful)."
 )
+
+#: How a tool label reads wherever a source's label is shown (DR5.5).
+TOOL_TEXT = "tool → not content, not counted"
 
 RECORDS_LIMIT = 500
 
@@ -318,6 +326,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         PROVENANCE_BADGES=PROVENANCE_BADGES, PROVENANCE_TEXT=T.PROVENANCE_TEXT, BASIS_TEXT=BASIS_TEXT,
         PROV_SCREENSHOT=T.PROV_SCREENSHOT, HTMX_URL=HTMX_URL, HTMX_SRI=HTMX_SRI,
         UNKNOWN_CHANNEL_REASON=UNKNOWN_CHANNEL_REASON, WASTEFUL=T.WASTEFUL, WORTHWHILE=T.WORTHWHILE,
+        TOOL=T.TOOL, TOOL_TEXT=TOOL_TEXT,
     )
 
     @app.context_processor
@@ -359,7 +368,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         label = args.get("label") or None
         if kind is not None and kind not in T.SOURCE_KINDS:
             abort(400, description=f"unknown kind {kind!r}")
-        if label is not None and label not in (*T.LABELS, labels.UNLABELLED):
+        if label is not None and label not in (*T.SOURCE_LABELS, labels.UNLABELLED):
             abort(400, description=f"unknown label filter {label!r}")
         return kind, label
 
@@ -382,8 +391,8 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         if not label_toggleable(source):
             abort(400, description=UNKNOWN_CHANNEL_REASON)
         new_label = request.form.get("label", "")
-        if new_label not in T.LABELS:
-            abort(400, description=f"label must be one of {', '.join(T.LABELS)}")
+        if new_label not in T.SOURCE_LABELS:
+            abort(400, description=f"label must be one of {', '.join(T.SOURCE_LABELS)}")
         source = labels.set_source_label(c, clk, source_id, new_label)
         # DECISIONS DR2.7/DR5.2: a relabel re-records each week's overage now, not at the next import.
         allowance.on_measurements_changed(c, clk, settings)
@@ -405,7 +414,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         if group is not None and group not in T.REPORT_GROUPS:
             errors.append(f"Unknown source group {group!r}; ignored.")
             group = None
-        if label is not None and label not in T.LABELS:
+        if label is not None and label not in T.SOURCE_LABELS:
             errors.append(f"Unknown label {label!r}; ignored.")
             label = None
         start = _parse_day(request.args.get("start"), "Start", errors)

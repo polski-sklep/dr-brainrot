@@ -2,7 +2,13 @@
 {% block title %}Labels{% endblock %}
 {% block content %}
 <h1>Source labels</h1>
+<div class="rule" id="label-rule">
+<p>DRBR measures <strong>brain-rot content only</strong>. Label each source by asking: is this <em>content</em> I consume?
+If yes, is it brain rot (wasteful) or not (worthwhile)? If I only go there to get a task done — buy, pay, book, log in,
+organise, check the weather — it's a <strong>tool</strong> and isn't counted.</p>
+</div>
 <p class="note">You decide what each source is. An unlabelled source counts as wasteful until you label it.
+Tool minutes are left out of every wasteful and worthwhile figure and shown on their own.
 Changing a label re-records each week's overage immediately.</p>
 
 <form method="get" action="{{ url_for('labels_page') }}" class="filters">
@@ -15,7 +21,7 @@ Changing a label re-records each week's overage immediately.</p>
   <label>Label
     <select name="label">
       <option value="">all</option>
-      {% for l in (WASTEFUL, WORTHWHILE, UNLABELLED) %}<option value="{{ l }}"{% if f_label == l %} selected{% endif %}>{{ l }}</option>{% endfor %}
+      {% for l in (WASTEFUL, WORTHWHILE, TOOL, UNLABELLED) %}<option value="{{ l }}"{% if f_label == l %} selected{% endif %}>{{ l }}</option>{% endfor %}
     </select>
   </label>
   <button type="submit">Filter</button>

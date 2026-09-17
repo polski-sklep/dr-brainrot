@@ -16,7 +16,17 @@ import clock
 
 WASTEFUL = "wasteful"
 WORTHWHILE = "worthwhile"
+#: The two *value* labels for content. Per-item overrides use only these: a
+#: queue item is content by definition (DECISIONS DR5.5).
 LABELS = (WASTEFUL, WORTHWHILE)
+
+#: A source label meaning "not content; out of scope" (DECISIONS DR5.5). DRBR
+#: measures brain-rot content only. A source the user only goes to to get a task
+#: done (shopping, email, banking, a todo app) is a tool: its minutes are never
+#: wasteful or worthwhile, never charge the allowance, and are shown separately.
+TOOL = "tool"
+#: What a *source* may be labelled.
+SOURCE_LABELS = (WASTEFUL, WORTHWHILE, TOOL)
 
 #: Unlabelled resolves to this. Brief: "It errs honestly."
 DEFAULT_LABEL = WASTEFUL

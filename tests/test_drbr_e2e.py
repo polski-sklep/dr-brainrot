@@ -671,7 +671,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert any("Quantum Gravity" in p and "Label: worthwhile (source label) · costs 0 min — worthwhile" in p
                for p in posts)
     assert any("API title 4" in p and "Label: worthwhile (your tag at capture)" in p for p in posts)
-    assert "Last week spent 169 min wasteful across sources" in posts[-1]
+    assert "Last week spent 169 wasteful content minutes across sources" in posts[-1]
     assert "went" not in posts[-1] and "Debt" not in posts[-1]
 
     # ------------------------------------------------------------------

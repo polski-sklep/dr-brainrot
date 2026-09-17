@@ -8,6 +8,16 @@ The governing principle: **the user labels, the system counts.** Nothing in
 this module may derive a label from behaviour, duration, folder, or any other
 indirect signal. A label is read from explicit stored state or it is the
 documented default.
+
+**Content only (DECISIONS DR5.5).** DRBR measures brain-rot *content*, not time
+in general. wasteful/worthwhile are value judgements about content. A source
+that is not content at all (a shop, email, banking, a todo app, the weather,
+DRBR's own dashboard) is labelled `tool`: out of scope. `resolve` returns
+`tool` for it and every consumer keeps those minutes out of wasteful,
+worthwhile, the allowance and cost per keeper, while still showing them
+separately. `tool` is a *source* label only: per-item overrides stay binary,
+because a captured queue item is content by definition, and an override on it
+still wins over a tool source.
 """
 from __future__ import annotations
 
@@ -40,7 +50,7 @@ class Source:
 
 @dataclass(frozen=True)
 class ResolvedLabel:
-    label: str                 # always 'wasteful' or 'worthwhile'
+    label: str                 # 'wasteful' or 'worthwhile'; 'tool' only from a source label (DR5.5)
     basis: str                 # T.BASIS_*
 
 
@@ -121,8 +131,8 @@ def is_covered_elsewhere(source: Source) -> str | None:
 # --- explicit label writes -------------------------------------------------
 
 def set_source_label(conn: sqlite3.Connection, clk: Clock, source_id: int, label: str) -> Source:
-    """The user labelled a source. Commits."""
-    _check_label(label)
+    """The user labelled a source: wasteful, worthwhile or tool. Commits."""
+    _check_source_label(label)
     cur = conn.execute("UPDATE sources SET label = ?, labelled_at = ? WHERE id = ?",
                        (label, clock.iso(clk.now()), source_id))
     if cur.rowcount != 1:
@@ -164,8 +174,16 @@ def parse_override_token(text: str) -> tuple[str, str | None]:
 # --- resolution -------------------------------------------------------------
 
 def _check_label(label: str) -> str:
+    """A value label: what an item override may be."""
     if label not in T.LABELS:
         raise LabelError(f"label must be one of {T.LABELS}, got {label!r}")
+    return label
+
+
+def _check_source_label(label: str) -> str:
+    """What a source may be labelled: a value label, or tool (not content)."""
+    if label not in T.SOURCE_LABELS:
+        raise LabelError(f"source label must be one of {T.SOURCE_LABELS}, got {label!r}")
     return label
 
 
@@ -180,7 +198,10 @@ def resolve(conn: sqlite3.Connection, *, source_id: int | None, item_ref: str | 
     Precedence, fixed:
       1. per-item override (set at capture)          -> basis item_override
       2. the source's explicit label                  -> basis source_label
+         (wasteful, worthwhile, or tool: not content, out of scope)
       3. unlabelled (or no source known)              -> wasteful, default_unlabelled
+
+    An override beats a tool source: a captured item is content by definition.
     """
     if item_ref is not None:
         override = item_override(conn, item_ref)
@@ -191,7 +212,7 @@ def resolve(conn: sqlite3.Connection, *, source_id: int | None, item_ref: str | 
         if row is None:
             raise LabelError(f"no source with id {source_id}")
         if row["label"] is not None:
-            return ResolvedLabel(_check_label(row["label"]), T.BASIS_SOURCE_LABEL)
+            return ResolvedLabel(_check_source_label(row["label"]), T.BASIS_SOURCE_LABEL)
     return ResolvedLabel(T.DEFAULT_LABEL, T.BASIS_DEFAULT)
 
 
@@ -240,7 +261,7 @@ def sources_needing_label(conn: sqlite3.Connection, clk: Clock, settings: Settin
                           limit: int = 8) -> list[Source]:
     """The next sources to ask the user about, oldest first.
 
-    Only sources that are unlabelled, not covered by a better measurement
+    Only sources that are unlabelled (tool counts as labelled), not covered by a better measurement
     (asking to label "YouTube" the app would be a decision that changes
     nothing), actually observed at least once, and not prompted within
     `PROMPT_COOLDOWN`. Selection is a filter over stored facts; nothing about
@@ -283,8 +304,8 @@ def list_sources(conn: sqlite3.Connection, *, kind: str | None = None,
                  label: str | None = None) -> list[Source]:
     """Sources for the label manager, optionally filtered.
 
-    `label` is 'wasteful', 'worthwhile', 'unlabelled' (stored NULL), or None
-    for all. Unlabelled is kept distinct from wasteful here even though it
+    `label` is 'wasteful', 'worthwhile', 'tool', 'unlabelled' (stored NULL),
+    or None for all. Unlabelled is kept distinct from wasteful here even though it
     resolves to wasteful: "never decided" and "decided" are different facts.
     """
     clauses, params = [], []
@@ -296,7 +317,7 @@ def list_sources(conn: sqlite3.Connection, *, kind: str | None = None,
     if label == UNLABELLED:
         clauses.append("label IS NULL")
     elif label is not None:
-        _check_label(label)
+        _check_source_label(label)
         clauses.append("label = ?")
         params.append(label)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""

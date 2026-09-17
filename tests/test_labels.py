@@ -269,3 +269,54 @@ def test_unknown_youtube_channel_is_never_offered_for_labelling(conn, clk, setti
                                 item_key="vid")
     conn.commit()
     assert unknown.id not in [s.id for s in labels.sources_needing_label(conn, clk, settings)]
+
+
+# --- tool: not content, a source label only (DECISIONS DR5.5) -------------------
+
+@pytest.mark.parametrize("override,item_ref", list(itertools.product(OVERRIDES, REFS)))
+def test_resolution_precedence_with_a_tool_source(conn, clk, override, item_ref):
+    """An item override beats tool (a captured item is content); tool beats the default."""
+    source_id = labels.ensure_source(conn, clk, T.KIND_PODCAST_SHOW, "Synthetic Show").id
+    labels.set_source_label(conn, clk, source_id, T.TOOL)
+    if override is not None:
+        labels.set_item_override(conn, clk, REF, override)
+
+    got = labels.resolve(conn, source_id=source_id, item_ref=item_ref)
+
+    if override is not None and item_ref is not None:
+        assert got == labels.ResolvedLabel(override, T.BASIS_ITEM_OVERRIDE)
+    else:
+        assert got == labels.ResolvedLabel(T.TOOL, T.BASIS_SOURCE_LABEL)
+
+
+def test_tool_is_a_source_label_and_never_an_item_override(conn, clk):
+    assert T.SOURCE_LABELS == (T.WASTEFUL, T.WORTHWHILE, T.TOOL)
+    assert T.LABELS == (T.WASTEFUL, T.WORTHWHILE)
+    src = labels.ensure_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl")
+    clk.set("2026-09-17T10:00:00+00:00")
+    got = labels.set_source_label(conn, clk, src.id, T.TOOL)
+    assert (got.label, got.labelled_at) == (T.TOOL, "2026-09-17T10:00:00+00:00")
+    with pytest.raises(labels.LabelError):
+        labels.set_item_override(conn, clk, REF, T.TOOL)
+    assert labels.item_override(conn, REF) is None
+    # There is no #tool token: it stays in the note as ordinary text, and no override is taken.
+    assert labels.parse_override_token("bought a charger #tool") == ("bought a charger #tool", None)
+
+
+def test_a_tool_source_counts_as_labelled_and_is_never_asked_about(conn, clk, settings):
+    tool = _src(conn, clk, T.KIND_WEB_DOMAIN, "allegro.pl", "2026-09-10T00:00:00+00:00")
+    open_ = _src(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", "2026-09-11T00:00:00+00:00")
+    clk.set("2026-09-16T10:00:00+00:00")
+    for s in (tool, open_):
+        _measure(conn, clk, settings, s.id)
+    labels.set_source_label(conn, clk, tool.id, T.TOOL)
+    assert [s.id for s in labels.sources_needing_label(conn, clk, settings)] == [open_.id]
+
+
+def test_list_sources_filters_tool(conn, clk):
+    a = labels.ensure_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl")
+    b = labels.ensure_source(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com")
+    conn.commit()
+    labels.set_source_label(conn, clk, a.id, T.TOOL)
+    assert [s.id for s in labels.list_sources(conn, label=T.TOOL)] == [a.id]
+    assert {s.id for s in labels.list_sources(conn, label="unlabelled")} == {b.id}

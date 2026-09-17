@@ -28,6 +28,12 @@ Five rules this module exists to enforce.
 
 Labels are read through `labels.resolve` via `allowance` on every call, like
 everywhere else. Nothing is cached.
+
+DRBR measures brain-rot content only (DECISIONS DR5.5). Minutes on sources
+labelled `tool` (not content) are kept out of wasteful/worthwhile totals, the
+label split, allowance status and cost per keeper, and are reported on their
+own (`WeekSplit.tool_min`, `SourceTotal.tool_min`) so the label can never hide
+consumption.
 """
 from __future__ import annotations
 
@@ -111,7 +117,8 @@ GROUP_BLIND_SPOTS: dict[str, tuple[str, ...]] = {
 class SourceTotal:
     """One (group, provenance, device) row of a week's consumption.
 
-    `minutes` counts every label, excludes covered-elsewhere rows (shown in
+    `minutes` counts every content label (wasteful and worthwhile), excludes
+    tool minutes (shown in `tool_min`, DR5.5) and covered-elsewhere rows (shown in
     `covered_excluded_min`) and is `None` when the week's evidence for this
     row never arrived — `import_status == 'missing'` — which is not zero.
     `import_status` is `None` for API-polled Spotify, which has no imports.
@@ -132,6 +139,7 @@ class SourceTotal:
     import_status: str | None
     import_id: int | None = None
     covered_reasons: tuple[tuple[str, float], ...] = ()
+    tool_min: float = 0.0             # sources labelled tool: not content, shown, never counted (DR5.5)
 
 
 @dataclass(frozen=True)
@@ -139,7 +147,9 @@ class WeekSplit:
     """One bar of the wasteful/worthwhile chart.
 
     `screenshot_ocr_min` is how much of the bar came from parsed screenshots,
-    so a chart that stacks OCR minutes on API minutes can say so.
+    so a chart that stacks OCR minutes on API minutes can say so. `tool_min`
+    is time on sources labelled tool (not content, DR5.5): in neither bar
+    segment, shown beside them.
     """
 
     week_start: str
@@ -148,6 +158,7 @@ class WeekSplit:
     screenshot_ocr_min: float = 0.0
     allowance_min: int | None = None    # that week's allowance (its snapshot, or config if never opened)
     overage_min: int = 0                # recorded, never carried (DR5.2); "so far" for the current week
+    tool_min: float = 0.0               # not content (DR5.5): shown, never in the bars or the allowance
 
 
 @dataclass(frozen=True)
@@ -368,10 +379,12 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
 
     def row(key):
         return acc.setdefault(key, {"minutes": 0.0, "unmeasured_items": 0, "covered_excluded_min": 0.0,
-                                    "reasons": {}})
+                                    "reasons": {}, "tool_min": 0.0})
 
     for r in allowance._spotify_rows(conn, settings, week_start):
-        row((T.GROUP_PODCASTS, T.PROV_API, T.DEVICE_ACCOUNT))["minutes"] += int(r["delta_ms"]) / MIN_MS
+        b = row((T.GROUP_PODCASTS, T.PROV_API, T.DEVICE_ACCOUNT))
+        field = "tool_min" if allowance.spotify_label(conn, r).label == T.TOOL else "minutes"
+        b[field] += int(r["delta_ms"]) / MIN_MS
 
     for r in allowance._measurement_rows(conn, settings, week_start):
         b = row((T.report_group(r["kind"], r["device"]), r["provenance"], r["device"]))
@@ -382,6 +395,8 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
                 b["reasons"][reason] = b["reasons"].get(reason, 0.0) + float(r["minutes"])
         elif r["status"] != "ok":
             b["unmeasured_items"] += 1
+        elif allowance.measurement_label(conn, r).label == T.TOOL:
+            b["tool_min"] += float(r["minutes"])
         else:
             b["minutes"] += float(r["minutes"])
 
@@ -398,7 +413,7 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
             import_id = imp["id"] if imp else None
         out.append(SourceTotal(group, provenance, device, v["minutes"], v["unmeasured_items"],
                                v["covered_excluded_min"], status, import_id,
-                               tuple(sorted(v["reasons"].items()))))
+                               tuple(sorted(v["reasons"].items())), v["tool_min"]))
 
     present = {(t.group, t.provenance, t.device) for t in out}
     for kind, group, provenance, device, _name in EXPECTED_WEEKLY:
@@ -421,7 +436,10 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
 
 def label_split(conn: sqlite3.Connection, clk: Clock, settings: Settings,
                 weeks: int = 8) -> list[WeekSplit]:
-    """Wasteful vs worthwhile per allowance week, oldest first, ending with the current week.
+    """Wasteful vs worthwhile content per allowance week, oldest first, ending with the current week.
+
+    Tool minutes (not content, DR5.5) are in neither figure; each week carries
+    them as `tool_min` so they stay visible.
 
     Weeks that end before the diagnostic window start are left out: they are
     not diagnostic data, and showing them as empty bars would read as zero.
@@ -439,7 +457,7 @@ def label_split(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         allowed = row["allowance_min"] if row else settings.weekly_allowance_min
         over = allowance.overage_for(db.Week(start, allowed, 0, 0, 0), pooled)
         out.append(WeekSplit(start, pooled.wasteful_min, pooled.worthwhile_min, pooled.screenshot_ocr_min,
-                             allowed, over))
+                             allowed, over, pooled.tool_min))
     return out
 
 
@@ -529,8 +547,9 @@ def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
                     since: str | None = None) -> list[KeeperRow]:
     """Minutes per kept vault capture, one row per group, cheapest first, no price last.
 
-    Minutes are every label's consumption (excluding covered-elsewhere rows),
-    because a keeper is what the time *yielded*, whatever it was labelled.
+    Minutes are every content label's consumption (excluding covered-elsewhere
+    rows), because a keeper is what the time *yielded*, whatever it was
+    labelled. Tool minutes are not content and are left out (DR5.5).
     Keepers are captures whose latest scan outcome is `kept`. `since` is a
     local date or an instant; `None` means the whole diagnostic window, and an
     earlier `since` is clamped to the window start. A measurement counts when
@@ -545,17 +564,21 @@ def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
     minutes: dict[str, float] = {g: 0.0 for g in T.REPORT_GROUPS}
     provenances: dict[str, set[str]] = {g: set() for g in T.REPORT_GROUPS}
 
-    sql = ("SELECT l.delta_ms FROM listening l JOIN episodes e ON e.spotify_id = l.spotify_id "
+    sql = ("SELECT l.delta_ms, l.spotify_id, e.show FROM listening l "
+           "JOIN episodes e ON e.spotify_id = l.spotify_id "
            "WHERE l.delta_ms > 0 AND e.platform = 'spotify'")
     params: list = []
     if since_instant is not None:
         sql += " AND l.polled_at >= ?"
         params.append(since_instant)
     for r in conn.execute(sql, params).fetchall():
+        if allowance.spotify_label(conn, r).label == T.TOOL:
+            continue
         minutes[T.GROUP_PODCASTS] += int(r["delta_ms"]) / MIN_MS
         provenances[T.GROUP_PODCASTS].add(T.PROV_API)
 
-    sql = ("SELECT m.minutes, m.provenance, m.device, s.kind, s.source_key FROM measurements m "
+    sql = ("SELECT m.minutes, m.provenance, m.device, m.source_id, m.item_key, s.kind, s.source_key "
+           "FROM measurements m "
            "JOIN sources s ON s.id = m.source_id WHERE m.status = 'ok'")
     params = []
     if since_day is not None:
@@ -563,6 +586,8 @@ def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
         params.append(since_day)
     for r in conn.execute(sql, params).fetchall():
         if T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"])):
+            continue
+        if allowance.measurement_label(conn, r).label == T.TOOL:
             continue
         group = T.report_group(r["kind"], r["device"])
         minutes[group] += float(r["minutes"])
@@ -628,9 +653,15 @@ def funnels(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Funnels
     )
 
 
+#: Standing first line of `blind_spots` (DR5.5).
+TOOL_SCOPE_LINE = ("DRBR measures content only; sources you mark as tool (shopping, email, utilities…) are "
+                   "excluded and shown separately.")
+
+
 def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[str]:
     """What this diagnostic cannot see, stated rather than silently absorbed."""
     out = [
+        TOOL_SCOPE_LINE,
         "Podcast listening outside the queue is invisible: only captured episodes are polled.",
         *_coldturkey_blind_spots(conn),
         "YouTube rewatches overwrite progress and undercount; history dates have no time of day or sittings.",
@@ -734,7 +765,7 @@ def records(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, group: 
     """
     if group is not None and group not in T.REPORT_GROUPS:
         raise ValueError(f"unknown group {group!r}")
-    if label is not None and label not in T.LABELS:
+    if label is not None and label not in T.SOURCE_LABELS:
         raise ValueError(f"unknown label {label!r}")
     tz = settings.tz
     start = _clamp_start(start, window_start(conn, clk, settings))

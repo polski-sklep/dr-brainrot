@@ -290,8 +290,8 @@ def test_week_header_reports_pooled_wasteful_spend(conn, settings, spotify):
 
     header = bot.texts[-1]
     assert header.startswith("Week of")
-    assert "Last week spent 100 min wasteful across sources" in header
-    assert "Spent so far 0 min wasteful across sources" in header
+    assert "Last week spent 100 wasteful content minutes across sources" in header
+    assert "Spent so far 0 wasteful content minutes across sources" in header
 
 
 def test_render_stats_points_to_the_dashboard(conn, settings):
@@ -823,3 +823,11 @@ def test_deadline_and_week_header_render_in_the_configured_zone_not_lisbon(conn)
     notice, _ = triage.render_deadline_notice(item, week, tz=settings.tz)
     assert "Fri 25 Sep 18:00" in notice
     assert "Week of Sun 13 Sep 18:00" in triage.render_week_header(week, tz=settings.tz)
+
+
+def test_label_line_for_a_tool_source_says_not_counted():
+    import drbr_types as T  # noqa: PLC0415
+    import labels  # noqa: PLC0415
+
+    line = triage.label_line(labels.ResolvedLabel(T.TOOL, T.BASIS_SOURCE_LABEL))
+    assert line == "Label: tool (source label) · costs 0 min — tool, not counted"

@@ -160,7 +160,31 @@ def test_stale_source_id_is_answered_not_raised(ctx, conn):
     assert q.answers == [H.STALE] and q.edits == []
 
 
-@pytest.mark.parametrize("data", ["d:lbl:x:1", "d:lbl:w:", "d:lbl:w:abc", "d:lbl:", "d:lbl:w:1:extra"])
+def test_tool_callback_labels_tool_and_says_not_counted(conn, clk, settings, ctx):
+    s = _observed(conn, clk, settings, "Allegro")
+    q = FakeQuery(f"d:lbl:t:{s.id}")
+    asyncio.run(H.on_label_callback(FakeUpdate(query=q), ctx))
+    assert labels.get_source(conn, s.id).label == T.TOOL
+    assert q.answers == ["Labelled tool — not counted."]
+    assert q.edits == ["Allegro (iPhone app): labelled tool — not counted."]
+    assert labels.resolve(conn, source_id=s.id) == labels.ResolvedLabel(T.TOOL, T.BASIS_SOURCE_LABEL)
+    assert H.callback_data(T.TOOL, s.id) == f"d:lbl:t:{s.id}"
+
+
+def test_tool_callback_re_records_overage(conn, clk, settings, ctx):
+    s = _observed(conn, clk, settings, "Allegro")            # 3 min on 2026-09-06, unlabelled -> wasteful
+    week_start = T.allowance_week_start_for_day(T.parse_date("2026-09-06"), settings.tz)
+    conn.execute("INSERT INTO weeks (week_start, allowance_min, debt_min, promoted_min, listened_min) "
+                 "VALUES (?, 1, 0, 0, 0)", (week_start,))
+    conn.commit()
+    import allowance
+    allowance.on_measurements_changed(conn, clk, settings)
+    assert conn.execute("SELECT overage_min FROM weeks").fetchone()[0] == 2
+    asyncio.run(H.on_label_callback(FakeUpdate(query=FakeQuery(f"d:lbl:t:{s.id}")), ctx))
+    assert conn.execute("SELECT overage_min FROM weeks").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("data", ["d:lbl:x:1", "d:lbl:tool:1", "d:lbl:T:1", "d:lbl:w:", "d:lbl:w:abc", "d:lbl:", "d:lbl:w:1:extra"])
 def test_malformed_callback_is_answered(ctx, data):
     q = FakeQuery(data)
     asyncio.run(H.on_label_callback(FakeUpdate(query=q), ctx))
@@ -209,7 +233,7 @@ def test_batch_waits_seven_days(conn, clk, settings):
     assert len(H.send_label_batch(conn, clk, settings, bot)) == 1
 
 
-def test_batch_one_message_per_source_with_two_buttons(conn, clk, settings):
+def test_batch_one_message_per_source_with_three_buttons(conn, clk, settings):
     a, b = _started(conn, clk, settings, "Notes", "Maps")
     bot = SyncBot()
     sent = H.send_label_batch(conn, clk, settings, bot)
@@ -219,7 +243,11 @@ def test_batch_one_message_per_source_with_two_buttons(conn, clk, settings):
     assert "Notes" in first["text"] and "iPhone app" in first["text"] and "Screen Time screenshots" in first["text"]
     buttons = first["reply_markup"].inline_keyboard[0]
     assert [(x.text, x.callback_data) for x in buttons] == \
-        [("Wasteful", f"d:lbl:w:{a.id}"), ("Worthwhile", f"d:lbl:v:{a.id}")]
+        [("Wasteful", f"d:lbl:w:{a.id}"), ("Worthwhile", f"d:lbl:v:{a.id}"),
+         ("Tool (not content)", f"d:lbl:t:{a.id}")]
+    # The prompt asks the content question, in the same words as the dashboard rule (DR5.5).
+    assert H.CONTENT_QUESTION in first["text"]
+    assert "Is this content you consume?" in first["text"] and "it's a tool and isn't counted" in first["text"]
     assert labels.get_source(conn, a.id).prompted_at == "2026-09-16T10:00:00+00:00"
     assert labels.get_source(conn, b.id).prompted_at == "2026-09-16T10:00:00+00:00"
     assert [tuple(r) for r in conn.execute("SELECT kind, period_start, sent_on FROM prompts_sent")] == \

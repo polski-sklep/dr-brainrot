@@ -92,7 +92,7 @@ def test_upgrade_sets_version_and_creates_drbr_tables(v1):
     db.init_db(v1)
     db.migrate(v1)
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
-    assert db.SCHEMA_VERSION == 4
+    assert db.SCHEMA_VERSION == 5
     assert "overage_min" in [r[1] for r in v1.execute("PRAGMA table_info(weeks)")]
     names = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"sources", "item_labels", "imports", "measurements", "category_measurements",
@@ -303,9 +303,9 @@ def test_v3_to_v4_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tm
 
 def test_v1_to_v4_reaches_the_same_schema_as_v3_to_v4(v1, monkeypatch, tmp_path):
     straight = _v1_database(tmp_path / "straight.db")
+    _v3_with_drbr_rows(v1, monkeypatch)              # leaves SCHEMA_VERSION at 4, for both databases
     db.init_db(straight)
     db.migrate(straight)
-    _v3_with_drbr_rows(v1, monkeypatch)
     db.migrate(v1)
     assert _schema(straight) == _schema(v1)
 
@@ -377,3 +377,142 @@ def test_0004_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, 
     with pytest.raises(db.MigrationError, match="foreign key"):
         db.migrate(v1)
     _assert_still_v3(v1, before)
+
+
+# --- 0005: the tool source label (DR5.5), sources rebuilt to widen label CHECK -------
+
+def _v4_with_drbr_rows(v1, monkeypatch):
+    """A v4 database with rows in every DRBR table, plus DRBR's own dashboard hosts."""
+    _v3_with_drbr_rows(v1, monkeypatch)
+    db.migrate(v1)                                   # SCHEMA_VERSION is 4 here
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+    v1.executescript(f"""
+        INSERT INTO sources (id, kind, source_key, display_name, label, labelled_at, first_seen_at, prompted_at)
+        VALUES (4, 'web_domain', '127.0.0.1', '127.0.0.1', NULL, NULL, '{T0}', '{T0}'),
+               (5, 'web_domain', 'localhost', 'localhost', 'wasteful', '{T0}', '{T0}', NULL),
+               (6, 'desktop_app', 'localhost', 'An app keyed localhost', NULL, NULL, '{T0}', NULL),
+               (7, 'web_domain', 'amazon.pl', 'amazon.pl', NULL, NULL, '{T0}', NULL);
+        INSERT INTO measurements (id, import_id, source_id, device, provenance, item_key, item_title, period_start,
+                                  period_end, minutes, status, detail)
+        VALUES (9, 1, 4, 'desktop', 'manual_export', '127.0.0.1', '127.0.0.1', '2026-09-14', '2026-09-14', 3.0,
+                'ok', '{{}}');
+    """)
+    v1.commit()
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 5)
+
+
+def _without_dashboard_label(rows):
+    """Every row, with the migration's one deliberate change (sources 4 and 5) masked."""
+    out = dict(rows)
+    out["sources"] = [r for r in rows["sources"] if r[0] not in (4, 5)]
+    return out
+
+
+def test_v4_to_v5_keeps_every_row_and_foreign_key_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
+    _v4_with_drbr_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    assert all(before[t] for t in DRBR_TABLES)
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+    after = _all_rows(v1)
+    assert _without_dashboard_label(after) == _without_dashboard_label(before)
+    assert len(after["sources"]) == len(before["sources"])
+    assert v1.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+
+    fresh = sqlite3.connect(str(tmp_path / "fresh.db"))
+    fresh.row_factory = sqlite3.Row
+    db.init_db(fresh)
+    db.migrate(fresh)
+    assert _schema(fresh) == _schema(v1)
+    # Unique (kind, source_key) survives the rebuild...
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) "
+                   f"VALUES ('web_domain', 'amazon.pl', 'dup', '{T0}')")
+    # ...and so do the foreign keys into sources, enforced again.
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, "
+                   "minutes) VALUES (1, 999, 'desktop', 'manual_export', '2026-09-15', '2026-09-15', 1.0)")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("DELETE FROM sources WHERE id = 4")     # still referenced by measurement 9
+
+
+def test_0005_labels_only_the_dashboard_host_tool(v1, monkeypatch):
+    _v4_with_drbr_rows(v1, monkeypatch)
+    before = {r["id"]: tuple(r) for r in v1.execute("SELECT * FROM sources")}
+    db.migrate(v1)
+    after = {r["id"]: r for r in v1.execute("SELECT * FROM sources")}
+    assert {i for i, r in after.items() if r["label"] == "tool"} == {4, 5}
+    for i in (4, 5):
+        stamp = after[i]["labelled_at"]
+        assert clock.parse(stamp).utcoffset().total_seconds() == 0          # a real UTC instant, clock's shape
+        assert stamp.endswith("+00:00") and stamp != T0
+        # Nothing else about the row changed.
+        assert tuple(after[i])[:4] == before[i][:4] and tuple(after[i])[6:] == before[i][6:]
+    for i in (1, 2, 3, 6, 7):                                             # an app keyed localhost is not the host
+        assert tuple(after[i]) == before[i]
+
+
+def test_v1_to_v5_reaches_the_same_schema_as_v4_to_v5(v1, monkeypatch, tmp_path):
+    straight = _v1_database(tmp_path / "straight.db")
+    _v4_with_drbr_rows(v1, monkeypatch)
+    db.init_db(straight)
+    db.migrate(straight)
+    db.migrate(v1)
+    assert _schema(straight) == _schema(v1)
+
+
+def test_v5_accepts_tool_on_sources_and_rejects_it_on_item_labels(v1):
+    db.init_db(v1)
+    db.migrate(v1)
+    v1.execute(f"INSERT INTO sources (kind, source_key, display_name, label, first_seen_at) "
+               f"VALUES ('web_domain', 'amazon.pl', 'amazon.pl', 'tool', '{T0}')")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, label, first_seen_at) "
+                   f"VALUES ('web_domain', 'b.pl', 'b.pl', 'neutral', '{T0}')")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO item_labels VALUES ('youtube:vid9', 'tool', '{T0}', 'capture')")
+    v1.execute(f"INSERT INTO item_labels VALUES ('youtube:vid9', 'wasteful', '{T0}', 'capture')")
+
+
+def _broken_0005(tmp_path, tail: str):
+    broken = tmp_path / "migrations"
+    broken.mkdir()
+    for name in ("0002_drbr.sql", "0003_no_debt.sql", "0004_desktop_apps.sql"):
+        (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
+    good = (db.MIGRATIONS_DIR / "0005_tool_label.sql").read_text()
+    (broken / "0005_tool_label.sql").write_text(good + "\n" + tail + "\n")
+    return broken
+
+
+def _assert_still_v4(v1, before):
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+    assert _all_rows(v1) == before                            # the dashboard host label rolled back too
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    with pytest.raises(sqlite3.IntegrityError):              # the old, binary CHECK is still in place
+        v1.execute("UPDATE sources SET label = 'tool' WHERE id = 7")
+
+
+def test_failed_0005_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v4_with_drbr_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0005(tmp_path, "CREATE TABLE sources (x);"))
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    _assert_still_v4(v1, before)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+    assert _without_dashboard_label(_all_rows(v1)) == _without_dashboard_label(before)
+
+
+def test_0005_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v4_with_drbr_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    orphan = "DELETE FROM sources WHERE id = 4;"      # measurement 9 still points at it
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0005(tmp_path, orphan))
+    with pytest.raises(db.MigrationError, match="foreign key"):
+        db.migrate(v1)
+    _assert_still_v4(v1, before)

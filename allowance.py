@@ -5,7 +5,7 @@ Implements CONTRACTS.md Part II §7. POP's gate (db.promote), rollover
 the two things DRBR changes about them: *what an item is labelled* and *which
 minutes count against the allowance*.
 
-Four rules this module exists to enforce.
+Five rules this module exists to enforce.
 
 1. **The user labels, the system counts.** Every label read goes through
    `labels.resolve`, via `item_label` for queue items. Nothing here caches a
@@ -28,7 +28,13 @@ Four rules this module exists to enforce.
    already measures (`COVERED_ELSEWHERE`, DR1.9) are reported separately and
    never pooled, or the same viewing would be charged twice.
 
-4. **NULL is not zero.** A measurement without minutes (progress or duration
+4. **Tool is not content (DR5.5).** DRBR measures brain-rot content only. A
+   source labelled `tool` (a shop, email, banking, DRBR's own dashboard) is
+   out of scope: its minutes go to `tool_min` and never into wasteful,
+   worthwhile, the allowance, overage, alerts or the gated split. They are
+   still counted and shown, so "tool" cannot become a place to hide content.
+
+5. **NULL is not zero.** A measurement without minutes (progress or duration
    missing, unreadable) adds nothing to any total and is counted in
    `unmeasured_items` instead, so the gap stays visible (DR1.22).
 """
@@ -60,6 +66,7 @@ class GroupMinutes:
     worthwhile_min: float = 0.0
     covered_excluded_min: float = 0.0
     unmeasured_items: int = 0
+    tool_min: float = 0.0          # not content (DR5.5): shown, never charged or valued
 
 
 @dataclass(frozen=True)
@@ -67,7 +74,9 @@ class PooledMinutes:
     """Everything consumed in one allowance week, split by label.
 
     `wasteful_min` is the only figure the allowance, debt and alerts read.
-    `worthwhile_min` is measured and reported, never charged.
+    `worthwhile_min` is measured and reported, never charged. `tool_min` is
+    time on sources labelled tool (not content, DR5.5): shown separately and in
+    neither of the other two.
     """
 
     wasteful_min: float
@@ -80,13 +89,15 @@ class PooledMinutes:
     #: can say how much of it is lower-confidence instead of flattening it.
     screenshot_ocr_min: float = 0.0
     screenshot_ocr_wasteful_min: float = 0.0
+    tool_min: float = 0.0
 
 
 @dataclass(frozen=True)
 class GatedSplit:
     """Consumption that passed through the queue versus consumption that bypassed it.
 
-    Both figures include every label. `wasteful_ungated_min` is the subset of
+    Both figures include every content label (wasteful and worthwhile); tool
+    minutes are not content and are left out (DR5.5). `wasteful_ungated_min` is the subset of
     `ungated_min` that was wasteful — the brief's "reflex rather than choice".
     """
 
@@ -197,12 +208,14 @@ def ensure_item_source(conn: sqlite3.Connection, clk: Clock, item) -> labels.Sou
 def promotion_cost(conn: sqlite3.Connection, item) -> tuple[int, labels.ResolvedLabel]:
     """-> (cost in minutes, the label it was decided on).
 
-    Worthwhile costs 0 and is therefore never refused. Wasteful — including
+    Worthwhile costs 0 and is therefore never refused. So does tool (only
+    possible if the item's source was labelled tool; not content, never charged,
+    DR5.5), unless an item override says otherwise. Wasteful — including
     an unlabelled source resolving to the default — costs POP's remaining
     minutes, `db.promotion_cost_min`, unchanged.
     """
     resolved = item_label(conn, item)
-    if resolved.label == T.WORTHWHILE:
+    if resolved.label in (T.WORTHWHILE, T.TOOL):
         return 0, resolved
     return db.promotion_cost_min(conn, item), resolved
 
@@ -283,13 +296,14 @@ def spotify_label(conn: sqlite3.Connection, row: sqlite3.Row) -> labels.Resolved
 
 
 def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str) -> PooledMinutes:
-    """Every minute consumed in one allowance week, split wasteful/worthwhile. Read-only."""
+    """Every minute consumed in one allowance week, split wasteful/worthwhile/tool. Read-only."""
     groups: dict[str, dict] = {}
     ocr = {"all": 0.0, "wasteful": 0.0}
 
     def bucket(group: str) -> dict:
         return groups.setdefault(group, {"wasteful_min": 0.0, "worthwhile_min": 0.0,
-                                         "covered_excluded_min": 0.0, "unmeasured_items": 0})
+                                         "covered_excluded_min": 0.0, "unmeasured_items": 0,
+                                         "tool_min": 0.0})
 
     for row in _spotify_rows(conn, settings, week_start):
         minutes = int(row["delta_ms"]) / MIN_MS
@@ -319,6 +333,8 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
             continue
         label = measurement_label(conn, row).label
         b[f"{label}_min"] += float(row["minutes"])
+        if label == T.TOOL:
+            continue            # not content: kept out of the OCR share of content minutes too
         if row["provenance"] == T.PROV_SCREENSHOT:
             ocr["all"] += float(row["minutes"])
             if label == T.WASTEFUL:
@@ -333,6 +349,7 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
         unmeasured_items=sum(g.unmeasured_items for g in by_group.values()),
         screenshot_ocr_min=ocr["all"],
         screenshot_ocr_wasteful_min=ocr["wasteful"],
+        tool_min=sum(g.tool_min for g in by_group.values()),
     )
 
 
@@ -348,20 +365,23 @@ def gated_split(conn: sqlite3.Connection, settings: Settings,
         on or before that local day.
     Everything else — every Screen Time and Cold Turkey minute, and any
     Spotify/YouTube consumption never promoted first — is ungated.
-    Covered-elsewhere rows and unmeasured rows contribute nothing.
+    Covered-elsewhere rows, unmeasured rows and tool minutes (not content,
+    DR5.5) contribute nothing.
     """
     out = {g: {"gated_min": 0.0, "ungated_min": 0.0, "wasteful_ungated_min": 0.0, "provenances": set()}
            for g in T.REPORT_GROUPS}
 
     for row in _spotify_rows(conn, settings, week_start):
         minutes = int(row["delta_ms"]) / MIN_MS
+        label = spotify_label(conn, row).label
+        if label == T.TOOL:
+            continue
         promoted = conn.execute(
             "SELECT 1 FROM queue WHERE spotify_id = ? AND promoted_at IS NOT NULL "
             "AND promoted_at <= ? LIMIT 1",
             (row["spotify_id"], row["polled_at"]),
         ).fetchone()
-        _add_split(out[T.GROUP_PODCASTS], minutes, promoted is not None,
-                   spotify_label(conn, row).label)
+        _add_split(out[T.GROUP_PODCASTS], minutes, promoted is not None, label)
         out[T.GROUP_PODCASTS]["provenances"].add(T.PROV_API)
 
     go_live = getattr(settings, "go_live", "") or ""
@@ -370,11 +390,14 @@ def gated_split(conn: sqlite3.Connection, settings: Settings,
             continue
         if go_live and row["period_end"] < go_live:
             continue            # same rule as pooled_minutes: pre-go-live evidence is not diagnostic data
+        label = measurement_label(conn, row).label
+        if label == T.TOOL:
+            continue
         group = T.report_group(row["kind"], row["device"])
         gated = False
         if row["kind"] == T.KIND_YOUTUBE_CHANNEL and row["item_key"]:
             gated = _youtube_promoted_by(conn, settings, row["item_key"], row["period_start"])
-        _add_split(out[group], float(row["minutes"]), gated, measurement_label(conn, row).label)
+        _add_split(out[group], float(row["minutes"]), gated, label)
         out[group]["provenances"].add(row["provenance"])
 
     return {g: GatedSplit(**{**v, "provenances": frozenset(v["provenances"])}) for g, v in out.items()}
@@ -403,6 +426,8 @@ def _youtube_promoted_by(conn: sqlite3.Connection, settings: Settings, video_id:
 
 def overage_for(week: db.Week, pooled: PooledMinutes) -> int:
     """max(0, pooled wasteful − the week's allowance), in whole minutes.
+
+    Only wasteful content minutes count; tool minutes never do (DR5.5).
 
     The user's rule: how far a week goes over is recorded, in full and
     unclamped, and never reduces any other week's allowance. This replaces

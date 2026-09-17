@@ -3,12 +3,13 @@
 {% block title %}Overview{% endblock %}
 {% block content %}
 
+<p class="scope" id="scope-line"><strong>Brain-rot content only: tools are excluded.</strong></p>
 <p class="note">This is a diagnostic. You label, the system counts. There are no targets here: compare and watch the trend.
 {% if window_start %}Figures start at {{ window_start }}.{% endif %}</p>
 
 {# ------------------------------------------------------------------ 0 #}
 <section id="reflex">
-  <h2>Reflex: wasteful consumption that bypassed the queue (week of {{ week.sunday }})</h2>
+  <h2>Reflex: wasteful content that bypassed the queue (week of {{ week.sunday }})</h2>
   <p class="reflex-figure"><span class="num">{{ reflex_min|min }}</span></p>
   <table class="compact">
     <tbody>
@@ -18,7 +19,7 @@
     {% endif %}{% endfor %}
     </tbody>
   </table>
-  <p class="note">Wasteful (including unlabelled) minutes that never passed through capture, lock and triage. This is the honest measure of how much was reflex rather than choice. Measured minutes only; weeks whose evidence has not arrived are not counted as zero (see weekly totals).</p>
+  <p class="note">Wasteful (including unlabelled) content minutes that never passed through capture, lock and triage. This is the honest measure of how much was reflex rather than choice. Measured minutes only; weeks whose evidence has not arrived are not counted as zero (see weekly totals).</p>
 </section>
 
 {# ------------------------------------------------------------------ 1 #}
@@ -35,6 +36,7 @@
   <table>
     <thead><tr>
       <th>Group</th><th>Device</th><th>Provenance</th><th class="num">Measured</th>
+      <th class="num">Tool (not content, excluded)</th>
       <th>Unmeasured</th><th>Covered elsewhere (excluded)</th><th>Import</th>
     </tr></thead>
     <tbody>
@@ -48,6 +50,7 @@
           {% elif t.minutes == 0 and t.unmeasured_items %}<span class="absent">nothing measured</span>
           {% else %}{{ t.minutes|min }}{{ lowconf(t.provenance) }}{% endif %}
         </td>
+        <td class="num tool-min">{% if t.tool_min %}{{ t.tool_min|min }}{% else %}none{% endif %}</td>
         <td>
           {% if t.unmeasured_items %}<span class="unmeasured">{{ t.unmeasured_items }} unmeasured item{{ "" if t.unmeasured_items == 1 else "s" }}</span> — left out, not counted as zero
           {% else %}none{% endif %}
@@ -70,7 +73,7 @@
     {% endfor %}
     </tbody>
   </table>
-  <p class="note">Measured minutes count every label. Parsed-screenshot figures are OCR readings and carry lower confidence than API figures.</p>
+  <p class="note">Measured minutes are content: wasteful and worthwhile (including unlabelled). Minutes on sources you labelled tool are not content; they are shown in their own column and counted nowhere else. Parsed-screenshot figures are OCR readings and carry lower confidence than API figures.</p>
   {% if week_imports %}
   <h3>Imports covering this week</h3>
   <table>
@@ -96,12 +99,12 @@
 
 {# ------------------------------------------------------------------ 2 #}
 <section id="label-split">
-  <h2>Wasteful vs worthwhile, per week</h2>
+  <h2>Wasteful vs worthwhile content, per week</h2>
   {% if not chart.bars %}
   <p class="absent">No diagnostic weeks yet.</p>
   {% else %}
   {% if chart.empty %}<p class="absent">No measured minutes in these weeks.</p>{% endif %}
-  <svg class="split" width="{{ chart.width }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Wasteful and worthwhile minutes per week">
+  <svg class="split" width="{{ chart.width }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Wasteful and worthwhile content minutes per week">
     <line x1="0" x2="{{ chart.width }}" y1="{{ chart.base }}" y2="{{ chart.base }}" class="axis"/>
     {% for b in chart.bars %}
     <g>
@@ -116,10 +119,10 @@
   </svg>
   <p class="legend"><span class="swatch bar-wasteful"></span> wasteful (includes unlabelled) <span class="swatch bar-worthwhile"></span> worthwhile · weeks labelled by their Sunday</p>
   <table class="compact">
-    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Worthwhile</th><th class="num">Of which parsed screenshots</th></tr></thead>
-    <tbody>{% for b in chart.bars %}<tr><td>{{ b.sunday }}{% if b.current %} (in progress){% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>{% endfor %}</tbody>
+    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Worthwhile</th><th class="num">Of which parsed screenshots</th><th class="num">Tool (not content, not in the bars)</th></tr></thead>
+    <tbody>{% for b in chart.bars %}<tr><td>{{ b.sunday }}{% if b.current %} (in progress){% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
   </table>
-  <p class="note">Each bar stacks every source, so it mixes API, page-data, export and parsed-screenshot minutes; the last column says how much of each bar is lower-confidence OCR.</p>
+  <p class="note">Bars are content only; tool minutes are the last column and are never stacked. Each bar stacks every source, so it mixes API, page-data, export and parsed-screenshot minutes; the last column says how much of each bar is lower-confidence OCR.</p>
   {% endif %}
 </section>
 
@@ -128,7 +131,7 @@
   <h2>Allowance status (this week)</h2>
   <table class="compact">
     <tbody>
-      <tr><th>Spent (wasteful, pooled across sources)</th><td class="num">{{ allowance.spent_wasteful_min|min }}</td></tr>
+      <tr><th>Spent (wasteful content, pooled across sources)</th><td class="num">{{ allowance.spent_wasteful_min|min }}</td></tr>
       <tr><th>… of which from parsed screenshots</th><td class="num">{{ allowance.spent_screenshot_ocr_min|min }}{% if allowance.spent_screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
       <tr><th>Remaining</th><td class="num">{{ allowance.remaining_min }} min</td></tr>
       <tr><th>Over the allowance so far</th><td class="num">{{ allowance.overage_min }} min</td></tr>
@@ -141,7 +144,7 @@
   <h3>Weeks over the allowance</h3>
   {% if over_weeks %}
   <table class="compact">
-    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Allowance</th><th class="num">Over by</th></tr></thead>
+    <thead><tr><th>Week of</th><th class="num">Wasteful content</th><th class="num">Allowance</th><th class="num">Over by</th></tr></thead>
     <tbody>{% for b in over_weeks %}<tr><td>{{ b.sunday }}{% if b.current %} (in progress){% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.allowance_min }} min</td><td class="num">{{ b.split.overage_min }} min</td></tr>{% endfor %}</tbody>
   </table>
   {% else %}
@@ -153,7 +156,7 @@
 <section id="gated">
   <h2>Gated vs ungated (week of {{ week.sunday }})</h2>
   <table>
-    <thead><tr><th>Group</th><th class="reflex-head">Ungated (reflex) share</th><th class="num">Wasteful, bypassed the queue</th><th class="num">Bypassed the queue (all labels)</th><th class="num">Through the queue</th><th>Provenance</th></tr></thead>
+    <thead><tr><th>Group</th><th class="reflex-head">Ungated (reflex) share</th><th class="num">Wasteful, bypassed the queue</th><th class="num">Bypassed the queue (all content)</th><th class="num">Through the queue</th><th>Provenance</th></tr></thead>
     <tbody>
     {% for r in gated %}
       <tr>
@@ -167,7 +170,7 @@
     {% endfor %}
     </tbody>
   </table>
-  <p class="note">Gated means promoted through the queue before it was consumed. Every Screen Time and Cold Turkey minute is ungated. Covered-elsewhere and unmeasured rows contribute nothing.</p>
+  <p class="note">Gated means promoted through the queue before it was consumed. Every Screen Time and Cold Turkey minute is ungated. Covered-elsewhere rows, unmeasured rows and tool minutes contribute nothing.</p>
 </section>
 
 {# ------------------------------------------------------------------ 5 #}
@@ -189,7 +192,7 @@
     {% endfor %}
     </tbody>
   </table>
-  <p class="note">Minutes of every label, divided by vault captures from the group whose latest scan says kept. Groups with no price are listed last.</p>
+  <p class="note">Content minutes of every label (tool excluded), divided by vault captures from the group whose latest scan says kept. Groups with no price are listed last.</p>
 </section>
 
 {# ------------------------------------------------------------------ 6 #}

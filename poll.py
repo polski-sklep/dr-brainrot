@@ -333,15 +333,15 @@ def check_alerts(conn, clk: Clock, settings: Settings, bot) -> None:
 def _approaching_text(week, used: int) -> str:
     left = max(0, week.effective_allowance_min - used)
     return (
-        f"{used} of {week.effective_allowance_min} min used this week across "
-        f"sources (wasteful only). {left} min left."
+        f"{used} of {week.effective_allowance_min} wasteful content minutes used this week "
+        f"across sources. {left} min left."
     )
 
 
 def _exceeded_text(week, used: int) -> str:
     over = used - week.effective_allowance_min
     return (
-        f"Over the allowance: {used} min used across sources (wasteful only) "
+        f"Over the allowance: {used} wasteful content minutes used across sources "
         f"against {week.effective_allowance_min} min. {over} min over. That is "
         "recorded for this week; next week still starts with the full allowance."
     )

@@ -19,7 +19,7 @@ Vault captures are counts and appear in the funnels, not here.{% if window_start
   <label>Label
     <select name="label">
       <option value="">all</option>
-      {% for l in (WASTEFUL, WORTHWHILE) %}<option value="{{ l }}"{% if f_label == l %} selected{% endif %}>{{ l }}</option>{% endfor %}
+      {% for l in (WASTEFUL, WORTHWHILE, TOOL) %}<option value="{{ l }}"{% if f_label == l %} selected{% endif %}>{{ l }}</option>{% endfor %}
     </select>
   </label>
   <label>From <input type="date" name="start" value="{{ f_start or '' }}"></label>

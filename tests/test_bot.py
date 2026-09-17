@@ -1011,6 +1011,19 @@ def test_confirmation_names_a_source_label(real_ctx, real_conn, clk):
     assert "Label: worthwhile (the source's label)" in note.message.replies[0]
 
 
+def test_confirmation_for_a_tool_source_says_it_is_not_counted(real_ctx, real_conn, clk):
+    import labels  # noqa: PLC0415
+
+    source = labels.ensure_source(real_conn, clk, T.KIND_YOUTUBE_CHANNEL, CHANNEL_ID, "Talks Channel")
+    labels.set_source_label(real_conn, clk, source.id, T.TOOL)
+    run(bot.on_message(FakeUpdate(text=f"https://youtu.be/{VIDEO_ID}"), real_ctx))
+    note = FakeUpdate(text="how to fill in the tax form")
+    run(bot.on_message(note, real_ctx))
+    reply = note.message.replies[0]
+    assert "Label: tool (the source's label)" in reply
+    assert "labelled tool (not content)" in reply and "#wasteful or #worthwhile" in reply
+
+
 def test_build_app_parks_an_injected_youtube_client(settings, clk, spotify):
     yt = FakeYouTube()
     assert bot.build_app(settings, object(), clk, spotify, youtube=yt).bot_data["youtube"] is yt

@@ -286,7 +286,7 @@ def test_alerts_come_only_from_wasteful_consumption(conn, clk, settings,
     label, _ = expected(override, source_label)
     if label == T.WASTEFUL:
         assert len(bot.texts) == 2
-        assert any("Over the allowance: 200 min used across sources" in t for t in bot.texts)
+        assert any("Over the allowance: 200 wasteful content minutes used across sources" in t for t in bot.texts)
     else:
         assert bot.texts == []
 
@@ -340,7 +340,7 @@ def test_pooled_minutes_across_every_source_in_one_week(conn, clk, settings):
     # And the allowance reads it: 145 wasteful against 180 is "approaching".
     bot = FakeBot()
     poll.check_alerts(conn, clk, settings, bot)
-    assert bot.texts == ["145 of 180 min used this week across sources (wasteful only). 35 min left."]
+    assert bot.texts == ["145 of 180 wasteful content minutes used this week across sources. 35 min left."]
 
 
 def test_covered_elsewhere_rows_never_reach_allowance_or_overage(conn, clk, settings):
@@ -659,3 +659,101 @@ def test_ensure_item_source_records_identity_without_a_label(conn, clk, settings
     b = allowance.ensure_item_source(conn, clk, db.get_item(conn, ep.id))
     assert (a.kind, a.source_key, a.label) == (T.KIND_YOUTUBE_CHANNEL, "UCident", None)
     assert (b.kind, b.source_key, b.label) == (T.KIND_PODCAST_SHOW, "ident show", None)
+
+
+# ==========================================================================
+# Tool: not content, never charged, shown separately (DECISIONS DR5.5)
+# ==========================================================================
+
+TOOL_MATRIX = [(o, p) for o in OVERRIDES for p in PLATFORMS]
+
+
+def expected_with_tool_source(override):
+    """An override beats a tool source; otherwise the source's tool label stands."""
+    return (override, T.BASIS_ITEM_OVERRIDE) if override is not None else (T.TOOL, T.BASIS_SOURCE_LABEL)
+
+
+@pytest.mark.parametrize("override,platform", TOOL_MATRIX)
+def test_tool_source_item_label_cost_and_refusal(conn, clk, settings, override, platform):
+    item = matrix_item(conn, clk, settings, override, T.TOOL, platform, minutes=60)
+    label, basis = expected_with_tool_source(override)
+    resolved = allowance.item_label(conn, db.get_item(conn, item.id))
+    assert (resolved.label, resolved.basis) == (label, basis)
+    cost, _ = allowance.promotion_cost(conn, db.get_item(conn, item.id))
+    assert cost == (60 if label == T.WASTEFUL else 0)
+
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    conn.execute("UPDATE weeks SET promoted_min = 150 WHERE week_start = ?", (WEEK,))  # 30 left
+    conn.commit()
+    if label == T.WASTEFUL:
+        with pytest.raises(db.AllowanceExceeded):
+            db.promote(conn, clk, settings, item.id)
+        assert db.get_item(conn, item.id).state == "queued"
+    else:
+        assert db.promote(conn, clk, settings, item.id).state == "promoted"
+        assert week_row(conn, WEEK).promoted_min == 150          # spends nothing
+
+
+@pytest.mark.parametrize("override,platform", TOOL_MATRIX)
+def test_tool_source_consumption_charges_nothing_unless_overridden_wasteful(conn, clk, settings,
+                                                                          override, platform):
+    item = matrix_item(conn, clk, settings, override, T.TOOL, platform, minutes=300)
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    consume(conn, clk, settings, item, platform, 240)
+    label, _ = expected_with_tool_source(override)
+
+    pooled = allowance.pooled_minutes(conn, settings, WEEK)
+    assert pooled.wasteful_min == pytest.approx(240 if label == T.WASTEFUL else 0)
+    assert pooled.worthwhile_min == pytest.approx(240 if label == T.WORTHWHILE else 0)
+    assert pooled.tool_min == pytest.approx(240 if label == T.TOOL else 0)
+    split = allowance.gated_split(conn, settings, WEEK)[T.GROUP_PODCASTS if platform == "spotify" else T.GROUP_YOUTUBE]
+    assert split.ungated_min == pytest.approx(0 if label == T.TOOL else 240)
+
+    bot = FakeBot()
+    poll.check_alerts(conn, clk, settings, bot)
+    assert (len(bot.texts) == 2) == (label == T.WASTEFUL)
+    clk.set(NEXT_WEEK)
+    closed, _ = db.roll_over_week(conn, clk, settings)
+    assert closed.overage_min == (60 if label == T.WASTEFUL else 0)
+
+
+def test_tool_minutes_are_pooled_apart_from_wasteful_and_worthwhile(conn, clk, settings):
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", T.TOOL)
+    label_source(conn, clk, T.KIND_IPHONE_APP, "Mail", T.TOOL)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="amazon.pl", day="2026-09-08", minutes=70.0)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-08", minutes=20.0)
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Mail", day="2026-09-06",
+            period_end="2026-09-12", minutes=30.0)                         # OCR, tool
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-09-06",
+            period_end="2026-09-12", minutes=10.0)                         # OCR, wasteful
+
+    pooled = allowance.pooled_minutes(conn, settings, WEEK)
+    assert pooled.wasteful_min == pytest.approx(30)
+    assert pooled.worthwhile_min == 0
+    assert pooled.tool_min == pytest.approx(100)
+    assert pooled.by_group[T.GROUP_DESKTOP] == allowance.GroupMinutes(20.0, 0.0, 0.0, 0, 70.0)
+    assert pooled.by_group[T.GROUP_IPHONE] == allowance.GroupMinutes(10.0, 0.0, 0.0, 0, 30.0)
+    # The OCR share describes content minutes only.
+    assert (pooled.screenshot_ocr_min, pooled.screenshot_ocr_wasteful_min) == (10.0, 10.0)
+
+    split = allowance.gated_split(conn, settings, WEEK)
+    assert split[T.GROUP_DESKTOP] == allowance.GatedSplit(0.0, 20.0, 20.0)
+    assert split[T.GROUP_IPHONE] == allowance.GatedSplit(0.0, 10.0, 10.0)
+
+
+def test_relabelling_a_source_tool_re_records_overage(conn, clk, settings):
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    src = measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="amazon.pl", day="2026-09-08", minutes=200.0)
+    allowance.on_measurements_changed(conn, clk, settings)
+    assert week_row(conn, WEEK).overage_min == 20                   # unlabelled -> wasteful: 200 vs 180
+    labels.set_source_label(conn, clk, src.id, T.TOOL)
+    allowance.on_measurements_changed(conn, clk, settings)
+    assert week_row(conn, WEEK).overage_min == 0
+    labels.set_source_label(conn, clk, src.id, T.WASTEFUL)          # browsed it for entertainment after all
+    allowance.on_measurements_changed(conn, clk, settings)
+    assert week_row(conn, WEEK).overage_min == 20

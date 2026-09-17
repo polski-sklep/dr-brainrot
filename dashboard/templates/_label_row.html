@@ -3,6 +3,7 @@
   <td>{{ s.display_name }}{% if s.display_name != s.source_key %} <span class="muted">{{ s.source_key }}</span>{% endif %}</td>
   <td class="label-current">
     {% if s.label is none %}<span class="unlabelled">unlabelled → counts as wasteful</span>
+    {% elif s.label == TOOL %}<span class="tool-label"><strong>{{ TOOL_TEXT }}</strong></span>
     {% else %}<strong>{{ s.label }}</strong>{% endif %}
     {% set why = covered(s) %}
     {% if why %}<div class="note">Covered elsewhere: minutes already measured by {{ why }}, so this label changes no totals.</div>{% endif %}
@@ -15,6 +16,7 @@
       {% if f_label %}<input type="hidden" name="f_label" value="{{ f_label }}">{% endif %}
       <button type="submit" name="label" value="{{ WASTEFUL }}"{% if s.label == WASTEFUL %} disabled{% endif %}>wasteful</button>
       <button type="submit" name="label" value="{{ WORTHWHILE }}"{% if s.label == WORTHWHILE %} disabled{% endif %}>worthwhile</button>
+      <button type="submit" name="label" value="{{ TOOL }}"{% if s.label == TOOL %} disabled{% endif %} title="Not content: a task, not consumption">tool</button>
     </form>
     {% else %}
     <span class="not-toggleable">{{ UNKNOWN_CHANNEL_REASON }}</span>

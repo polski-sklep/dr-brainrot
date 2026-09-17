@@ -523,3 +523,94 @@ def test_main_binds_loopback_only(monkeypatch, tmp_path):
     conn = db.connect(settings)
     assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone() is not None
     conn.close()
+
+
+# ==========================================================================
+# Tool: not content (DR5.5)
+# ==========================================================================
+
+def test_labels_page_states_the_content_rule_and_offers_tool(client, conn, clk):
+    src = label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", None, "amazon.pl")
+    html = text(client.get("/labels"))
+    page = " ".join(re.sub(r"<[^>]+>", "", html).split())                 # inline emphasis removed in place
+    assert ("DRBR measures brain-rot content only. Label each source by asking: is this content I consume? "
+            "If yes, is it brain rot (wasteful) or not (worthwhile)? If I only go there to get a task done — "
+            "buy, pay, book, log in, organise, check the weather — it's a tool and isn't counted.") in page
+    assert '<option value="tool"' in html                                   # filter option
+    row = row_for(body_rows(html), "amazon.pl")
+    assert 'name="label" value="tool"' in row and 'hx-post' in row
+
+
+def test_tool_toggle_via_htmx_returns_the_row_and_re_records_overage(overage_settings, clk):
+    conn = open_db(overage_settings)
+    src, closed, opened = _overage_scenario(conn, clk, overage_settings)
+    client = dashboard_app.create_app(overage_settings, clk, lambda: db.connect(overage_settings)).test_client()
+
+    resp = client.post(f"/labels/{src.id}", data={"label": T.TOOL}, headers={"HX-Request": "true"})
+    assert resp.status_code == 200
+    fragment = text(resp)
+    assert fragment.lstrip().startswith(f'<tr id="source-{src.id}"')
+    assert "tool → not content, not counted" in fragment
+    assert re.search(r'value="tool"\s+disabled', fragment)
+    assert labels.get_source(conn, src.id).label == T.TOOL
+    assert _week_figures(conn, closed.week_start) == (0, 0)             # tool: never over
+    conn.close()
+
+
+def test_tool_toggle_via_plain_post_redirects_and_filters(overage_settings, clk):
+    conn = open_db(overage_settings)
+    src, closed, _ = _overage_scenario(conn, clk, overage_settings)
+    client = dashboard_app.create_app(overage_settings, clk, lambda: db.connect(overage_settings)).test_client()
+
+    resp = client.post(f"/labels/{src.id}", data={"label": T.TOOL, "f_label": "tool"})
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith(f"/labels?label=tool#source-{src.id}")
+    assert labels.get_source(conn, src.id).label == T.TOOL
+    assert _week_figures(conn, closed.week_start) == (0, 0)
+    listed = text(client.get("/labels?label=tool"))
+    assert "news.example" in listed
+    assert "news.example" not in text(client.get("/labels?label=unlabelled"))
+    # Cross-site posts are refused for tool exactly as for the other labels.
+    other = label_source(conn, clk, T.KIND_IPHONE_APP, "Mail", None, "Mail")
+    assert client.post(f"/labels/{other.id}", data={"label": T.TOOL},
+                       headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert labels.get_source(conn, other.id).label is None
+    conn.close()
+
+
+def test_overview_states_scope_and_shows_tool_minutes_outside_the_bars(client, conn, clk, settings):
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", T.TOOL)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="amazon.pl", day="2026-09-08", minutes=200.0)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-08", minutes=30.0)
+    clk.set("2026-09-16T10:00:00+00:00")
+
+    html = text(client.get("/"))
+    assert "Brain-rot content only: tools are excluded" in flat(html)
+
+    totals = section(html, "weekly-totals")
+    assert "Tool (not content, excluded)" in totals
+    desktop = row_for(body_rows(totals), "Desktop web")
+    assert "30 min" in desktop and "200 min" in desktop
+
+    split = section(html, "label-split")
+    week_row_html = row_for(body_rows(split.split("</svg>")[1]), WEEK_SUNDAY)
+    cells = re.findall(r'<td class="num[^"]*">(.*?)</td>', week_row_html, re.S)
+    assert flat(cells[0]) == "30 min" and flat(cells[1]) == "0 min" and flat(cells[3]) == "200 min"
+    assert "Week of 2026-09-06: wasteful 30 min, worthwhile 0 min" in split       # the bar holds content only
+
+    keepers = row_for(body_rows(section(html, "cost-per-keeper")), "<td>Desktop web</td>")
+    assert "30 min" in keepers and "200 min" not in keepers
+    assert "sources you mark as tool" in section(html, "blind-spots")
+
+
+def test_records_page_filters_tool(client, conn, clk, settings):
+    clk.set(WED)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", T.TOOL)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="amazon.pl", day="2026-09-08", minutes=5.0)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-08", minutes=5.0)
+    clk.set("2026-09-16T10:00:00+00:00")
+    resp = client.get("/records?label=tool")
+    assert resp.status_code == 200
+    assert "amazon.pl" in text(resp) and "reddit.com" not in text(resp)

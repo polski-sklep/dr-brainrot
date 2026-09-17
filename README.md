@@ -1,10 +1,14 @@
 # DRBR — Doctor Brain Rot
 
-An eight-week diagnostic of where attention actually goes: Spotify podcasts,
-YouTube, iPhone apps, desktop websites, and X. You label sources wasteful or
-worthwhile. The system counts minutes, gates only the wasteful ones through
-POP's deliberate queue, checks whether captured material was ever processed in
-Obsidian, and reports it on a local dashboard.
+An eight-week diagnostic of **brain-rot content**: how much content you
+consume across Spotify podcasts, YouTube, iPhone apps, desktop websites, desktop
+apps and X, and how much of it is brain rot. It is not a screen-time or
+productivity tracker: shopping, email, banking and other errands are out of
+scope. You label content sources wasteful or worthwhile, and anything that
+isn't content at all as **tool** (not counted). The system counts content
+minutes, gates only the wasteful ones through POP's deliberate queue, checks
+whether captured material was ever processed in Obsidian, and reports it on a
+local dashboard.
 
 DRBR absorbs **POP**, the podcast queue: capture instead of play, a why-note, a
 48-hour lock, weekly triage against an allowance. POP's behaviour is unchanged
@@ -52,7 +56,9 @@ upgrade from a pre-DRBR POP database is additive: no POP row is rewritten
 (`tests/test_drbr_migration.py`, `tests/test_drbr_e2e.py`). Migration 0004
 rebuilds four DRBR tables to widen their CHECK constraints, copying every row;
 it runs with foreign keys off and refuses to commit if a foreign key check
-fails.
+fails. Migration 0005 rebuilds `sources` the same way so a source can be
+labelled `tool`, and labels DRBR's own dashboard host (`127.0.0.1` /
+`localhost`) tool; nothing else changes.
 
 **Back up before any upgrade:**
 
@@ -67,7 +73,7 @@ All configuration is in `.env`. `.env.example` lists every key with placeholders
 | Key | Meaning |
 |---|---|
 | `SPOTIFY_*`, `TELEGRAM_*` | POP credentials, unchanged (see below) |
-| `WEEKLY_ALLOWANCE_MIN` | Pooled **wasteful** minutes per week across every source (360) |
+| `WEEKLY_ALLOWANCE_MIN` | Pooled **wasteful content** minutes per week across every source (360); tool minutes never count |
 | `POP_TZ` | The app's timezone (`Europe/Warsaw`). Week = Sunday 18:00 → Sunday 18:00 |
 | `LOCK_HOURS`, `LIFESPAN_CYCLES` | POP's lock and queue lifespan |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 key, used only for `videos.list` (durations, channels) |
@@ -148,8 +154,32 @@ One bot (POP's), commands `/start`, `/queue`, `/stats`, `/labels`. Only
   straight to the bot (below). It replies with what it stored, what it couldn't
   read, or why it failed.
 - **Labels:** after the first week, newly seen sources arrive one per message
-  with **Wasteful / Worthwhile** buttons. `/labels` asks for the next batch
-  now. Unlabelled sources count as wasteful. X is fixed wasteful.
+  with **Wasteful / Worthwhile / Tool (not content)** buttons, and the content
+  question (see [Labels](#labels)). `/labels` asks for the next batch now.
+  Unlabelled sources count as wasteful. X is fixed wasteful. The `#` override
+  tokens stay wasteful/worthwhile only: a captured item is content.
+
+## Labels
+
+DRBR measures **brain-rot content only**. Label each source by asking: is this
+*content* I consume? If yes, is it brain rot (**wasteful**) or not
+(**worthwhile**)? If I only go there to get a task done — buy, pay, book, log
+in, organise, check the weather — it's a **tool** and isn't counted.
+
+- **Tool is a scope setting, not a middle score.** Tool minutes never count as
+  wasteful or worthwhile, never charge the allowance, never trigger alerts or
+  overage, and are left out of cost per keeper and the gated split.
+- **Tool is still shown.** The dashboard prints tool minutes per week and per
+  source group beside the content figures, so a label can't hide consumption.
+- **Relabel when the use changes.** amazon.pl is a tool while it's errands;
+  relabel it wasteful if you browse it for entertainment. Every relabel
+  re-records each week's overage immediately.
+- **Item overrides stay binary.** `#wasteful` / `#worthwhile` on a captured item
+  beats a tool source; there is no `#tool`.
+- **One automatic tool label:** migration 0005 labels DRBR's own dashboard host
+  (`127.0.0.1` / `localhost` web domains) tool, because it is the measuring
+  instrument. Nothing else is labelled for you.
+- Unlabelled sources still count as wasteful until you decide (DR5.5).
 
 ## Chrome extension (YouTube)
 
@@ -275,14 +305,17 @@ cross-site posts. Every page shows the countdown to the end date.
 - **Overview:**
   - weekly totals by source, with provenance badges (API / page data / parsed
     screenshot / manual export);
-  - wasteful vs worthwhile per week;
+  - a standing line: brain-rot content only, tools excluded;
+  - wasteful vs worthwhile content per week, with tool minutes in their own column (never in the bars);
   - allowance spent, remaining, and how far each week went over (recorded, never carried into the next week);
-  - the **reflex** figure: wasteful minutes that never passed through the queue;
+  - the **reflex** figure: wasteful content minutes that never passed through the queue;
   - gated vs ungated per group;
   - cost per keeper, ranked;
   - funnels, blind spots, and the latest import per kind with warnings.
-- **Labels:** every source with an inline wasteful/worthwhile toggle.
-  Changing a label re-records each week's overage immediately.
+- **Labels:** the content rule at the top, then every source with inline
+  wasteful / worthwhile / tool buttons and a filter for each. Tool reads
+  "tool → not content, not counted". Changing a label re-records each week's
+  overage immediately.
 - **Records:** the raw measurements, filterable by group, label and date.
 
 No targets, scores or streaks, by design.
@@ -313,7 +346,7 @@ migration are in `~/Projects/drbr-backup-20260916/`.
 | Any time | Capture reading/watching material via obsidian-ingest as usual; process notes out of `01-Inbox` when they earn it |
 | Sunday 18:00 | Triage the queue post in Telegram |
 | Monday+ | Send Screen Time "Last Week" screenshots; run the extension's weekly sync (Cold Turkey is automatic) |
-| When asked | Label new sources (buttons) |
+| When asked | Label new sources (buttons): content → wasteful or worthwhile; errands → tool |
 | Weekly | Glance at the dashboard: reflex share, cost per keeper |
 | Week 8 | Name the decision, or shut DRBR down (`./drbr stop`) |
 
@@ -373,6 +406,9 @@ data/ inputs/ logs/                                             gitignored
 
 Accepted deliberately, and stated on the dashboard rather than absorbed:
 
+- **Scope:** content only. Sources you label tool are excluded from every
+  content figure and shown separately; a mislabelled tool would hide content,
+  which is why tool minutes are always on the page.
 - **Podcasts:** listening that never went through the queue is invisible (POP
   polls only captured episodes, DR1.11).
 - **Spotify accuracy:** scrubbing forward reads as listening, and playback

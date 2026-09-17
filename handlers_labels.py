@@ -2,11 +2,16 @@
 
 The brief bootstraps labels from data rather than a spreadsheet up front:
 after the first week of collection the bot shows each newly seen source with
-two buttons, and one tap is the whole decision. The user labels; this module
+three buttons, and one tap is the whole decision. The user labels; this module
 only asks and records. It never suggests a label and never orders sources by
 how much they were used.
 
-Callback data: ``d:lbl:<w|v>:<source_id>`` (w = wasteful, v = worthwhile).
+Callback data: ``d:lbl:<w|v|t>:<source_id>`` (w = wasteful, v = worthwhile,
+t = tool).
+
+DRBR measures brain-rot content only (DECISIONS DR5.5). The prompt asks the
+content question first; a source that is not content (shopping, email, a
+utility) is a tool, and its minutes are not counted.
 """
 from __future__ import annotations
 
@@ -30,8 +35,8 @@ from config import Settings
 log = logging.getLogger("drbr.labels")
 
 CALLBACK_PREFIX = "d:lbl:"
-_CALLBACK_RE = re.compile(r"^d:lbl:([wv]):(\d{1,18})$")
-_CODE_TO_LABEL = {"w": T.WASTEFUL, "v": T.WORTHWHILE}
+_CALLBACK_RE = re.compile(r"^d:lbl:([wvt]):(\d{1,18})$")
+_CODE_TO_LABEL = {"w": T.WASTEFUL, "v": T.WORTHWHILE, "t": T.TOOL}
 _LABEL_TO_CODE = {v: k for k, v in _CODE_TO_LABEL.items()}
 
 #: The diagnostic must have run this long before the bot asks for labels:
@@ -55,6 +60,16 @@ _PROVENANCE_SEEN = {
     T.PROV_APP_TRACKER: "Qbserve (Mac apps)",
 }
 
+#: The labelling rule, in the same words as the dashboard's Labels page.
+CONTENT_QUESTION = (
+    "DRBR measures brain-rot content only. Is this content you consume? "
+    "If yes, is it brain rot (wasteful) or not (worthwhile)? "
+    "If you only go there to get a task done — buy, pay, book, log in, organise, "
+    "check the weather — it's a tool and isn't counted."
+)
+TOOL_BUTTON = "Tool (not content)"
+TOOL_DONE = "tool — not counted"
+
 UNRECOGNISED = "Unrecognised button."
 STALE = "That source no longer exists."
 
@@ -71,6 +86,7 @@ def _keyboard(source_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("Wasteful", callback_data=callback_data(T.WASTEFUL, source_id)),
         InlineKeyboardButton("Worthwhile", callback_data=callback_data(T.WORTHWHILE, source_id)),
+        InlineKeyboardButton(TOOL_BUTTON, callback_data=callback_data(T.TOOL, source_id)),
     ]])
 
 
@@ -109,13 +125,15 @@ def render_prompt(conn: sqlite3.Connection, source: labels.Source) -> tuple[str,
         f"Label this source?\n"
         f"{source.display_name}\n"
         f"{_KIND_TEXT.get(source.kind, source.kind)} · seen in {_seen_in(conn, source)}\n"
+        f"{CONTENT_QUESTION}\n"
         f"Until you choose, it counts as wasteful."
     )
     return text, _keyboard(source.id)
 
 
 def _labelled_text(source: labels.Source) -> str:
-    return f"{source.display_name} ({_KIND_TEXT.get(source.kind, source.kind)}): labelled {source.label}."
+    shown = TOOL_DONE if source.label == T.TOOL else source.label
+    return f"{source.display_name} ({_KIND_TEXT.get(source.kind, source.kind)}): labelled {shown}."
 
 
 # --------------------------------------------------------------------------
@@ -164,7 +182,7 @@ def _send_batch(conn: sqlite3.Connection, clk: Clock, settings: Settings, bot_li
 
 
 def send_label_batch(conn: sqlite3.Connection, clk: Clock, settings: Settings, bot_like) -> list[str]:
-    """Daily job: one message per source needing a label, two buttons each.
+    """Daily job: one message per source needing a label, three buttons each.
 
     Does nothing before the diagnostic has run 7 days, after it has ended, or
     if a batch already went out today. Returns one summary per message sent.
@@ -201,7 +219,7 @@ async def on_label_callback(update, context) -> None:
     import allowance  # noqa: PLC0415
 
     allowance.on_measurements_changed(conn, clk, settings)
-    await query.answer(f"Labelled {source.label}.")
+    await query.answer(f"Labelled {TOOL_DONE if source.label == T.TOOL else source.label}.")
     try:
         await query.edit_message_text(_labelled_text(source))
     except Exception:  # noqa: BLE001 — the label is stored; a stale message is cosmetic

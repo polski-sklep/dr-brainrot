@@ -891,3 +891,35 @@ All additive and defaulted; every earlier call site stays valid. Reasons and tes
   - `QBSERVE_STALE_HOURS = 36`, and `blind_spots` adds a staleness / never-imported line.
 - Dashboard: group name "Desktop apps", badge `("app tracker", "apptracker")` with its own CSS rule, and import kind name "Qbserve".
 - `reparse.py` dispatches `qbserve`. `check_env.py` step 9 checks the database shape and prints counts and timestamps only.
+
+## §18 Post-build amendment — the tool source label (DR5.5)
+
+- Migration `0005_tool_label.sql`, schema_version 5:
+  - rebuilds `sources` with `label CHECK (label IN ('wasteful','worthwhile','tool'))`; every column, row, id, `UNIQUE (kind, source_key)` and inbound foreign key is unchanged;
+  - `item_labels.label` is **not** widened;
+  - data step: `label='tool'`, `labelled_at` = migration time (UTC, `YYYY-MM-DDTHH:MM:SS+00:00`) for `kind='web_domain' AND source_key IN ('127.0.0.1','localhost')`.
+- `drbr_types`: `TOOL = "tool"`, `SOURCE_LABELS = (WASTEFUL, WORTHWHILE, TOOL)`. `LABELS` is unchanged (item overrides).
+- `labels`:
+  - `set_source_label` and `list_sources(label=)` accept `tool`;
+  - `set_item_override` and `parse_override_token` stay binary (no `#tool`);
+  - `resolve` precedence is unchanged: override, then source label (which may now be `tool`, basis `source_label`), then the wasteful default. `ResolvedLabel.label` may be `tool` only via a source label;
+  - `sources_needing_label`: tool counts as labelled.
+- `allowance`:
+  - `GroupMinutes.tool_min` and `PooledMinutes.tool_min` (defaulted 0.0). Tool minutes are in neither `wasteful_min` nor `worthwhile_min`, nor in `screenshot_ocr_min`/`screenshot_ocr_wasteful_min`;
+  - `gated_split` skips tool minutes;
+  - `promotion_cost` is 0 for `tool` (and `db.promote` never refuses it);
+  - `overage_for` and `poll.check_alerts` are unchanged in code: they read `wasteful_min`, which excludes tool.
+- `report`:
+  - `SourceTotal.minutes` counts content labels only; new `SourceTotal.tool_min`;
+  - `WeekSplit.tool_min`;
+  - `allowance_status` and `cost_per_keeper` exclude tool minutes;
+  - `records(label=)` accepts `tool`;
+  - `TOOL_SCOPE_LINE` is the first `blind_spots` line.
+- Dashboard:
+  - `POST /labels/<id>` accepts `label=tool` (HTMX and plain POST, same `Sec-Fetch-Site` refusal) and still calls `allowance.on_measurements_changed`;
+  - `/labels?label=tool` and `/records?label=tool`;
+  - `TOOL_TEXT = "tool → not content, not counted"`;
+  - Overview: the scope line, a tool column in weekly totals and in the per-week table.
+- `handlers_labels`: callback `d:lbl:<w|v|t>:<id>`; third button `TOOL_BUTTON = "Tool (not content)"`; `CONTENT_QUESTION` in the prompt; the edited message reads "labelled tool — not counted".
+- `triage.label_line` appends `TOOL_COST` for tool. `bot`'s capture confirmation says a tool-source item costs 0 and how to override it.
+- Alert and header text: "wasteful content minutes" (`poll._approaching_text`, `_exceeded_text`, `triage.render_week_header`).

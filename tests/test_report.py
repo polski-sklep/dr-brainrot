@@ -538,3 +538,80 @@ def test_no_report_function_converts_vault_captures_into_minutes(conn, clk, sett
             assert row.minutes == before_minutes[row.group]
         else:
             assert row.minutes is None                   # web/other: keepers, never minutes
+
+
+# ==========================================================================
+# Tool: not content, excluded from every content figure, shown (DR5.5)
+# ==========================================================================
+
+def seed_tool_week(conn, clk, settings):
+    """A week with wasteful and worthwhile content plus tool time, in several groups."""
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", T.TOOL)
+    label_source(conn, clk, T.KIND_X, "x", T.WASTEFUL)
+    label_source(conn, clk, T.KIND_PODCAST_SHOW, "Bank Updates", T.TOOL)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="amazon.pl", day="2026-09-08", minutes=150.0)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-08", minutes=40.0)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="x.com", day="2026-09-09", minutes=20.0)
+    ep = spotify_item(conn, clk, settings, "ToolEpisode00000000000", show="Bank Updates", minutes=100)
+    listen(conn, clk, ep.spotify_id, 25)                                  # podcast from a tool show
+
+
+def test_weekly_totals_show_tool_minutes_apart_from_content(conn, clk, settings):
+    seed_tool_week(conn, clk, settings)
+    by_key = {(r.group, r.provenance, r.device): r for r in report.weekly_totals(conn, clk, settings, WEEK)}
+    desktop = by_key[(T.GROUP_DESKTOP, T.PROV_EXPORT, T.DEVICE_DESKTOP)]
+    assert (desktop.minutes, desktop.tool_min) == (pytest.approx(40), pytest.approx(150))
+    pod = by_key[(T.GROUP_PODCASTS, T.PROV_API, T.DEVICE_ACCOUNT)]
+    assert (pod.minutes, pod.tool_min) == (0.0, pytest.approx(25))
+    x = by_key[(T.GROUP_X, T.PROV_EXPORT, T.DEVICE_DESKTOP)]
+    assert (x.minutes, x.tool_min) == (pytest.approx(20), 0.0)
+
+
+def test_label_split_and_allowance_status_exclude_tool_but_carry_it(conn, clk, settings):
+    seed_tool_week(conn, clk, settings)
+    (split,) = [s for s in report.label_split(conn, clk, settings) if s.week_start == WEEK]
+    assert split.wasteful_min == pytest.approx(60)                        # reddit 40 + x 20
+    assert split.worthwhile_min == 0
+    assert split.tool_min == pytest.approx(175)                           # amazon 150 + tool show 25
+    assert split.overage_min == 0
+
+    status = report.allowance_status(conn, clk, settings)
+    assert status.week_start == WEEK
+    assert status.spent_wasteful_min == pytest.approx(60)
+    assert status.remaining_min == 120 and status.overage_min == 0
+
+
+def test_gated_vs_ungated_leaves_tool_out(conn, clk, settings):
+    seed_tool_week(conn, clk, settings)
+    rows = {r.group: r for r in report.gated_vs_ungated(conn, clk, settings, WEEK)}
+    assert rows[T.GROUP_DESKTOP].ungated_min == pytest.approx(40)
+    assert rows[T.GROUP_PODCASTS].share_ungated is None                  # only tool listening: nothing consumed
+
+
+def test_cost_per_keeper_counts_content_minutes_only(conn, clk, settings):
+    seed_tool_week(conn, clk, settings)
+    vault_capture(conn, clk, group="x", outcome="kept")
+    vault_capture(conn, clk, group="podcasts", outcome="kept")
+    by = {r.group: r for r in report.cost_per_keeper(conn, clk, settings)}
+    assert by[T.GROUP_DESKTOP].minutes == pytest.approx(40)              # amazon.pl's 150 left out
+    assert by[T.GROUP_X].minutes_per_keeper == pytest.approx(20)
+    assert by[T.GROUP_PODCASTS].minutes == 0.0                           # the tool show's 25 left out
+
+
+def test_records_filter_accepts_tool(conn, clk, settings):
+    seed_tool_week(conn, clk, settings)
+    tool = report.records(conn, clk, settings, label=T.TOOL)
+    assert sorted(r.source for r in tool) == ["Bank Updates", "amazon.pl"]
+    assert all(r.label_basis == T.BASIS_SOURCE_LABEL for r in tool)
+    assert all(r.label != T.TOOL for r in report.records(conn, clk, settings, label=T.WASTEFUL))
+    with pytest.raises(ValueError):
+        report.records(conn, clk, settings, label="neutral")
+
+
+def test_blind_spots_state_the_content_only_scope(conn, clk, settings):
+    clk.set(WED)
+    spots = report.blind_spots(conn, clk, settings)
+    assert spots[0] == ("DRBR measures content only; sources you mark as tool (shopping, email, utilities…) "
+                        "are excluded and shown separately.")

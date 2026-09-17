@@ -352,6 +352,9 @@ def _confirmation(item, settings: Settings, label=None, *, tagged_now: bool = Tr
         lines.append(_label_line(label, tagged_now=tagged_now))
         if label.label == "worthwhile":
             lines.append("Costs 0 min of the allowance — worthwhile. Still locked like everything else.")
+        elif label.label == "tool":
+            lines.append("Costs 0 min of the allowance — its source is labelled tool (not content). "
+                         "Add #wasteful or #worthwhile to count it. Still locked like everything else.")
     if item.deadline:
         lines.append(f"Deadline: {clock.fmt_local(item.deadline, settings.tz)}")
     if item.state == "locked":
@@ -634,7 +637,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 START_TEXT = (
     "POP holds a podcast episode for 48h before it is eligible, then you triage "
-    "it against a weekly time allowance.\n\n"
+    "it against a weekly allowance of wasteful content minutes.\n\n"
     "Send me a Spotify episode or YouTube video link and I will ask you why. "
     "Add #worthwhile or #wasteful to your reason to label that one item."
 )

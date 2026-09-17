@@ -65,7 +65,7 @@ from config import Settings
 ROOT = pathlib.Path(__file__).resolve().parent
 SCHEMA_PATH = ROOT / "schema.sql"
 MIGRATIONS_DIR = ROOT / "migrations"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 ACTIVE_STATES = ("locked", "queued", "promoted")
 TERMINAL_STATES = ("dropped", "expired", "played")
@@ -667,9 +667,10 @@ def promote(conn: sqlite3.Connection, clk: Clock, settings: Settings, item_id: i
 
     week = current_week(conn, clk, settings)
     cost, resolved = allowance.promotion_cost(conn, item)
-    worthwhile = resolved.label == "worthwhile"
+    # Tool (a source labelled "not content", DR5.5) is never charged either.
+    uncharged = resolved.label in ("worthwhile", "tool")
 
-    if not worthwhile and week.promoted_min + cost > week.effective_allowance_min:
+    if not uncharged and week.promoted_min + cost > week.effective_allowance_min:
         overage = week.promoted_min + cost - week.effective_allowance_min
         raise AllowanceExceeded(
             f"that would put you {overage} min over; {week.remaining_min} min left this week",

@@ -161,6 +161,7 @@ BASIS_WORDS = {
 }
 
 WORTHWHILE_COST = "costs 0 min — worthwhile"
+TOOL_COST = "costs 0 min — tool, not counted"
 
 
 def label_line(label) -> str:
@@ -168,6 +169,8 @@ def label_line(label) -> str:
     text = f"Label: {label.label} ({BASIS_WORDS.get(label.basis, label.basis)})"
     if label.label == T.WORTHWHILE:
         text += f" · {WORTHWHILE_COST}"
+    elif label.label == T.TOOL:
+        text += f" · {TOOL_COST}"
     return text
 
 
@@ -254,15 +257,15 @@ def render_week_header(week: Week, *, spent_wasteful_min: float | None = None,
     lines.append(f"Remaining {week.remaining_min} min")
     if last_week_wasteful_min is not None:
         lines.append(
-            f"Last week spent {allowance.whole_minutes(last_week_wasteful_min)} min "
-            "wasteful across sources"
+            f"Last week spent {allowance.whole_minutes(last_week_wasteful_min)} "
+            "wasteful content minutes across sources"
         )
     if last_week_overage_min:
         lines.append(f"Last week went {last_week_overage_min} min over (recorded, not carried)")
     if spent_wasteful_min is not None:
         lines.append(
-            f"Spent so far {allowance.whole_minutes(spent_wasteful_min)} min "
-            "wasteful across sources"
+            f"Spent so far {allowance.whole_minutes(spent_wasteful_min)} "
+            "wasteful content minutes across sources"
         )
     return "\n".join(lines)
 

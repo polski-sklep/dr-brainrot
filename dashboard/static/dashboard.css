@@ -48,3 +48,7 @@ svg.split .axis { stroke: #999; }
 .filters { margin: 12px 0; } .filters label { margin-right: 12px; }
 .not-toggleable { color: #666; font-size: 12px; }
 .unlabelled { font-style: italic; }
+/* Content-only scope (DR5.5): the labelling rule and the header line. Neutral, no good/bad colour. */
+.rule { border-left: 3px solid #999; padding: 4px 12px; margin: 8px 0 12px; background: #f6f6f6; }
+.scope { margin: 4px 0; }
+.tool-label { color: #555; }

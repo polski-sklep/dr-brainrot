@@ -1354,3 +1354,65 @@ it showed 127 min over. It is the first diagnostic week, and the only row
 changed: `weeks.allowance_min` went 180 → 360 for `2026-09-13T16:00:00+00:00`,
 then overage was re-recorded. Earlier pre-diagnostic weeks keep 180. A backup
 was taken first (`drbr-backup-20260916/pop-pre-360.db`).
+
+### DR5.5 — "Tool": sources that aren't content are out of scope
+User framing (2026-09-17), which governs this decision:
+
+> "Let's ensure we do not lose sight of the fact that this tool is specifically for brain rot content, not for how much time I'm wasting on Amazon or websites tagged wasteful. This is purely a content brain-rotting exercise. Do not lose sight of that."
+
+The user asked how amazon.pl should be labelled. Since Cold Turkey's automatic
+read (DR5.1) and Qbserve (DR5.3), DRBR sees many sources that are not content at
+all: shopping, email, todo apps, Notion, Apple ID, weather, banking, DRBR's own
+dashboard, most desktop apps. Forcing each into wasteful or worthwhile would
+turn a content diagnostic into a screen-time tracker. The user approved a third
+source label, **tool** = "not content; out of scope".
+
+**Why this doesn't reopen the brief's "no neutral".** The brief rejected a
+middle *value* band ("a middle band would not be applied consistently").
+The worry was an inconsistently applied neutral *score* on content. Tool is not
+a point between wasteful and worthwhile. It answers an earlier question, "is
+this content at all?", which is a question about scope. Content is still
+labelled strictly binary.
+
+**The rule** (the same words on the Labels page and in the Telegram prompt):
+DRBR measures brain-rot content only. Label each source by asking: is this
+*content* I consume? If yes, is it brain rot (wasteful) or not (worthwhile)? If
+I only go there to get a task done — buy, pay, book, log in, organise, check
+the weather — it's a tool and isn't counted.
+
+**What tool does:**
+- `labels.resolve` returns `tool` (basis `source_label`) for a tool source.
+- Tool minutes are kept out of wasteful and worthwhile totals, the label split,
+  the allowance, overage, alerts, the gated split and cost per keeper. A queue
+  item whose source is tool costs 0 to promote.
+- **Shown, never hidden.** Tool minutes are reported on their own:
+  `PooledMinutes.tool_min`, `GroupMinutes.tool_min`, `WeekSplit.tool_min` and
+  `SourceTotal.tool_min`, a tool column in the dashboard's weekly totals and
+  per-week table (never stacked into the content bars), and a standing blind
+  spot line. A tool label can't become a place to hide consumption.
+- Unlabelled still defaults to wasteful. Tool counts as labelled, so a tool
+  source is never prompted again.
+
+**Item overrides stay binary.** `item_labels` keeps its two-value CHECK, and
+there is no `#tool` token. A captured queue item is content by definition, so
+an override on it (`#wasteful` / `#worthwhile`) still beats a tool source.
+
+**The only automatic tool label.** Migration 0005 labels the `web_domain`
+sources `127.0.0.1` and `localhost` tool, because DRBR's own dashboard is the
+measuring instrument, not content (user-approved). It labels only rows that
+already exist when it runs, with `labelled_at` = the migration time. Nothing
+else is labelled for the user.
+
+**amazon.pl:** tool while it's errands. Relabel it wasteful if you browse it
+for entertainment. A relabel re-records every week's overage at once.
+
+**Mechanics:**
+- Migration `0005_tool_label.sql` (schema_version 5) rebuilds `sources` so
+  `label` allows `tool`, the same way as 0004 (foreign keys off,
+  `foreign_key_check` before commit, whole-step rollback).
+- `drbr_types.TOOL` and `SOURCE_LABELS`. `LABELS` stays the two value labels.
+- Dashboard: third button, "tool" filter, and the scope line on the Overview.
+  Telegram: third button, callback `d:lbl:t:<id>`.
+- **Wording.** User-facing text now says "wasteful content minutes" where it said
+  "min used … (wasteful only)" or "min wasteful": poll alerts, Sunday triage
+  header, `/start`, dashboard headings, README.
