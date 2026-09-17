@@ -523,3 +523,12 @@ def test_days_before_qbserve_resumed_are_uncovered_not_zero(conn, settings, tmp_
     out = qb.sync(conn, clock.FrozenClock("2026-09-17T10:00:00+00:00"), s)
     assert (out.period_start, out.period_end) == ("2026-09-16", "2026-09-16")
     assert out.measurements_written == 1
+
+
+def test_a_window_with_no_records_is_uncovered_even_if_qbserve_recorded_later(conn, settings, tmp_path):
+    """Live 2026-09-17: nothing 13-16 Sep, first record the morning of the 17th."""
+    later = make_qb_db(tmp_path / "later.sqlite", rows=[("2026-09-17T09:00:00", 3, 60)])
+    s = config.test_settings(**{**settings.__dict__, "qbserve_db": later})
+    out = qb.sync(conn, clock.FrozenClock("2026-09-17T12:00:00+00:00"), s)
+    assert out.status == "partial" and out.measurements_written == 0
+    assert (out.period_start, out.period_end) == (None, None)

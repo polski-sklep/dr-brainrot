@@ -196,9 +196,11 @@ def parse(data: bytes) -> tuple[date, date | None, list[AppDay]]:
         doc = json.loads(data.decode("utf-8"))
         first = date.fromisoformat(doc["first_day"])
         date.fromisoformat(doc["last_day"])
+        last = date.fromisoformat(doc["covered_through"]) if doc["covered_through"] else None
         if doc.get("covered_from"):
             first = max(first, date.fromisoformat(doc["covered_from"]))
-        last = date.fromisoformat(doc["covered_through"]) if doc["covered_through"] else None
+        else:
+            last = None      # no record at all inside the window: nothing is covered, whatever came later
         if last is not None and last < first:
             last = None
         rows = [AppDay(a["bundle"], a["name"], date.fromisoformat(a["day"]), float(a["minutes"]))
