@@ -405,22 +405,23 @@ def gated_split(conn: sqlite3.Connection, settings: Settings,
     Everything else — every Screen Time and Cold Turkey minute, and any
     Spotify/YouTube consumption never promoted first — is ungated.
     Covered-elsewhere rows, unmeasured rows and tool minutes (not content,
-    DR5.5) contribute nothing.
+    DR5.5) contribute nothing. `wasteful_ungated_min` counts only sources the
+    person has labelled wasteful, so it can never exceed `wasteful_min`.
     """
     out = {g: {"gated_min": 0.0, "ungated_min": 0.0, "wasteful_ungated_min": 0.0, "provenances": set()}
            for g in T.REPORT_GROUPS}
 
     for row in _spotify_rows(conn, settings, week_start):
         minutes = int(row["delta_ms"]) / MIN_MS
-        label = spotify_label(conn, row).label
-        if label == T.TOOL:
+        resolved = spotify_label(conn, row)
+        if resolved.label == T.TOOL:
             continue
         promoted = conn.execute(
             "SELECT 1 FROM queue WHERE spotify_id = ? AND promoted_at IS NOT NULL "
             "AND promoted_at <= ? LIMIT 1",
             (row["spotify_id"], row["polled_at"]),
         ).fetchone()
-        _add_split(out[T.GROUP_PODCASTS], minutes, promoted is not None, label)
+        _add_split(out[T.GROUP_PODCASTS], minutes, promoted is not None, resolved)
         out[T.GROUP_PODCASTS]["provenances"].add(T.PROV_API)
 
     go_live = getattr(settings, "go_live", "") or ""
@@ -429,25 +430,29 @@ def gated_split(conn: sqlite3.Connection, settings: Settings,
             continue
         if go_live and row["period_end"] < go_live:
             continue            # same rule as pooled_minutes: pre-go-live evidence is not diagnostic data
-        label = measurement_label(conn, row).label
-        if label == T.TOOL:
+        resolved = measurement_label(conn, row)
+        if resolved.label == T.TOOL:
             continue
         group = T.report_group(row["kind"], row["device"])
         gated = False
         if row["kind"] == T.KIND_YOUTUBE_CHANNEL and row["item_key"]:
             gated = _youtube_promoted_by(conn, settings, row["item_key"], row["period_start"])
-        _add_split(out[group], float(row["minutes"]), gated, label)
+        _add_split(out[group], float(row["minutes"]), gated, resolved)
         out[group]["provenances"].add(row["provenance"])
 
     return {g: GatedSplit(**{**v, "provenances": frozenset(v["provenances"])}) for g, v in out.items()}
 
 
-def _add_split(acc: dict, minutes: float, gated: bool, label: str) -> None:
+def _add_split(acc: dict, minutes: float, gated: bool, resolved: labels.ResolvedLabel) -> None:
     if gated:
         acc["gated_min"] += minutes
         return
     acc["ungated_min"] += minutes
-    if label == T.WASTEFUL:
+    # Reflex is a subset of wasteful, so it reads the label the same way the
+    # wasteful figure does (DR5.11). Reading `.label` here instead would count
+    # undecided minutes as reflex-wasteful and produce the impossible reading
+    # "18 min wasteful, of that 68 on reflex".
+    if _field(resolved) == "wasteful_min":
         acc["wasteful_ungated_min"] += minutes
 
 

@@ -588,6 +588,7 @@ def test_on_measurements_changed_is_idempotent_and_never_touches_allowances(conn
 
 def test_spotify_consumption_is_gated_only_after_promotion(conn, clk, settings):
     item = spotify_item(conn, clk, settings, "GatedEpisode0000000000", show="Pod", minutes=150)
+    label_source(conn, clk, T.KIND_PODCAST_SHOW, "Pod", T.WASTEFUL)
     clk.set("2026-09-07T08:00:00+00:00")
     db.current_week(conn, clk, settings)
     listen(conn, clk, item.spotify_id, 20)                      # before promotion: ungated
@@ -622,6 +623,7 @@ def test_youtube_consumption_is_gated_from_the_promotion_day(conn, clk, settings
 def test_screen_time_and_cold_turkey_are_always_ungated(conn, clk, settings):
     clk.set(WED)
     label_source(conn, clk, T.KIND_WEB_DOMAIN, "arxiv.org", T.WORTHWHILE)
+    label_source(conn, clk, T.KIND_IPHONE_APP, "Instagram", T.WASTEFUL)
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-09-06",
             period_end="2026-09-12", minutes=60.0)
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="arxiv.org", day="2026-09-08", minutes=40.0)

@@ -616,10 +616,25 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         c = conn()
         rows = report.records(c, clk, settings, group=group, label=label, start=start, end=end,
                               limit=RECORDS_LIMIT)
+        # Records is the full detail page (DR5.12): the surfaces the Overview
+        # sheds render here from exactly the values `overview()` computes, so a
+        # figure cannot say one thing on one page and another on the other.
+        floor = report.window_start(c, clk, settings)
+        week = choose_week(clk, settings, request.args.get("week"), floor)
+        totals = report.weekly_totals(c, clk, settings, week.week_start)
         return render_template(
             "records.html", rows=rows, errors=errors, f_group=group, f_label=label, f_start=start,
             f_end=end, groups=T.REPORT_GROUPS, limit=RECORDS_LIMIT,
-            window_start=report.window_start(c, clk, settings),
+            window_start=floor,
+            week=week,
+            totals=totals,
+            allowance=report.allowance_status(c, clk, settings),
+            gated=report.gated_vs_ungated(c, clk, settings, week.week_start),
+            keepers=report.cost_per_keeper(c, clk, settings),
+            funnels=report.funnels(c, clk, settings),
+            imports=report.latest_imports(c, clk, settings),
+            week_imports=week_imports(c, clk, settings, totals),
+            everything_in=report.everything_in(totals),
         ), (400 if errors else 200)
 
     return app

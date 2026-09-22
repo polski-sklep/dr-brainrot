@@ -134,6 +134,8 @@ def test_covered_reason_survives_a_week_straddling_the_diagnostic_start(conn, cl
 
 def test_reflex_figure_is_exposed_and_shown_prominently(conn, clk, settings):
     label_source(conn, clk, T.KIND_IPHONE_APP, "Calm", T.WORTHWHILE)
+    label_source(conn, clk, T.KIND_IPHONE_APP, "Instagram", T.WASTEFUL)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "x.com", T.WASTEFUL)
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-09-13",
             period_end="2026-09-19", minutes=70.0)
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Calm", day="2026-09-13",

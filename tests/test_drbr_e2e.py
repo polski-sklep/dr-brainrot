@@ -874,14 +874,25 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert (split[GO_LIVE_WEEK].allowance_min, split[GO_LIVE_WEEK].overage_min) == (1000, 135)
 
     gated = {r.group: r for r in report.gated_vs_ungated(conn, clk, settings, GO_LIVE_WEEK)}
+    # "Drama Hour" is deliberately never labelled in this walkthrough, so its 50
+    # ungated minutes are undecided rather than wasteful: reflex is a subset of
+    # wasteful, and neither claims a judgement nobody made (DR5.11).
     assert (gated[T.GROUP_PODCASTS].gated_min, gated[T.GROUP_PODCASTS].ungated_min,
-            gated[T.GROUP_PODCASTS].wasteful_ungated_min) == (pytest.approx(150), pytest.approx(50), pytest.approx(50))
+            gated[T.GROUP_PODCASTS].wasteful_ungated_min) == (pytest.approx(150), pytest.approx(50), 0.0)
     assert gated[T.GROUP_YOUTUBE].gated_min == pytest.approx(4.0833333)        # the promoted, captured video
-    assert gated[T.GROUP_YOUTUBE].wasteful_ungated_min == pytest.approx(69.3333333)
+    # Channel A and Channel B are unlabelled here too, so the same rule applies:
+    # ungated, but nothing is called wasteful on the person's behalf (DR5.11).
+    assert gated[T.GROUP_YOUTUBE].wasteful_ungated_min == 0.0
+    assert gated[T.GROUP_YOUTUBE].ungated_min == pytest.approx(92.3333333)
     assert gated[T.GROUP_IPHONE].gated_min == 0 and gated[T.GROUP_IPHONE].provenances == (T.PROV_SCREENSHOT,)
     assert gated[T.GROUP_X].provenances == (T.PROV_SCREENSHOT, T.PROV_EXPORT)
     reflex = sum(r.wasteful_ungated_min for r in gated.values())
-    assert reflex == pytest.approx(1135.37 - 50)                 # all wasteful minus the one gated wasteful listen
+    # Reflex is the ungated share of *labelled* wasteful minutes. In this
+    # walkthrough only X is labelled wasteful, so the figure is its 141.72 and
+    # not the 1,085 that counting every undecided source used to produce
+    # (DR5.11). The undecided minutes are still carried, as unclassified.
+    assert reflex == pytest.approx(141.72)
+    assert allowance.pooled_minutes(conn, settings, GO_LIVE_WEEK).unclassified_min > 900
 
     keepers = report.cost_per_keeper(conn, clk, settings)
     assert keepers[0].group == T.GROUP_X
@@ -922,7 +933,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     desk_row = flat(one_row(week_rows, "Desktop web", "prov-export"))
     assert "40 min: already measured by YouTube history (account-level)" in desk_row
     reflex_html = section(html, "reflex")
-    assert "1,085 min" in flat(reflex_html) and "prov-screenshot" in reflex_html
+    assert "142 min" in flat(reflex_html) and "prov-screenshot" in reflex_html
     x_keeper = one_row(table_rows(section(html, "cost-per-keeper")), ">X<")
     assert "133 min per keeper" in flat(x_keeper) and "prov-screenshot" in x_keeper and "lower confidence" in x_keeper
     vault_funnel = flat(section(html, "funnels").split('<div id="vault-funnel">')[1])

@@ -1768,3 +1768,24 @@ the week by name, biggest first, with the label (None when undecided, never
 guessed), the reflex share per row and the provenances. Tool sources never
 appear. It reuses `pooled_minutes`' exclusions so the list and the totals cannot
 drift apart, and a test asserts exactly that.
+
+### DR5.12 — Records becomes the detail page; the Overview sheds, nothing is deleted
+
+**22 September 2026.** The Overview restructure moves six sections off the front
+page. Jacob confirmed the destination explicitly: they move to Records, they are
+not removed. The instrumentation earned its place in the product; it had not
+earned the first screen.
+
+So `records_page` now renders from exactly the values `overview()` computes —
+`week`, `totals`, `allowance`, `gated`, `keepers`, `funnels`, `imports`,
+`week_imports`, `everything_in` — rather than recomputing them with its own
+filters. One source per figure means a number cannot say one thing on the
+Overview and another on Records.
+
+Records keeps its own `?group=`, `?label=`, `?start=`, `?end=` filters for the
+row table, and gains `?week=` for the weekly surfaces, defaulting exactly as the
+Overview does (DR5.7).
+
+Sequencing matters and was agreed with the UI session: the context lands first,
+the sections are added to Records and removed from the Overview in one commit
+after. There is never a window in which a figure exists nowhere.
