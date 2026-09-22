@@ -349,16 +349,35 @@ def _insight(week_start):
 def test_an_insight_is_stale_only_once_a_later_week_has_completed(settings):
     """Per week, not per import: daily re-reads must not make every summary look old."""
     tz = settings.tz
-    this_week = "2026-09-20T16:00:00+00:00"      # the week of Sun 20 Sep
-    assert dashboard_app.insight_is_stale(_insight(this_week), "2026-09-20", tz) is False
-    assert dashboard_app.insight_is_stale(_insight(this_week), "2026-09-27", tz) is True
+    # Written during the week opening Sun 20 Sep, describing the week ending Sat 19 Sep.
+    written_on_the_21st = _insight("2026-09-20T16:00:00+00:00")
+    assert dashboard_app.insight_is_stale(written_on_the_21st, "2026-09-13", tz) is False
     assert dashboard_app.insight_is_stale(None, "2026-09-27", tz) is False
 
 
-def test_staleness_compares_local_weeks_not_raw_strings(settings):
-    """The instant is 16:00 UTC on the Sunday; the date is local. Same week, not stale."""
-    assert dashboard_app.insight_is_stale(_insight("2026-09-20T16:00:00+00:00"), "2026-09-20",
-                                          settings.tz) is False
+def test_staleness_follows_the_week_described_not_the_week_written_in(settings):
+    """The bug this guards: week_start is the *generation* week, a week later than the subject.
+
+    Testing generation fires a week late, so a superseded summary reads as
+    current for the seven days the flag exists to cover.
+    """
+    tz = settings.tz
+    i = _insight("2026-09-20T16:00:00+00:00")        # describes 13-19 Sep (based_on_through)
+    assert i.based_on_through == "2026-09-19"
+    # Sun 20 Sep: the week of 13-19 is the newest complete one. Still current.
+    assert dashboard_app.insight_is_stale(i, "2026-09-13", tz) is False
+    # Sun 27 Sep: the week of 20-26 completed with no summary of its own. Stale.
+    assert dashboard_app.insight_is_stale(i, "2026-09-20", tz) is True
+    assert dashboard_app.insight_is_stale(i, "2026-09-27", tz) is True
+
+
+def test_staleness_needs_no_based_on_through_to_be_safe(settings):
+    import insights
+
+    none_yet = insights.Insight(summary="s", created_at="2026-09-21T10:00:00+00:00", model=None,
+                                week_start="2026-09-20T16:00:00+00:00",
+                                fallback_reason="too little data", based_on_through=None)
+    assert dashboard_app.insight_is_stale(none_yet, "2026-09-27", settings.tz) is False
 
 
 def test_overview_passes_the_staleness_flag(client, conn, clk, settings):

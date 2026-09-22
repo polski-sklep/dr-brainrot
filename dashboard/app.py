@@ -271,15 +271,18 @@ def insight_is_stale(insight, last_complete_sunday: str, tz: str) -> bool:
     would be true six days in seven and mean nothing. A superseded *week* is
     the thing worth telling the reader about.
 
-    Both sides are converted to a local measurement-week Sunday before they
-    are compared: `Insight.week_start` is a UTC instant and
-    `WeekChoice.last_complete_sunday` is a local date, and comparing those as
-    strings would agree by accident all week and disagree exactly on the
-    Sunday boundary this test exists for.
+    The week it **describes** is the one that matters, not the week it was
+    written in. `Insight.week_start` is the allowance week of *generation*: a
+    summary written on Monday the 21st carries `week_start` of the week
+    opening the 20th while describing the week ending the 19th. Testing that
+    field fires a week late, leaving a superseded summary presented as current
+    for the whole seven days the flag exists to cover. `based_on_through` is
+    the last day the figures cover, already a local date, so the week it
+    describes comes straight from it.
     """
-    if insight is None or not insight.week_start:
+    if insight is None or not insight.based_on_through:
         return False
-    summarised = T.measurement_week_for_allowance_week(insight.week_start, tz).sunday
+    summarised = T.measurement_week(T.parse_date(insight.based_on_through)).sunday
     return summarised < T.parse_date(last_complete_sunday)
 
 

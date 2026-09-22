@@ -167,7 +167,22 @@ class Insight:
 # --------------------------------------------------------------------------
 
 def _r(value: float | None) -> float | None:
+    """Round a rate or a ratio. Minutes go through `_min` instead."""
     return None if value is None else round(float(value), ROUND)
+
+
+def _round_min(value: float | None) -> float | None:
+    """Round minutes the way the dashboard prints them (`dashboard.app.fmt_min`).
+
+    Whole minutes at 10 and above, one decimal below. The summary quotes these
+    figures in prose beside the page's own tables, so "494.7 minutes" next to
+    "495 min" would read as two different measurements of the same thing, and
+    a trailing "177.0" reads as precision that isn't there.
+    """
+    if value is None:
+        return None
+    value = float(value)
+    return round(value) if abs(value) >= 10 else round(value, 1)
 
 
 def _pct_change(current: float, previous: float) -> float | None:
@@ -224,27 +239,27 @@ def _week_facts(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         gr = gated.get(group)
         groups.append({
             "group": group,
-            "wasteful_min": _r(gm.wasteful_min),
-            "worthwhile_min": _r(gm.worthwhile_min),
-            "tool_min": _r(gm.tool_min),
-            "gated_min": _r(gr.gated_min) if gr else 0.0,
-            "ungated_min": _r(gr.ungated_min) if gr else 0.0,
+            "wasteful_min": _round_min(gm.wasteful_min),
+            "worthwhile_min": _round_min(gm.worthwhile_min),
+            "tool_min": _round_min(gm.tool_min),
+            "gated_min": _round_min(gr.gated_min) if gr else 0.0,
+            "ungated_min": _round_min(gr.ungated_min) if gr else 0.0,
             "share_ungated": _r(gr.share_ungated) if gr else None,
-            "wasteful_ungated_min": _r(gr.wasteful_ungated_min) if gr else 0.0,
+            "wasteful_ungated_min": _round_min(gr.wasteful_ungated_min) if gr else 0.0,
             "unmeasured_items": gm.unmeasured_items,
-            "covered_excluded_min": _r(gm.covered_excluded_min),
+            "covered_excluded_min": _round_min(gm.covered_excluded_min),
         })
 
     return {
         "week_start": week_start,
         "days": {"from": mweek.start, "to": mweek.end},
-        "wasteful_min": _r(wasteful),
-        "worthwhile_min": _r(pooled.worthwhile_min),
-        "tool_min": _r(pooled.tool_min),
-        "screenshot_ocr_min": _r(pooled.screenshot_ocr_min),
+        "wasteful_min": _round_min(wasteful),
+        "worthwhile_min": _round_min(pooled.worthwhile_min),
+        "tool_min": _round_min(pooled.tool_min),
+        "screenshot_ocr_min": _round_min(pooled.screenshot_ocr_min),
         "allowance_min": (split.allowance_min if split else settings.weekly_allowance_min),
         "overage_min": (split.overage_min if split else 0),
-        "reflex_wasteful_min": _r(reflex),
+        "reflex_wasteful_min": _round_min(reflex),
         "reflex_share_of_wasteful": _r(reflex / wasteful) if wasteful > 0 else None,
         "unmeasured_items": pooled.unmeasured_items,
         "by_group": groups,
@@ -278,11 +293,11 @@ def build_payload(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> d
             continue
         prev = weeks[i - 1]
         week["change_from_previous_week"] = {
-            "wasteful_min": _r(week["wasteful_min"] - prev["wasteful_min"]),
+            "wasteful_min": _round_min(week["wasteful_min"] - prev["wasteful_min"]),
             "wasteful_pct": _pct_change(week["wasteful_min"], prev["wasteful_min"]),
-            "worthwhile_min": _r(week["worthwhile_min"] - prev["worthwhile_min"]),
+            "worthwhile_min": _round_min(week["worthwhile_min"] - prev["worthwhile_min"]),
             "worthwhile_pct": _pct_change(week["worthwhile_min"], prev["worthwhile_min"]),
-            "tool_min": _r(week["tool_min"] - prev["tool_min"]),
+            "tool_min": _round_min(week["tool_min"] - prev["tool_min"]),
         }
 
     diag = evidence.diagnostic(conn, clk, settings)
@@ -307,8 +322,8 @@ def build_payload(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> d
         },
         "weeks": weeks,
         "cost_per_keeper": [
-            {"group": k.group, "minutes": _r(k.minutes), "keepers": k.keepers,
-             "minutes_per_keeper": _r(k.minutes_per_keeper)}
+            {"group": k.group, "minutes": _round_min(k.minutes), "keepers": k.keepers,
+             "minutes_per_keeper": _round_min(k.minutes_per_keeper)}
             for k in report.cost_per_keeper(conn, clk, settings)
         ],
         "funnels": {
