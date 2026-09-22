@@ -733,6 +733,20 @@ svg.split .axis { stroke: var(--axis); stroke-width: 1; }
 .notice-danger .notice-body { color: var(--danger); font-weight: 500; }
 .notice-note { margin: var(--s2) 0 0; font-size: var(--fs-meta); color: var(--text-secondary); }
 
+/* The same refusal, in the one row htmx swapped. It has to read as "this row
+   did not change" rather than as an ordinary row, so it carries the notice's
+   tint and left edge at table scale. The hover rule is restated because the
+   generic row hover would otherwise wash the tint out. */
+tr.refused-row td {
+  background: var(--danger-bg);
+  border-left: 3px solid var(--danger);
+  color: var(--danger);
+  font-size: var(--fs-meta);
+  font-weight: 500;
+}
+tbody tr.refused-row:hover td { background: var(--danger-bg); }
+tr.refused-row a { color: var(--danger); text-decoration: underline; }
+
 th.col-check, td.col-check { width: 1%; white-space: nowrap; padding-right: 0; }
 td.col-check { vertical-align: middle; }
 input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
