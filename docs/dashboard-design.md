@@ -14,18 +14,19 @@ The product is **Dr. Brainrot**; `DRBR` stays the short form in body copy and
 in code. The wordmark sets `Dr.` in muted medium weight against `Brainrot` in
 bold, so the joke is in the typography rather than in an illustration.
 
-The mark is a **pulse line** in the accent, 19px, drawn once in `base.html`
-and reused as the tab icon via an inline `data:` URI — no extra request, and
-no second file to keep in step. It is a clinical glyph, which suits a tool
-that calls itself a doctor and runs a fixed eight-week diagnostic, and it is
-literally a chart line, which is what the tool produces.
+The mark is a **brain with three green specks** — the rot, made literal — in
+a soft pink with a darker outline, 21px, drawn once in `base.html` and reused
+as the tab icon through an inline `data:` URI. No extra request, no second
+file to keep in step.
 
-A spiral was the first idea and is the more obvious symbol for brain rot —
-inward, going nowhere — and it is already the motif at the centre of the POP
-logo this tool grew out of. It was rejected on evidence: rendered at 160px,
-40px and 19px side by side, the spiral is handsome large and collapses into an
-indistinct dot at header size. A mark that only works at one size is not a
-mark. The pulse holds at all three.
+Two earlier marks were tried and rejected on evidence, both rendered at 160px,
+40px and 19px side by side. A **spiral** — inward, going nowhere, and already
+the motif at the centre of the POP logo this grew out of — is handsome large
+and collapses to an indistinct dot at header size. A **pulse line** held at
+every size and suited the clinical framing, but it said "medical instrument"
+rather than "brain rot", and the name deserves the joke. The brain reads at
+all three sizes; at 21px the specks register as flecks rather than as dots,
+which is enough.
 
 ## 1. Visual direction
 
@@ -157,28 +158,24 @@ would be worse than either scheme alone.
 | `--series-worthwhile` | `#79C399` | 2.1:1 fill, **stroked** | Worthwhile. |
 | `--series-worthwhile-edge` | `#1F7A47` | **5.3:1** | Its stroke — the worthwhile chip's green. |
 
-**Both fills are one matched weight: HSL 38% saturation, 62% lightness, hue
-apart.** That matters more than it sounds. The first attempt paired a dark,
-saturated `#9E4440` with a pastel `#9BC6A9` — 25 lightness points and 15
-saturation points apart — chosen to maximise the greyscale gap. It won the
-contrast argument and lost the page: the red read as a solid block in a
-document made of light tints, and the green beside it looked like a different
-system. Matching saturation and lightness is what stops one series shouting
-over the other.
+**A bar is a chip, drawn tall.** Each series takes its label's tint one shade
+stronger as the fill, and its label's text colour as a 1.5px stroke — the
+exact construction of every chip on the page. This is the third attempt and
+the first that belongs: a dark saturated `#9E4440` read as a solid block in a
+document made of light tints, and a mid-tone `#C37C79` was still the only
+heavy object on the page. Setting the bar beside the actual chip it is meant
+to match is what settled it, and is the check worth repeating.
 
-Each fill is **stroked in its own label's text colour**, which is the same
-tint-plus-border shape every chip on the page uses — so the chart and the
-chips are visibly one family, and the stroke carries the edge against the
-page that a light fill cannot.
-
-Red against green is the one pairing a colour-blind reader cannot separate.
-The matched weights leave an **18-point luminance gap** rather than the 38 of
-the first attempt, and that is a deliberate trade: in a *stacked* bar the
-segments never move — wasteful is always the lower one — so position is the
-primary encoding and colour is reinforcement. The legend swatches carry the
-same fills and strokes, and direct value labels sit above each bar. In a
-grouped chart or a pie, where colour would be the only channel, this trade
-would not be available.
+**The cost, stated plainly.** Matching the chips leaves only ~6 luminance
+points between the two fills, so a reader who cannot separate red from green
+gets little from the colour here. Four things carry the meaning instead: the
+segments are in a **fixed order** (wasteful below, worthwhile above) in a
+*stacked* bar where position is the primary encoding; the exact per-series
+figures sit in a table **beside** the chart; the legend swatches use the same
+fills and strokes; and each bar carries its total as a direct label. This
+trade is only available because the chart is stacked and ordered. In a grouped
+chart or a pie, colour would be the only channel and these values would be the
+wrong ones.
 
 Hue-free on purpose. The obvious research answer here was the Okabe–Ito
 colourblind-safe pair (`#0072B2` blue / `#E69F00` orange); it was rejected for
@@ -255,6 +252,10 @@ a changing figure does not shift its neighbours.
   to their text plus padding. Above 1100px `.generated` goes further and puts
   its provenance line in a second column, so the width is used rather than
   merely reduced.
+- **Narrow content pairs up rather than sitting alone.** A two-week chart is
+  150px wide and its table is 700px; stacked, each left most of a screen
+  empty. They sit side by side as one unit, and the two funnel panels do the
+  same instead of being spread apart by a flex grow.
 - **Every full-width table names one column that absorbs the slack** — a
   title, a reason, a warning (`.col-flex`). Without it, auto table layout
   spreads surplus across all ten columns and pushes a value away from the
@@ -378,6 +379,14 @@ the verbatim reason is printed in the amber treatment. When a newer complete
 week has finished, the panel keeps the summary and adds a line: a summary
 written on Tuesday is still true about Tuesday. `insight is None` renders
 nothing at all, never an empty panel.
+
+**Folds.** Everything past the allowance — gated, cost per keeper, funnels,
+imports, blind spots — is supporting evidence rather than the day's reading,
+so each is a `<details>` closed by default. The summary carries the heading
+and a one-line hint of what is inside, so a closed fold still tells you
+whether to open it. Native `<details>`: keyboard-operable, findable by the
+browser's own find, and it needs no JavaScript. Blind spots sits last, because
+a list of what the tool cannot see is the right note to end a diagnostic on.
 
 **Notice.** A refused or failed action, on its own page: a bordered panel
 with a red left edge, the reason in full, and a muted second line saying that

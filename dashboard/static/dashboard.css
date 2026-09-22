@@ -69,10 +69,10 @@
      luminance gap and the fixed stacking order back it up. Each fill carries
      its label's text colour as a stroke, which is what holds the edge against
      the page — the same tint-plus-border shape every chip on the page uses. */
-  --series-wasteful:        #C37C79;   /* 3.2:1 on the page                   */
-  --series-wasteful-edge:   #A32F2F;   /* 7.0:1 — the wasteful chip's own red */
-  --series-worthwhile:      #79C399;   /* 2.1:1 fill, edge below carries it   */
-  --series-worthwhile-edge: #1F7A47;   /* 5.3:1 — the worthwhile chip's green */
+  --series-wasteful:        #F6CFCF;   /* the wasteful chip's tint, a shade  */
+  --series-wasteful-edge:   #A32F2F;   /* stronger, with the chip's own red   */
+  --series-worthwhile:      #CBE8D6;   /* likewise for worthwhile: the bars   */
+  --series-worthwhile-edge: #1F7A47;   /* are chips, drawn tall               */
   --axis:              #C6CBD2;
 
   /* -- Type ------------------------------------------------------------ */
@@ -157,7 +157,7 @@ header.site nav {
   flex: none;
 }
 .wordmark:hover { text-decoration: none; }
-.wordmark .mark { color: var(--accent); flex: none; }
+.wordmark .mark { flex: none; }
 .wordmark-text {
   font-size: var(--fs-body);
   font-weight: 700;
@@ -297,7 +297,7 @@ ul.tight { margin: 0; padding-left: var(--s4); }
 ul.tight li { margin: 1px 0; }
 
 .cols { display: flex; gap: var(--s6); align-items: flex-start; flex-wrap: wrap; }
-.cols > div { flex: 1 1 320px; min-width: 0; }
+.cols > div { flex: 0 1 auto; min-width: 0; max-width: 100%; }
 
 /* ==========================================================================
    Panels and the summary metric strip
@@ -684,13 +684,25 @@ svg.split .axis { stroke: var(--axis); stroke-width: 1; }
   fill: var(--series-worthwhile);
   background: var(--series-worthwhile);
   stroke: var(--series-worthwhile-edge);
-  stroke-width: 1;
+  stroke-width: 1.5;
 }
 .swatch.bar-wasteful { border: 1px solid var(--series-wasteful-edge); }
 .swatch.bar-worthwhile { border: 1px solid var(--series-worthwhile-edge); }
 
 /* The frame stops where the bars do: an eight-week chart fills it, a
    two-week chart does not pretend to. */
+/* A two-week chart is 150px wide and its table is 700px; stacking them left
+   a screen of nothing beside both. Side by side they read as one unit. */
+.chart-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s5) var(--s6);
+  margin-bottom: var(--s2);
+}
+.chart-col { flex: 0 1 auto; min-width: 0; }
+.chart-col .legend { margin: var(--s2) 0 0; }
+
 .chart-frame {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -744,6 +756,42 @@ svg.split .axis { stroke: var(--axis); stroke-width: 1; }
   body { background: #FFFFFF; }
   .filters, .weeknav { display: none; }
 }
+
+/* Detail sections, folded. Everything past the allowance is supporting
+   evidence: present, addressable, and out of the way until asked for. */
+details.fold {
+  border-top: 1px solid var(--hairline);
+  margin-top: 0;
+}
+details.fold:first-of-type { border-top: 1px solid var(--border); margin-top: var(--s8); }
+details.fold > summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s3) var(--s3) var(--s3) 0;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before {
+  content: "";
+  flex: none;
+  width: 0; height: 0;
+  margin-right: var(--s1);
+  border-left: 5px solid var(--accent);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transform: translateY(-1px);
+  transition: transform .12s ease;
+}
+details.fold[open] > summary::before { transform: rotate(90deg) translateX(-1px); }
+details.fold > summary:hover .fold-title { color: var(--accent); }
+details.fold > summary:focus-visible { border-radius: var(--r-control); }
+.fold-title { font-size: var(--fs-section); font-weight: 650; letter-spacing: -.005em; }
+.fold-hint { font-size: var(--fs-meta); color: var(--text-muted); }
+details.fold > section { margin-top: 0; padding: 0 0 var(--s5) var(--s4); }
+details.fold + details.fold { margin-top: 0; }
 
 /* ==========================================================================
    Flash, tabs, and the bulk action bar

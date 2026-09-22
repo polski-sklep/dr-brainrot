@@ -190,6 +190,8 @@
   <p class="absent">No diagnostic weeks yet.</p>
   {% else %}
   {% if chart.empty %}<p class="absent">No measured minutes in these weeks.</p>{% endif %}
+  <div class="chart-row">
+  <div class="chart-col">
   <div class="chart-frame">
   <svg class="split" width="{{ chart.width }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Wasteful and worthwhile content minutes per week">
     <line x1="0" x2="{{ chart.width }}" y1="{{ chart.base }}" y2="{{ chart.base }}" class="axis"/>
@@ -206,13 +208,15 @@
   </svg>
   </div>
   <p class="legend"><span class="swatch bar-wasteful"></span> wasteful (unlabelled counts here) <span class="swatch bar-worthwhile"></span> worthwhile <span class="sep">·</span> each week is named by its Sunday</p>
+  </div>
   <div class="table-wrap">
   <table class="compact">
     <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Worthwhile</th><th class="num th-wrap" title="A part of the wasteful and worthwhile minutes beside it, not a separate total">Of those, read from screenshots</th><th class="num th-wrap">Tool (not content, not in the bars)</th></tr></thead>
     <tbody>{% for b in chart.bars %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
   </table>
   </div>
-  <p class="note"><strong>Wasteful and worthwhile are the week.</strong> <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes DRBR read by OCR from a Screen Time screenshot instead of measuring directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. The two bars carry the same colours as their labels, and also differ in lightness, so the split still reads if you cannot separate red from green. The colours name the label you chose; DRBR makes no claim of its own.</p>
+  </div>
+  <p class="note"><strong>Wasteful and worthwhile are the week.</strong> <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes DRBR read by OCR from a Screen Time screenshot instead of measuring directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; DRBR makes no claim of its own.</p>
   {% endif %}
 </section>
 
@@ -252,124 +256,132 @@
   </div>
 </section>
 
-{# ------------------------------------------------------------------ 4 #}
-<section id="gated">
-  <h2>Gated vs ungated (week of {{ week.sunday }})</h2>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>Group</th><th class="th-wrap">{{ hint("Ungated (reflex) share", "You opened it without queueing it first.") }}</th><th class="num th-wrap">Wasteful, bypassed the queue</th><th class="num th-wrap">Bypassed the queue (all content)</th><th class="num th-wrap">{{ hint("Through the queue", "You captured it, waited out the lock and promoted it before opening it.") }}</th><th>Provenance</th></tr></thead>
-    <tbody>
-    {% for r in gated %}
-      <tr>
-        <td class="cell-nowrap">{{ GROUP_NAMES.get(r.group, r.group) }}</td>
-        <td class="reflex">{% if r.share_ungated is none %}<span class="absent">nothing consumed</span>{% else %}{{ r.share_ungated|pct }} ungated{% endif %}</td>
-        <td class="num"><strong>{{ r.wasteful_ungated_min|min }}</strong></td>
-        <td class="num">{{ r.ungated_min|min }}</td>
-        <td class="num">{{ r.gated_min|min }}</td>
-        <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="note">Gated means you queued it, waited out the lock and promoted it before opening it. Screen Time and Cold Turkey minutes are always ungated — they cannot tell either way. Rows measured elsewhere, unmeasured rows and tool minutes add nothing here.</p>
-</section>
-
-{# ------------------------------------------------------------------ 5 #}
-<section id="cost-per-keeper">
-  <h2>Cost per keeper: what each thing you kept cost you</h2>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th class="num">#</th><th>Group</th><th class="num">{{ hint("Price", "Minutes spent in this group for each thing you kept. A high price means a lot of time for one keeper.") }}</th><th class="num">Minutes</th><th class="num">{{ hint("Keepers", "Something you captured and still kept after processing it in your vault.") }}</th><th>Provenance</th><th class="col-flex">Blind spots</th></tr></thead>
-    <tbody>
-    {% for k in keepers %}
-      <tr>
-        <td class="num muted">{{ loop.index }}</td>
-        <td>{{ GROUP_NAMES.get(k.group, k.group) }}</td>
-        <td class="num">{% if k.minutes_per_keeper is none %}<span class="absent">no keepers yet</span>{% else %}{{ k.minutes_per_keeper|min }} per keeper{% endif %}</td>
-        <td class="num">{% if k.minutes is none %}<span class="absent">no minutes source</span>{% else %}{{ k.minutes|min }}{% endif %}</td>
-        <td class="num">{{ k.keepers }}</td>
-        <td>{% for p in k.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in k.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
-        <td class="col-flex">{% if k.blind_spots %}<ul class="tight">{% for s in k.blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="note">Content minutes of any label (tools excluded), divided by the notes you actually kept in the vault. Ranked across the whole diagnostic. Groups with nothing kept yet have no price and are listed last.</p>
-</section>
-
-{# ------------------------------------------------------------------ 6 #}
-<section id="funnels">
-  <h2>Funnels: what happens to what you capture</h2>
-  {% set p = funnels.pop %}
-  <div class="cols">
-  <div id="pop-funnel">
-    <h3>Queue (counts, never time)</h3>
+{# Everything past the allowance is detail: folded away, opened when wanted. #}
+<details class="fold">
+  <summary><span class="fold-title">Gated vs ungated</span><span class="fold-hint">what you queued first, and what you just opened &mdash; week of {{ week.sunday }}</span></summary>
+  <section id="gated">
     <div class="table-wrap">
-    <table class="compact">
+    <table>
+      <thead><tr><th>Group</th><th class="th-wrap">{{ hint("Ungated (reflex) share", "You opened it without queueing it first.") }}</th><th class="num th-wrap">Wasteful, bypassed the queue</th><th class="num th-wrap">Bypassed the queue (all content)</th><th class="num th-wrap">{{ hint("Through the queue", "You captured it, waited out the lock and promoted it before opening it.") }}</th><th>Provenance</th></tr></thead>
       <tbody>
-        <tr><th>Captured (past the lock window)</th><td class="num">{{ p.captured }}</td><td class="muted"></td></tr>
-        <tr><th>{{ hint("Survived the lock", "The 48-hour wait between capturing something and being allowed to play it.") }}</th><td class="num">{{ p.survived_lock }}</td><td class="muted">{{ p.survived_rate|pct }} of captured</td></tr>
-        <tr><th>{{ hint("Promoted", "You decided, after the lock, that it was still worth your time.") }}</th><td class="num">{{ p.promoted }}</td><td class="muted">{{ p.promoted_rate|pct }} of survived</td></tr>
-        <tr><th>Played</th><td class="num">{{ p.played }}</td><td class="muted">{{ p.played_rate|pct }} of promoted</td></tr>
-        <tr><th>Fully played</th><td class="num">{{ p.fully_played }}</td><td class="muted">{{ p.fully_played_rate|pct }} of promoted</td></tr>
-        <tr><th>Median days to drop</th><td class="num">{% if p.median_days_to_drop is none %}—{% else %}{{ '%.1f'|format(p.median_days_to_drop) }} days{% endif %}</td><td class="muted"></td></tr>
-        <tr><th>{{ hint('"Still holds" answered yes', "At triage, whether you said the reason you captured it still held.") }}</th><td class="num">{{ p.still_holds_yes_rate|pct }}</td><td class="muted">of {{ p.still_holds_answered }} answered</td></tr>
+      {% for r in gated %}
+        <tr>
+          <td class="cell-nowrap">{{ GROUP_NAMES.get(r.group, r.group) }}</td>
+          <td class="reflex">{% if r.share_ungated is none %}<span class="absent">nothing consumed</span>{% else %}{{ r.share_ungated|pct }} ungated{% endif %}</td>
+          <td class="num"><strong>{{ r.wasteful_ungated_min|min }}</strong></td>
+          <td class="num">{{ r.ungated_min|min }}</td>
+          <td class="num">{{ r.gated_min|min }}</td>
+          <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
+        </tr>
+      {% endfor %}
       </tbody>
     </table>
     </div>
-    <p class="note">Anything still inside its lock window is not counted here yet.</p>
-  </div>
-  {% set v = funnels.vault %}
-  <div id="vault-funnel">
-    <h3>Vault (counts, never time)</h3>
+    <p class="note">Gated means you queued it, waited out the lock and promoted it before opening it. Screen Time and Cold Turkey minutes are always ungated — they cannot tell either way. Rows measured elsewhere, unmeasured rows and tool minutes add nothing here.</p>
+  </section>
+</details>
+
+<details class="fold">
+  <summary><span class="fold-title">Cost per keeper</span><span class="fold-hint">minutes spent per thing you actually kept</span></summary>
+  <section id="cost-per-keeper">
     <div class="table-wrap">
-    <table class="compact">
+    <table>
+      <thead><tr><th class="num">#</th><th>Group</th><th class="num">{{ hint("Price", "Minutes spent in this group for each thing you kept. A high price means a lot of time for one keeper.") }}</th><th class="num">Minutes</th><th class="num">{{ hint("Keepers", "Something you captured and still kept after processing it in your vault.") }}</th><th>Provenance</th><th class="col-flex">Blind spots</th></tr></thead>
       <tbody>
-        <tr><th>Captured (unprocessed + kept)</th><td class="num">{{ v.captured }}</td><td class="muted"></td></tr>
-        <tr><th>{{ hint("Still unprocessed in the inbox", "Captured into the vault but not yet processed in Obsidian.") }}</th><td class="num">{{ v.unprocessed }}</td><td class="muted"></td></tr>
-        <tr><th>Kept</th><td class="num">{{ v.kept }}</td><td class="muted">{% if v.captured %}{{ (v.kept / v.captured)|pct }} of captured{% endif %}</td></tr>
-        <tr><th>Kept and edited after capture</th><td class="num">{{ v.edited_kept }}</td><td class="muted">of the kept</td></tr>
+      {% for k in keepers %}
+        <tr>
+          <td class="num muted">{{ loop.index }}</td>
+          <td>{{ GROUP_NAMES.get(k.group, k.group) }}</td>
+          <td class="num">{% if k.minutes_per_keeper is none %}<span class="absent">no keepers yet</span>{% else %}{{ k.minutes_per_keeper|min }} per keeper{% endif %}</td>
+          <td class="num">{% if k.minutes is none %}<span class="absent">no minutes source</span>{% else %}{{ k.minutes|min }}{% endif %}</td>
+          <td class="num">{{ k.keepers }}</td>
+          <td>{% for p in k.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in k.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
+          <td class="col-flex">{% if k.blind_spots %}<ul class="tight">{% for s in k.blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}</td>
+        </tr>
+      {% endfor %}
       </tbody>
     </table>
     </div>
-    <p class="note"><strong>Excluded</strong> (vanished or in the trash), outside the denominator: <span class="num">{{ v.excluded }}</span></p>
-  </div>
-  </div>
-</section>
+    <p class="note">Content minutes of any label (tools excluded), divided by the notes you actually kept in the vault. Ranked across the whole diagnostic. Groups with nothing kept yet have no price and are listed last.</p>
+  </section>
+</details>
 
-{# ------------------------------------------------------------------ 7 #}
-<section id="blind-spots">
-  <h2>Blind spots: what DRBR cannot see</h2>
-  <ul class="tight blind-list">{% for s in blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>
-</section>
+<details class="fold">
+  <summary><span class="fold-title">Funnels</span><span class="fold-hint">what happens to what you capture</span></summary>
+  <section id="funnels">
+    {% set p = funnels.pop %}
+    <div class="cols">
+    <div id="pop-funnel">
+      <h3>Queue (counts, never time)</h3>
+      <div class="table-wrap">
+      <table class="compact">
+        <tbody>
+          <tr><th>Captured (past the lock window)</th><td class="num">{{ p.captured }}</td><td class="muted"></td></tr>
+          <tr><th>{{ hint("Survived the lock", "The 48-hour wait between capturing something and being allowed to play it.") }}</th><td class="num">{{ p.survived_lock }}</td><td class="muted">{{ p.survived_rate|pct }} of captured</td></tr>
+          <tr><th>{{ hint("Promoted", "You decided, after the lock, that it was still worth your time.") }}</th><td class="num">{{ p.promoted }}</td><td class="muted">{{ p.promoted_rate|pct }} of survived</td></tr>
+          <tr><th>Played</th><td class="num">{{ p.played }}</td><td class="muted">{{ p.played_rate|pct }} of promoted</td></tr>
+          <tr><th>Fully played</th><td class="num">{{ p.fully_played }}</td><td class="muted">{{ p.fully_played_rate|pct }} of promoted</td></tr>
+          <tr><th>Median days to drop</th><td class="num">{% if p.median_days_to_drop is none %}—{% else %}{{ '%.1f'|format(p.median_days_to_drop) }} days{% endif %}</td><td class="muted"></td></tr>
+          <tr><th>{{ hint('"Still holds" answered yes', "At triage, whether you said the reason you captured it still held.") }}</th><td class="num">{{ p.still_holds_yes_rate|pct }}</td><td class="muted">of {{ p.still_holds_answered }} answered</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Anything still inside its lock window is not counted here yet.</p>
+    </div>
+    {% set v = funnels.vault %}
+    <div id="vault-funnel">
+      <h3>Vault (counts, never time)</h3>
+      <div class="table-wrap">
+      <table class="compact">
+        <tbody>
+          <tr><th>Captured (unprocessed + kept)</th><td class="num">{{ v.captured }}</td><td class="muted"></td></tr>
+          <tr><th>{{ hint("Still unprocessed in the inbox", "Captured into the vault but not yet processed in Obsidian.") }}</th><td class="num">{{ v.unprocessed }}</td><td class="muted"></td></tr>
+          <tr><th>Kept</th><td class="num">{{ v.kept }}</td><td class="muted">{% if v.captured %}{{ (v.kept / v.captured)|pct }} of captured{% endif %}</td></tr>
+          <tr><th>Kept and edited after capture</th><td class="num">{{ v.edited_kept }}</td><td class="muted">of the kept</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note"><strong>Excluded</strong> (vanished or in the trash), outside the denominator: <span class="num">{{ v.excluded }}</span></p>
+    </div>
+    </div>
+  </section>
+</details>
 
-<section id="imports">
-  <h2>Latest data from each source</h2>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th>Import id</th><th class="col-flex">Error / warnings</th></tr></thead>
-    <tbody>
-    {% for i in imports %}
-      <tr>
-        <td class="cell-nowrap">{{ IMPORT_KIND_NAMES.get(i.kind, i.kind) }}</td>
-        {% if i.id is none %}
-        <td class="import-missing cell-nowrap"><strong>none received</strong></td><td></td><td></td><td></td><td></td>
-        {% else %}
-        <td class="import-{{ i.status }} cell-nowrap"><strong>{{ i.status }}</strong></td>
-        <td class="cell-day">{{ i.received_at|local_dt }}</td>
-        <td class="cell-day">{% if i.period_start %}{{ i.period_start }} – {{ i.period_end }}{% else %}—{% endif %}</td>
-        <td class="cell-nowrap">{{ i.id }} <span class="muted">{{ i.parser_version }}</span></td>
-        <td class="col-flex">
-          {% if i.error %}<div class="error">Failed: {{ i.error }}</div>{% endif %}
-          {% if i.warnings %}<ul class="tight">{% for w in i.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
-        </td>
-        {% endif %}
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-</section>
+<details class="fold">
+  <summary><span class="fold-title">Latest data from each source</span><span class="fold-hint">when each feed last arrived, and whether it was clean</span></summary>
+  <section id="imports">
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th>Import id</th><th class="col-flex">Error / warnings</th></tr></thead>
+      <tbody>
+      {% for i in imports %}
+        <tr>
+          <td class="cell-nowrap">{{ IMPORT_KIND_NAMES.get(i.kind, i.kind) }}</td>
+          {% if i.id is none %}
+          <td class="import-missing cell-nowrap"><strong>none received</strong></td><td></td><td></td><td></td><td></td>
+          {% else %}
+          <td class="import-{{ i.status }} cell-nowrap"><strong>{{ i.status }}</strong></td>
+          <td class="cell-day">{{ i.received_at|local_dt }}</td>
+          <td class="cell-day">{% if i.period_start %}{{ i.period_start }} – {{ i.period_end }}{% else %}—{% endif %}</td>
+          <td class="cell-nowrap">{{ i.id }} <span class="muted">{{ i.parser_version }}</span></td>
+          <td class="col-flex">
+            {% if i.error %}<div class="error">Failed: {{ i.error }}</div>{% endif %}
+            {% if i.warnings %}<ul class="tight">{% for w in i.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+          </td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </section>
+</details>
+
+<details class="fold">
+  <summary><span class="fold-title">Blind spots</span><span class="fold-hint">what DRBR cannot see</span></summary>
+  <section id="blind-spots">
+    <ul class="tight blind-list">{% for s in blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>
+  </section>
+</details>
+
 {% endblock %}
