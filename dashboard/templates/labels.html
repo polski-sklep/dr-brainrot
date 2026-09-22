@@ -2,12 +2,41 @@
 {% block title %}Labels{% endblock %}
 {% block content %}
 <h1>Source labels</h1>
+{% include "_label_tabs.html" %}
+
 <div class="rule" id="label-rule">
 <p>DRBR measures <strong>brain-rot content only</strong>. Label each source by asking: is this <em>content</em> I consume?
 If yes, is it brain rot (wasteful) or not (worthwhile)? If I only go there to get a task done — buy, pay, book, log in,
 organise, check the weather — it's a <strong>tool</strong> and isn't counted.</p>
 </div>
-<p class="note">You decide what each source is. An unlabelled source counts as wasteful until you label it.
+
+{% set n_unlabelled = sources|rejectattr("label")|list|length %}
+{% set n_wasteful = sources|selectattr("label", "equalto", WASTEFUL)|list|length %}
+{% set n_worthwhile = sources|selectattr("label", "equalto", WORTHWHILE)|list|length %}
+{% set n_tool = sources|selectattr("label", "equalto", TOOL)|list|length %}
+<div class="metrics" id="label-counts">
+  <div class="metric">
+    <span class="metric-label">Unlabelled</span>
+    <span class="metric-value" data-count="unlabelled">{{ n_unlabelled }}</span>
+    <span class="metric-note">counting as wasteful until you decide</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">Wasteful</span>
+    <span class="metric-value" data-count="wasteful">{{ n_wasteful }}</span>
+    <span class="metric-note">content, gated through the queue</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">Worthwhile</span>
+    <span class="metric-value" data-count="worthwhile">{{ n_worthwhile }}</span>
+    <span class="metric-note">content, counted but not gated</span>
+  </div>
+  <div class="metric metric-aside">
+    <span class="metric-label">Tool</span>
+    <span class="metric-value" data-count="tool">{{ n_tool }}</span>
+    <span class="metric-note">not content, counted nowhere</span>
+  </div>
+</div>
+<p class="note">{% if f_kind or f_label %}Counts cover the {{ sources|length }} source{{ "" if sources|length == 1 else "s" }} this filter shows, not the whole list. {% endif %}You decide what each source is. An unlabelled source counts as wasteful until you label it.
 Tool minutes are left out of every wasteful and worthwhile figure and shown on their own.
 Changing a label re-records each week's overage immediately.</p>
 
@@ -26,15 +55,36 @@ Changing a label re-records each week's overage immediately.</p>
   </label>
   <button type="submit">Filter</button>
   {% if f_kind or f_label %}<a href="{{ url_for('labels_page') }}">clear</a>{% endif %}
+  <span class="spacer"></span>
+  <span class="count">{{ sources|length }} source{{ "" if sources|length == 1 else "s" }} shown</span>
 </form>
 
-<p>{{ sources|length }} source{{ "" if sources|length == 1 else "s" }}.</p>
+<div class="table-wrap">
 <table id="label-table">
-  <thead><tr><th>Kind</th><th>Source</th><th>Label</th><th>Set label</th></tr></thead>
+  <thead><tr><th>Kind</th><th>Source</th><th>Current label</th><th>Change to</th></tr></thead>
   <tbody>
   {% for s in sources %}{% include "_label_row.html" %}{% else %}
   <tr><td colspan="4" class="absent">No sources match.</td></tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
+
+<script>
+document.body.addEventListener("htmx:afterSwap", function (e) {
+  if (!e.target.closest || !e.target.closest("#label-table")) return;
+  var rows = document.querySelectorAll("#label-table tr.label-row");
+  var n = {unlabelled: 0, wasteful: 0, worthwhile: 0, tool: 0};
+  rows.forEach(function (row) {
+    var chip = row.querySelector(".state");
+    if (!chip) return;
+    ["unlabelled", "wasteful", "worthwhile", "tool"].forEach(function (k) {
+      if (chip.classList.contains("state-" + k)) n[k]++;
+    });
+  });
+  document.querySelectorAll("#label-counts [data-count]").forEach(function (el) {
+    el.textContent = n[el.dataset.count];
+  });
+});
+</script>
 {% endblock %}

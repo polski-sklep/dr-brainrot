@@ -1,54 +1,721 @@
-/* DRBR dashboard. Deliberately plain: legible tables, one light theme, desktop only. */
-body { font: 14px/1.45 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; background: #fafafa; margin: 0; }
-main { max-width: 1200px; margin: 0 auto; padding: 0 24px 48px; }
-header.site { background: #fff; border-bottom: 1px solid #ccc; padding: 10px 24px; }
-header.site nav a { margin-left: 16px; }
-h1, h2 { font-weight: 600; } h2 { margin-top: 36px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
-a { color: #1f4e8c; }
-table { border-collapse: collapse; width: 100%; background: #fff; }
-table.compact { width: auto; }
-th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid #e4e4e4; }
-th { font-weight: 600; }
-.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.note, .muted { color: #666; } .note { font-size: 13px; }
-.absent { color: #666; font-style: italic; }
-.error { color: #8a1c1c; }
-ul.tight { margin: 0; padding-left: 18px; }
-.cols { display: flex; gap: 40px; }
+/* ==========================================================================
+   DRBR dashboard — design system.
 
-.countdown { margin-top: 6px; }
-.countdown-ended { background: #1a1a1a; color: #fff; padding: 12px 16px; font-size: 18px; }
-.countdown-ended span { display: block; font-size: 13px; }
-.countdown-pending { color: #444; }
+   A restrained analytical interface: neutral surfaces, one accent, semantic
+   colour reserved for genuine states. Light theme, desktop-primary, usable
+   down to a narrow window. Every token below has a functional role; nothing
+   here is decorative.
 
-/* Provenance tiers: visual weight falls with directness. */
-.prov { display: inline-block; font-size: 12px; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
-.prov-api { background: #1a1a1a; color: #fff; border: 2px solid #1a1a1a; font-weight: 700; }
-.prov-page { background: #fff; color: #1a1a1a; border: 2px solid #1a1a1a; font-weight: 600; }
-.prov-export { background: #fff; color: #333; border: 1px dotted #333; }
-.prov-apptracker { background: #fff; color: #333; border: 1px solid #333; border-left-width: 4px; }
-.prov-screenshot { background: #fff; color: #555; border: 1px dashed #777; font-style: italic; }
-.prov-vault { background: #f0f0f0; color: #333; border: 1px solid #bbb; }
-.prov-label { background: #f0f0f0; color: #333; border: 1px solid #bbb; }
-.lowconf { font-size: 11px; color: #7a4b00; border-bottom: 1px dashed #7a4b00; margin-left: 4px; }
+   Two rules this file exists to protect, both from dashboard/app.py:
 
-.unmeasured, .excluded { color: #444; }
-.import-missing strong, .import-failed strong, .import-incomplete strong, .import-partial strong { color: #7a4b00; }
+   1. Provenance is never flattened. Provenance chips are metadata and stay
+      visually quiet; their tier is carried by dot shape and text weight, not
+      by colour, so they can never out-shout an actual warning.
+   2. No targets, scores or streaks. There is no "good" colour. Green appears
+      only for import pipeline health (did the data arrive), never for the
+      user's own consumption. The wasteful/worthwhile split uses a neutral
+      lightness ramp, not hue, so the chart makes no judgement.
+   ========================================================================== */
 
-td.reflex { font-size: 20px; font-weight: 700; }
-#reflex .reflex-figure { font-size: 32px; font-weight: 700; margin: 8px 0; }
-.reflex-head { font-size: 15px; }
+:root {
+  /* -- Surfaces -------------------------------------------------------- */
+  --bg:            #F6F7F9;   /* page. Lets white panels read as raised.   */
+  --surface:       #FFFFFF;   /* panels, tables, header.                   */
+  --surface-sunk:  #F1F3F5;   /* table headers, toolbars, inset blocks.    */
+  --surface-hover: #F6F8FA;   /* row hover only. Never a resting state.    */
 
-svg.split text { font-size: 11px; fill: #333; }
-svg.split .axis { stroke: #999; }
-.bar-wasteful { fill: #4a4a4a; background: #4a4a4a; }
-.bar-worthwhile { fill: #c8c8c8; background: #c8c8c8; }
-.swatch { display: inline-block; width: 12px; height: 12px; vertical-align: middle; }
+  /* -- Lines ----------------------------------------------------------- */
+  --hairline:      #E6E8EB;   /* row separators. Decorative weight only.   */
+  --border:        #D6DAE0;   /* panel + control edges. Structural.        */
+  --border-strong: #B4BAC3;   /* table head underline, focused controls.   */
 
-.filters { margin: 12px 0; } .filters label { margin-right: 12px; }
-.not-toggleable { color: #666; font-size: 12px; }
-.unlabelled { font-style: italic; }
-/* Content-only scope (DR5.5): the labelling rule and the header line. Neutral, no good/bad colour. */
-.rule { border-left: 3px solid #999; padding: 4px 12px; margin: 8px 0 12px; background: #f6f6f6; }
-.scope { margin: 4px 0; }
-.tool-label { color: #555; }
+  /* -- Text (all AA or better on --surface) ---------------------------- */
+  --text:          #16181D;   /* 16.4:1. Data, headings, primary values.   */
+  --text-secondary:#555B66;   /*  7.4:1. Labels, table headers, captions.  */
+  --text-muted:    #656B75;   /*  5.4:1 on white, 4.8:1 on --surface-sunk. */
+
+  /* -- Accent: navigation, links, focus, selection. Nothing else. ------ */
+  --accent:        #1D5FD1;   /*  5.6:1 on white.                          */
+  --accent-weak:   #EAF0FC;   /* active nav / selected segment ground.     */
+  --accent-border: #A9C4F0;
+
+  /* -- Semantic. Reserved; see the header note. ------------------------ */
+  --warn:          #8F5F00;   /* 5.1:1 on --warn-bg, 5.5:1 on white.       */
+  --warn-bg:       #FFF8C5;
+  --warn-border:   #E2C566;
+  --danger:        #B42318;   /* a genuine failure, nothing else.          */
+  --danger-bg:     #FEEBE9;
+  --danger-border: #F1A9A0;
+  --ok:            #1A6B4C;   /* import arrived. Never a verdict on use.   */
+  --ok-bg:         #E7F3EE;
+  --ok-border:     #A8CFBE;
+
+  /* -- Chart: a neutral lightness ramp, deliberately hue-free. The light
+        series clears 3:1 against the page so the bar is perceivable, and
+        3.3:1 against the dark series so the split is readable. ------------ */
+  --series-wasteful:   #3B4250;
+  --series-worthwhile: #8A94A3;
+  --axis:              #C6CBD2;
+
+  /* -- Type ------------------------------------------------------------ */
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --fs-title: 20px; --fs-section: 16px; --fs-sub: 13px;
+  --fs-body: 14px;  --fs-table: 13px;   --fs-meta: 12px; --fs-micro: 11px;
+  --fs-metric: 26px;
+
+  /* -- Space (4px base) ------------------------------------------------ */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px;
+  --s6: 24px; --s8: 32px; --s10: 40px;
+
+  /* -- Shape ----------------------------------------------------------- */
+  --r-control: 5px; --r-panel: 8px; --r-badge: 4px;
+  --shadow-pop: 0 4px 12px rgba(16, 20, 28, .10);   /* floating only.     */
+
+  /* -- Measure: prose is capped, data is not. -------------------------- */
+  --measure: 78ch;
+  --page-max: 1560px;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: var(--fs-body)/1.5 var(--font);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s6) var(--s6) var(--s10);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  border-radius: var(--r-control);
+}
+
+/* ==========================================================================
+   Application header: identity and navigation, then a secondary status row.
+   ========================================================================== */
+
+header.site {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+header.site nav {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 0 var(--s6);
+  height: 46px;
+}
+
+header.site nav strong {
+  font-size: var(--fs-body);
+  font-weight: 700;
+  letter-spacing: .06em;
+  margin-right: var(--s5);
+}
+
+header.site nav a {
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  padding: var(--s1) var(--s3);
+  border-radius: var(--r-control);
+  line-height: 1.7;
+}
+header.site nav a:hover { background: var(--surface-sunk); color: var(--text); text-decoration: none; }
+header.site nav a[aria-current="page"] { color: var(--accent); background: var(--accent-weak); font-weight: 600; }
+
+/* The diagnostic countdown: always present, always subordinate to the nav. */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s2) var(--s6);
+  border-top: 1px solid var(--hairline);
+}
+.statusbar .countdown { flex: 1 1 auto; min-width: 0; }
+.sync { flex: none; }
+.sync button { font-size: var(--fs-meta); min-height: 26px; padding: 3px 10px; }
+
+.countdown {
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.countdown strong { color: var(--text); font-weight: 600; }
+.countdown-pending { color: var(--text-muted); }
+.countdown-pending strong { color: var(--warn); }
+
+/* The one moment the app is allowed to be loud: the diagnostic is over. */
+.countdown-ended {
+  background: var(--text);
+  color: #FFFFFF;
+  border-top: none;
+  max-width: none;
+  font-size: var(--fs-body);
+  /* Full-bleed band, but its text still lines up with the nav above it. */
+  padding: var(--s3) max(var(--s6), calc((100% - var(--page-max)) / 2));
+}
+.countdown-ended strong { color: #FFFFFF; font-size: var(--fs-section); }
+.countdown-ended span {
+  display: block;
+  font-size: var(--fs-meta);
+  color: #C9CDD4;
+  margin-top: 2px;
+}
+
+/* ==========================================================================
+   Page furniture
+   ========================================================================== */
+
+h1 {
+  font-size: var(--fs-title);
+  font-weight: 650;
+  letter-spacing: -.01em;
+  margin: 0 0 var(--s2);
+}
+
+h2 {
+  font-size: var(--fs-section);
+  font-weight: 650;
+  letter-spacing: -.005em;
+  margin: 0 0 var(--s3);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--border);
+}
+
+h3 {
+  font-size: var(--fs-sub);
+  font-weight: 650;
+  color: var(--text-secondary);
+  margin: var(--s5) 0 var(--s2);
+}
+
+section { margin-top: var(--s8); }
+section:first-of-type { margin-top: var(--s5); }
+
+/* Explanatory prose is capped; data is not. */
+.note, .lede, .rule p, .legend { max-width: var(--measure); }
+
+.note {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  margin: var(--s2) 0 0;
+}
+.muted { color: var(--text-muted); }
+.absent { color: var(--text-muted); font-style: italic; }
+.error { color: var(--danger); }
+
+.lede { font-size: var(--fs-body); color: var(--text-secondary); margin: 0 0 var(--s4); }
+
+/* The content-only scope line and the labelling rule. Neutral by design. */
+.scope {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-body);
+}
+.scope strong { font-weight: 600; }
+
+.rule {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-panel);
+  padding: var(--s3) var(--s4);
+  margin: 0 0 var(--s3);
+}
+.rule p { margin: 0; font-size: var(--fs-body); color: var(--text-secondary); }
+.rule strong { color: var(--text); font-weight: 600; }
+
+ul.tight { margin: 0; padding-left: var(--s4); }
+ul.tight li { margin: 1px 0; }
+
+.cols { display: flex; gap: var(--s6); align-items: flex-start; flex-wrap: wrap; }
+.cols > div { flex: 1 1 320px; min-width: 0; }
+
+/* ==========================================================================
+   Panels and the summary metric strip
+   ========================================================================== */
+
+/* Related metrics share one panel with internal dividers — not one card each. */
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  overflow: hidden;
+}
+.metric {
+  flex: 1 1 150px;
+  min-width: 0;
+  padding: var(--s3) var(--s4);
+  border-left: 1px solid var(--hairline);
+}
+.metric:first-child { border-left: none; }
+.metric-label {
+  display: block;
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+.metric-value {
+  display: block;
+  font-size: var(--fs-metric);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.metric-value .absent { font-size: var(--fs-body); font-weight: 400; }
+.metric-note {
+  display: block;
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+/* Excluded-from-the-count figures read as an aside, not as a headline. */
+.metric-aside { background: var(--surface-sunk); }
+.metric-aside .metric-value { font-size: 18px; font-weight: 550; color: var(--text-secondary); }
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  overflow-x: auto;
+}
+/* A compact table is a summary, not a grid: its frame stops where it does. */
+.table-wrap:has(> table.compact) { width: max-content; max-width: 100%; }
+
+table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: var(--fs-table); }
+table.compact { width: auto; min-width: 380px; }
+
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--hairline);
+  line-height: 1.4;
+}
+
+thead th {
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-sunk);
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+
+/* Long column headers wrap rather than forcing the column wide. */
+thead th.th-wrap { white-space: normal; min-width: 11ch; max-width: 18ch; }
+
+/* Minutes on tool-labelled sources are excluded from every count, so they
+   are printed at a lower weight than the figures that do count. */
+td.tool-min { color: var(--text-muted); font-weight: 450; }
+
+/* The chip wraps a <strong> so the label reads as emphasis to a screen
+   reader without doubling the visual weight. */
+.state strong { font-weight: inherit; }
+
+/* The ungated share: a ratio, not a headline. */
+td.reflex { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+
+.blind-list { font-size: var(--fs-table); color: var(--text-secondary); max-width: var(--measure); }
+.blind-list li { margin: var(--s1) 0; }
+
+tbody tr:hover td, tbody tr:hover th { background: var(--surface-hover); }
+
+/* Row-header cells (the label column of a key/value table). */
+tbody th { font-weight: 450; color: var(--text-secondary); }
+
+/* A table states its own total: stronger than a row, quieter than a headline. */
+tfoot th, tfoot td {
+  border-top: 1px solid var(--border-strong);
+  border-bottom: none;
+  font-weight: 650;
+  color: var(--text);
+  background: var(--surface-sunk);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+td.num { font-weight: 500; color: var(--text); }
+
+/* Long free text must not break the grid: clamp it, keep it hoverable. */
+.cell-item {
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cell-nowrap { white-space: nowrap; }
+/* Status carries a wrapping exclusion note; capped so it cannot push the
+   columns after it off the viewport. */
+.cell-status { max-width: 26ch; }
+.cell-status .sub { white-space: normal; }
+/* Source names clamp like item titles do, so every row is one line high and
+   the columns after them stay aligned. The full value stays in `title`. */
+.cell-source { max-width: 200px; white-space: nowrap; }
+.cell-source, .cell-source .sub { overflow: hidden; text-overflow: ellipsis; }
+.cell-day { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+
+/* Excluded rows are struck from the count, so they recede. */
+tr.covered td { background: var(--surface-sunk); color: var(--text-muted); }
+tr.covered:hover td { background: var(--surface-hover); }
+
+.excluded, .unmeasured { color: var(--text-muted); font-size: var(--fs-meta); }
+.sub {
+  display: block;
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* ==========================================================================
+   Chips, tier 1: provenance and metadata. Quiet. Shape carries the tier.
+   ========================================================================== */
+
+.prov {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.prov::before {
+  content: "";
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--dot, transparent);
+  border: 1px solid var(--dot-edge, var(--border-strong));
+}
+
+/* Weight falls with the directness of the evidence. */
+.prov-api { --dot: #16181D; --dot-edge: #16181D; color: #3F444D; font-weight: 600; }
+.prov-page { --dot: #656B75; --dot-edge: #656B75; color: #555B66; font-weight: 550; }
+.prov-export { --dot: transparent; --dot-edge: #656B75; color: #555B66; font-weight: 500; }
+.prov-apptracker { --dot: #C3C8D0; --dot-edge: #8A9099; color: #656B75; font-weight: 450; }
+.prov-screenshot { --dot: transparent; --dot-edge: #AEB4BD; color: #656B75; font-style: italic; }
+.prov-vault { --dot: #E1E4E8; --dot-edge: #C6CBD2; color: var(--text-muted); }
+.prov-label { --dot: #E1E4E8; --dot-edge: #C6CBD2; color: var(--text-muted); }
+
+/* ==========================================================================
+   Chips, tier 2: state. Filled tint + border, so they always win the page.
+   ========================================================================== */
+
+.state {
+  display: inline-block;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  line-height: 1.6;
+  padding: 0 5px;
+  border-radius: var(--r-badge);
+  border: 1px solid var(--border);
+  background: var(--surface-sunk);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.state-wasteful { background: #EFF1F4; border-color: #C6CBD2; color: #2B2F37; }
+.state-worthwhile { background: var(--surface); border-color: var(--border-strong); color: var(--text-secondary); }
+.state-tool { background: var(--surface-sunk); border-color: var(--hairline); color: var(--text-muted); font-weight: 500; }
+.state-unlabelled { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
+
+/* A caution about the number itself, not about where it came from. */
+.lowconf {
+  display: inline-block;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-badge);
+  padding: 0 5px;
+  margin-left: 5px;
+  white-space: nowrap;
+}
+
+/* Import pipeline health. Green here means "the data arrived", nothing more. */
+.import-ok strong, .import-api { color: var(--ok); font-weight: 600; }
+.import-partial strong, .import-incomplete strong, .import-missing strong { color: var(--warn); font-weight: 600; }
+.import-failed strong { color: var(--danger); font-weight: 600; }
+.import-ok, .import-partial, .import-incomplete, .import-missing, .import-failed { font-size: var(--fs-meta); }
+
+/* ==========================================================================
+   Controls
+   ========================================================================== */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  padding: var(--s3) var(--s4);
+  margin: 0 0 var(--s3);
+}
+.filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.filters .spacer { flex: 1 1 auto; }
+.filters a { font-size: var(--fs-meta); padding-bottom: 6px; }
+
+select, input[type="date"], input[type="text"] {
+  font: 500 var(--fs-table)/1.4 var(--font);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  padding: 5px 8px;
+  min-height: 28px;
+}
+select:hover, input:hover { border-color: var(--border-strong); }
+
+button {
+  font: 600 var(--fs-table)/1.4 var(--font);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  padding: 5px 10px;
+  min-height: 28px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--surface-sunk); border-color: var(--border-strong); }
+button:disabled { cursor: default; }
+
+.filters button[type="submit"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FFFFFF;
+}
+.filters button[type="submit"]:hover { background: #1A53BA; border-color: #1A53BA; }
+
+/* Segmented label control: the current state is the selected segment. */
+.segmented { display: inline-flex; }
+.segmented button {
+  border-radius: 0;
+  margin-left: -1px;
+  padding: 3px 9px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-height: 24px;
+  font-size: var(--fs-micro);
+}
+.segmented button:first-of-type { border-radius: var(--r-control) 0 0 var(--r-control); margin-left: 0; }
+.segmented button:last-of-type { border-radius: 0 var(--r-control) var(--r-control) 0; }
+.segmented button:disabled {
+  background: var(--accent-weak);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 650;
+  position: relative;
+  z-index: 1;
+}
+.segmented button:focus-visible { position: relative; z-index: 2; }
+
+.weeknav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  margin: 0 0 var(--s3);
+  font-variant-numeric: tabular-nums;
+}
+.weeknav .sep { color: var(--border-strong); }
+.weeknav em { color: var(--text-muted); font-style: normal; font-weight: 500; }
+
+.count {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  margin: 0 0 var(--s2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Labels page
+   ========================================================================== */
+
+.label-row td { vertical-align: middle; }
+.label-current { white-space: nowrap; }
+.not-toggleable { color: var(--text-muted); font-size: var(--fs-micro); display: block; max-width: 52ch; }
+.note-inline { display: block; font-size: var(--fs-micro); color: var(--text-muted); margin-top: 2px; white-space: normal; max-width: 44ch; }
+
+/* ==========================================================================
+   Chart
+   ========================================================================== */
+
+svg.split { display: block; max-width: 100%; height: auto; }
+svg.split text { font-size: 11px; fill: var(--text-muted); font-family: var(--font); }
+svg.split .bar-total { fill: var(--text); font-weight: 600; font-size: 11px; font-variant-numeric: tabular-nums; }
+svg.split .axis { stroke: var(--axis); stroke-width: 1; }
+
+.bar-wasteful { fill: var(--series-wasteful); background: var(--series-wasteful); }
+.bar-worthwhile { fill: var(--series-worthwhile); background: var(--series-worthwhile); }
+
+/* The frame stops where the bars do: an eight-week chart fills it, a
+   two-week chart does not pretend to. */
+.chart-frame {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  padding: var(--s3) var(--s4) var(--s2);
+  overflow-x: auto;
+  width: max-content;
+  max-width: 100%;
+  min-width: 260px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  margin: var(--s2) 0 var(--s3);
+}
+.swatch {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+
+/* ==========================================================================
+   Responsive. Desktop first; narrower windows keep every figure.
+   ========================================================================== */
+
+@media (max-width: 1100px) {
+  main { padding: var(--s4) var(--s4) var(--s8); }
+  header.site nav, .countdown { padding-left: var(--s4); padding-right: var(--s4); }
+  .cell-item { max-width: 220px; }
+}
+
+@media (max-width: 760px) {
+  header.site nav { height: auto; flex-wrap: wrap; padding-top: var(--s2); padding-bottom: var(--s2); }
+  header.site nav strong { width: 100%; margin: 0 0 var(--s1); }
+  .countdown { font-size: var(--fs-micro); }
+  .metric { flex-basis: 50%; border-left: none; border-top: 1px solid var(--hairline); }
+  .metric:first-child, .metric:nth-child(2) { border-top: none; }
+  .filters { gap: var(--s2); }
+  .filters label { flex: 1 1 140px; }
+  .cell-item { max-width: 160px; }
+}
+
+@media print {
+  body { background: #FFFFFF; }
+  .filters, .weeknav { display: none; }
+}
+
+/* ==========================================================================
+   Flash, tabs, and the bulk action bar
+   ========================================================================== */
+
+/* The outcome of an action the user just took. It states what happened in
+   words; the tint only says how much attention it wants. */
+.flash {
+  margin: 0 0 var(--s4);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-control);
+  font-size: var(--fs-table);
+  max-width: var(--measure);
+}
+.flash-ok { background: var(--ok-bg); border-color: var(--ok-border); border-left-color: var(--ok); color: var(--ok); }
+.flash-warn { background: var(--warn-bg); border-color: var(--warn-border); border-left-color: var(--warn); color: var(--warn); }
+
+/* Two views of one destination. Subordinate to the primary nav: no fill, a
+   rule underneath, and the active tab marked by weight as well as colour. */
+.tabs {
+  display: flex;
+  gap: var(--s4);
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 var(--s4);
+}
+.tabs a {
+  padding: var(--s2) 2px;
+  margin-bottom: -1px;
+  font-size: var(--fs-table);
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+}
+.tabs a:hover { color: var(--text); text-decoration: none; }
+.tabs a[aria-current="page"] { color: var(--accent); font-weight: 650; border-bottom-color: var(--accent); }
+.tab-count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  margin-left: var(--s1);
+  border-radius: var(--r-badge);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* The bulk action belongs to the selection above it, so it sits directly
+   under the table rather than floating over it. */
+.bulkbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s3);
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+}
+.bulkbar-label { font-size: var(--fs-meta); color: var(--text-secondary); }
+.bulkbar .segmented button { min-height: 28px; padding: 4px 10px; font-size: var(--fs-table); }
+.bulkbar .count { margin: 0; }
+
+th.col-check, td.col-check { width: 1%; white-space: nowrap; padding-right: 0; }
+td.col-check { vertical-align: middle; }
+input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }

@@ -1,21 +1,24 @@
 <tr id="source-{{ s.id }}" class="label-row">
   <td>{{ KIND_NAMES.get(s.kind, s.kind) }}</td>
-  <td>{{ s.display_name }}{% if s.display_name != s.source_key %} <span class="muted">{{ s.source_key }}</span>{% endif %}</td>
+  <td>
+    {{ s.display_name }}
+    {% if s.display_name != s.source_key %}<span class="sub">{{ s.source_key }}</span>{% endif %}
+  </td>
   <td class="label-current">
-    {% if s.label is none %}<span class="unlabelled">unlabelled → counts as wasteful</span>
-    {% elif s.label == TOOL %}<span class="tool-label"><strong>{{ TOOL_TEXT }}</strong></span>
-    {% else %}<strong>{{ s.label }}</strong>{% endif %}
+    {% if s.label is none %}<span class="state state-unlabelled">unlabelled → counts as wasteful</span>
+    {% elif s.label == TOOL %}<span class="state state-tool">{{ TOOL_TEXT }}</span>
+    {% else %}<span class="state state-{{ s.label }}"><strong>{{ s.label }}</strong></span>{% endif %}
     {% set why = covered(s) %}
-    {% if why %}<div class="note">Covered elsewhere: minutes already measured by {{ why }}, so this label changes no totals.</div>{% endif %}
+    {% if why %}<span class="note-inline">Covered elsewhere: minutes already measured by {{ why }}, so this label changes no totals.</span>{% endif %}
   </td>
   <td>
     {% if toggleable(s) %}
-    <form method="post" action="{{ url_for('set_label', source_id=s.id) }}"
+    <form method="post" action="{{ url_for('set_label', source_id=s.id) }}" class="segmented"
           hx-post="{{ url_for('set_label', source_id=s.id) }}" hx-target="closest tr" hx-swap="outerHTML">
       {% if f_kind %}<input type="hidden" name="f_kind" value="{{ f_kind }}">{% endif %}
       {% if f_label %}<input type="hidden" name="f_label" value="{{ f_label }}">{% endif %}
-      <button type="submit" name="label" value="{{ WASTEFUL }}"{% if s.label == WASTEFUL %} disabled{% endif %}>wasteful</button>
-      <button type="submit" name="label" value="{{ WORTHWHILE }}"{% if s.label == WORTHWHILE %} disabled{% endif %}>worthwhile</button>
+      <button type="submit" name="label" value="{{ WASTEFUL }}"{% if s.label == WASTEFUL %} disabled{% endif %} title="Brain-rot content">wasteful</button>
+      <button type="submit" name="label" value="{{ WORTHWHILE }}"{% if s.label == WORTHWHILE %} disabled{% endif %} title="Content, but not brain rot">worthwhile</button>
       <button type="submit" name="label" value="{{ TOOL }}"{% if s.label == TOOL %} disabled{% endif %} title="Not content: a task, not consumption">tool</button>
     </form>
     {% else %}

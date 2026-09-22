@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}DRBR{% endblock %} · DRBR diagnostic</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 <script src="{{ HTMX_URL }}" integrity="{{ HTMX_SRI }}" crossorigin="anonymous" defer></script>
@@ -10,29 +11,37 @@
 <header class="site">
   <nav>
     <strong>DRBR</strong>
-    <a href="{{ url_for('overview') }}">Overview</a>
-    <a href="{{ url_for('labels_page') }}">Labels</a>
-    <a href="{{ url_for('records_page') }}">Records</a>
+    <a href="{{ url_for('overview') }}"{% if request.endpoint == 'overview' %} aria-current="page"{% endif %}>Overview</a>
+    <a href="{{ url_for('labels_page') }}"{% if request.endpoint in ('labels_page', 'set_label', 'labels_queue', 'labels_bulk') %} aria-current="page"{% endif %}>Labels</a>
+    <a href="{{ url_for('records_page') }}"{% if request.endpoint == 'records_page' %} aria-current="page"{% endif %}>Records</a>
   </nav>
   {% if countdown.state == "ended" %}
   <div class="countdown countdown-ended" id="countdown">
     <strong>Diagnostic ended — name the decision or shut it down.</strong>
     <span>The {{ countdown.weeks }} weeks ran {{ countdown.start }} to {{ countdown.end }}.</span>
   </div>
-  {% elif countdown.state == "running" %}
-  <div class="countdown" id="countdown">
-    <strong>Diagnostic day {{ countdown.day }} of {{ countdown.total_days }}</strong>
-    · {{ countdown.days_left }} day{{ "" if countdown.days_left == 1 else "s" }} left
-    · ends {{ countdown.end }}
-    · week {{ countdown.week_number }} of {{ countdown.weeks }}
-  </div>
   {% else %}
-  <div class="countdown countdown-pending" id="countdown">
-    <strong>Diagnostic not started yet.</strong> {{ countdown.reason }}
+  <div class="statusbar">
+    {% if countdown.state == "running" %}
+    <div class="countdown" id="countdown">
+      <strong>Diagnostic day {{ countdown.day }} of {{ countdown.total_days }}</strong>
+      · {{ countdown.days_left }} day{{ "" if countdown.days_left == 1 else "s" }} left
+      · ends {{ countdown.end }}
+      · week {{ countdown.week_number }} of {{ countdown.weeks }}
+    </div>
+    {% else %}
+    <div class="countdown countdown-pending" id="countdown">
+      <strong>Diagnostic not started yet.</strong> {{ countdown.reason }}
+    </div>
+    {% endif %}
+    <form method="post" action="{{ url_for('sync_now') }}" class="sync">
+      <button type="submit" title="Fetch everything DRBR can collect by itself, now, instead of waiting for 09:30">Sync now</button>
+    </form>
   </div>
   {% endif %}
 </header>
 <main>
+{% for level, text in flash|default([]) %}<p class="flash flash-{{ level }}">{{ text }}</p>{% endfor %}
 {% block content %}{% endblock %}
 </main>
 </body>

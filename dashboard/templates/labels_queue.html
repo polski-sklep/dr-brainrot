@@ -1,48 +1,92 @@
 {% extends "base.html" %}
-{# Minimal markup on purpose: the design pass owns how this looks. The route,
-   the ordering (biggest measured decision first) and the bulk action are the
-   product here. #}
 {% block title %}Label queue{% endblock %}
 {% block content %}
 <h1>Label queue</h1>
+{% include "_label_tabs.html" %}
 
-{% for level, text in flash %}<p class="flash flash-{{ level }}">{{ text }}</p>{% endfor %}
-
+<div class="rule">
 <p>DRBR measures <strong>brain-rot content only</strong>. Is this content you consume? If yes:
 wasteful or worthwhile. If you only go there to get something done, it is a <strong>tool</strong>
 and is not counted.</p>
+</div>
 
 {% if unlabelled.count %}
-<p>{{ unlabelled.count }} source{{ '' if unlabelled.count == 1 else 's' }} undecided,
-{{ unlabelled.minutes|min }} measured{% if unlabelled.top_group %},
-mostly {{ GROUP_NAMES.get(unlabelled.top_group, unlabelled.top_group) }}{% endif %}.
-Biggest first — the top rows move the figures most.</p>
+<div class="metrics">
+  <div class="metric">
+    <span class="metric-label">Undecided sources</span>
+    <span class="metric-value">{{ unlabelled.count }}</span>
+    <span class="metric-note">each counting as wasteful until you decide</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">Minutes riding on them</span>
+    <span class="metric-value">{{ unlabelled.minutes|min }}</span>
+    <span class="metric-note">measured inside the diagnostic window</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">Mostly</span>
+    <span class="metric-value">{% if unlabelled.top_group %}{{ GROUP_NAMES.get(unlabelled.top_group, unlabelled.top_group) }}{% else %}<span class="absent">—</span>{% endif %}</span>
+    <span class="metric-note">the group holding the most undecided minutes</span>
+  </div>
+</div>
+<p class="note">Biggest first — the top rows move the figures most. Deciding a source at the top
+is worth more than clearing ten at the bottom.</p>
 
-<form method="post" action="{{ url_for('labels_bulk') }}">
-  <table class="compact">
-    <thead><tr><th></th><th>Source</th><th>Kind</th><th class="num">Minutes</th><th>Seen in</th></tr></thead>
+<form method="post" action="{{ url_for('labels_bulk') }}" id="queue-form">
+  <div class="table-wrap">
+  <table>
+    <thead><tr>
+      <th class="col-check"><input type="checkbox" id="queue-all" aria-label="Select every source in the queue"></th>
+      <th>Source</th><th>Kind</th><th class="num">Minutes</th><th>Seen in</th>
+    </tr></thead>
     <tbody>
       {% for r in rows %}
       <tr id="queue-{{ r.source_id }}">
-        <td><input type="checkbox" name="source_id" value="{{ r.source_id }}"
+        <td class="col-check"><input type="checkbox" name="source_id" value="{{ r.source_id }}"
                    aria-label="select {{ r.display_name }}"></td>
-        <td>{{ r.display_name }}</td>
-        <td>{{ KIND_NAMES.get(r.kind, r.kind) }}</td>
+        <td class="cell-source" title="{{ r.display_name }}">{{ r.display_name }}</td>
+        <td class="cell-nowrap muted">{{ KIND_NAMES.get(r.kind, r.kind) }}</td>
         <td class="num">{{ r.minutes|min }}</td>
-        <td>{{ r.seen_in|join(', ') }}</td>
+        <td class="cell-nowrap muted">{{ r.seen_in|join(', ') }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  <p>Label the selected as:
-    <button name="label" value="{{ WASTEFUL }}">wasteful</button>
-    <button name="label" value="{{ WORTHWHILE }}">worthwhile</button>
-    <button name="label" value="{{ TOOL }}">tool (not content)</button>
-  </p>
+  </div>
+  <div class="bulkbar">
+    <span class="bulkbar-label">Label the selected as</span>
+    <span class="segmented">
+      <button type="submit" name="label" value="{{ WASTEFUL }}">wasteful</button>
+      <button type="submit" name="label" value="{{ WORTHWHILE }}">worthwhile</button>
+      <button type="submit" name="label" value="{{ TOOL }}">tool (not content)</button>
+    </span>
+    <span class="spacer"></span>
+    <span class="count" id="queue-selected"></span>
+  </div>
 </form>
 {% else %}
-<p>Nothing to decide: every source with measured minutes is labelled.</p>
+<p class="absent">Nothing to decide: every source with measured minutes is labelled.</p>
 {% endif %}
 
-<p><a href="{{ url_for('labels_page') }}">All sources</a></p>
+<script>
+(function () {
+  var form = document.getElementById("queue-form");
+  if (!form) return;
+  var all = document.getElementById("queue-all");
+  var out = document.getElementById("queue-selected");
+  var boxes = function () { return form.querySelectorAll('input[name="source_id"]'); };
+  function tally() {
+    var n = form.querySelectorAll('input[name="source_id"]:checked').length;
+    out.textContent = n ? n + " selected" : "none selected";
+    if (all) { all.checked = n > 0 && n === boxes().length; all.indeterminate = n > 0 && n < boxes().length; }
+  }
+  if (all) all.addEventListener("change", function () {
+    boxes().forEach(function (b) { b.checked = all.checked; });
+    tally();
+  });
+  form.addEventListener("change", function (e) {
+    if (e.target.name === "source_id") tally();
+  });
+  tally();
+})();
+</script>
 {% endblock %}

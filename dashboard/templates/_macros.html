@@ -1,9 +1,18 @@
-{#- Provenance badge. Visual weight differs by tier; a screenshot figure always says so. -#}
+{#- Provenance badge. Metadata tier: quiet by design, so it can never out-shout
+    a warning. The tier is carried by the dot's fill and the text weight, never
+    by colour alone; the long text is in the title. -#}
 {% macro badge(prov) -%}
 {%- set b = PROVENANCE_BADGES.get(prov, (prov, "unknown")) -%}
 <span class="prov prov-{{ b[1] }}" title="{{ PROVENANCE_TEXT.get(prov, prov) }}">{{ b[0] }}</span>
 {%- endmacro %}
 
+{#- A caution about the number itself. State tier: tinted, so it reads louder
+    than any provenance chip beside it. -#}
 {% macro lowconf(prov) -%}
 {%- if prov == PROV_SCREENSHOT %} <span class="lowconf" title="{{ PROVENANCE_TEXT[prov] }}">lower confidence</span>{% endif -%}
+{%- endmacro %}
+
+{#- The label a row resolved to, as a state chip. -#}
+{% macro label_chip(label) -%}
+<span class="state state-{{ label }}">{{ label }}</span>
 {%- endmacro %}
