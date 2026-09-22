@@ -73,7 +73,9 @@
 
   /* -- Measure: prose is capped, data is not. -------------------------- */
   --measure: 78ch;
-  --page-max: 1560px;
+  /* Data runs edge to edge. Prose does not: --measure still caps every note,
+     lede and legend, so the two-width rule survives the cap coming off. */
+  --page-max: 100%;
 }
 
 /* ==========================================================================
@@ -333,7 +335,10 @@ thead th {
 tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
 
 /* Long column headers wrap rather than forcing the column wide. */
-thead th.th-wrap { white-space: normal; min-width: 11ch; max-width: 18ch; }
+/* A flexible column squeezes every other column to its minimum, so a header
+   allowed to wrap needs a floor wide enough to wrap sensibly — at 11ch
+   "Tool (not content, excluded)" broke into four lines. */
+thead th.th-wrap { white-space: normal; min-width: 20ch; max-width: 24ch; }
 
 /* Minutes on tool-labelled sources are excluded from every count, so they
    are printed at a lower weight than the figures that do count. */
@@ -374,6 +379,23 @@ td.num { font-weight: 500; color: var(--text); }
    not the cell: a max-width on a <td> is advisory under table-layout: auto,
    so one 101-character video title was widening the whole Item column. */
 .clamp { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Every full-width table names the one column that can use spare width — a
+   title, a reason, a warning — so widening the window widens that and leaves
+   every other column where it was.
+
+   `width: 100%` on a cell feeds back into the table's own preferred width, so
+   inside a scrolling wrapper it inflates the table instead of absorbing slack.
+   It is therefore applied only above the width where these tables already fit;
+   below that the columns size naturally and the wrapper scrolls, which is the
+   behaviour a ten-column table needs on a small screen anyway. */
+@media (min-width: 1500px) {
+  .col-flex { width: 100%; }
+  /* Only once a column is absorbing slack can its clamp follow the column
+     rather than a fixed cap. Below the breakpoint the cap is what stops the
+     longest title from widening the column in the first place. */
+  .cell-item .clamp { max-width: 100%; }
+}
+td.cell-item { min-width: 240px; }
 .cell-item .clamp { max-width: 300px; }
 .cell-source .clamp { max-width: 170px; }
 .cell-status .clamp { max-width: 150px; }
@@ -579,6 +601,10 @@ button:disabled { cursor: default; }
    ========================================================================== */
 
 .label-row td { vertical-align: middle; }
+/* Kind is the narrowest column and the flexible Source column beside it would
+   otherwise squeeze "Mac app" onto two lines. It cannot carry a class: the
+   tests pin that cell as a bare `<td>X</td>`, so hold it open by position. */
+#label-table th:first-child, #label-table td:first-child { white-space: nowrap; }
 .label-current { white-space: nowrap; }
 .not-toggleable { color: var(--text-muted); font-size: var(--fs-micro); display: block; max-width: 52ch; }
 .note-inline { display: block; font-size: var(--fs-micro); color: var(--text-muted); margin-top: 2px; white-space: normal; max-width: 44ch; }

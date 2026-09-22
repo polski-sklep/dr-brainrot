@@ -143,10 +143,18 @@ a changing figure does not shift its neighbours.
 
 ## 4. Layout
 
-- **Content width is not one number.** Data gets `1560px`; prose is capped at
-  `--measure` (`78ch`). Explanatory notes stay readable while wide tables use
-  the viewport. Forcing both to one width was the main cause of the old
-  layout's cramped tables sitting beside empty space.
+- **Content width is not one number.** Data runs the **full width of the
+  window**; prose is capped at `--measure` (`78ch`). At 2560px the Records
+  table is 2510px wide while its explanatory notes are still 590px. Forcing
+  both to one width was the main cause of the old layout's cramped tables
+  sitting beside empty space, and a single page-wide cap was the same mistake
+  one level up.
+- **Every full-width table names one column that absorbs the slack** — a
+  title, a reason, a warning (`.col-flex`). Without it, auto table layout
+  spreads surplus across all ten columns and pushes a value away from the
+  value it is meant to be compared against. The absorber is chosen so that
+  related columns stay adjacent: on the queue it is the last column, not
+  Source, because that list is read name → minutes.
 - **Spacing** is a 4px scale, `--s1` (4px) to `--s10` (40px). Sections are
   separated by `--s8`; a heading sits `--s3` from its content; table cells use
   `--s2`/`--s3`.
@@ -157,7 +165,14 @@ a changing figure does not shift its neighbours.
   is advisory under `table-layout: auto`, so a single 101-character video
   title was widening the whole Item column and forcing the Records table into
   horizontal scroll. `.clamp` is a block inside the cell, which the column
-  must then size to. Records fits its ten columns in 1510px with no scroll.
+  must then size to.
+- **`.col-flex` applies only above 1500px, and the clamp cap lifts with it.**
+  `width: 100%` on a cell feeds back into the table's own preferred width, so
+  inside a scrolling wrapper it *inflates* the table rather than absorbing
+  slack — it took Records from 1471px to 1769px at a 1280px window. Above the
+  breakpoint the column absorbs and the clamp follows the column; below it the
+  fixed cap is what stops the longest title widening the column at all.
+  Measured: 1870px with no scroll at 1920, 1471px at 1280.
 - **A column is never widened by a marker most rows do not carry.** The
   `lower confidence` chip stays beside the figure it qualifies, as `app.py`
   requires, but wraps under it rather than adding its own width to every row.
@@ -291,3 +306,8 @@ Desktop-primary. Two breakpoints:
 Tables are never converted to cards. They keep their columns and scroll
 horizontally, because in a diagnostic the ability to compare a value against
 the one below it is the point of the table.
+
+A third, quieter breakpoint at **1500px** governs whether tables absorb spare
+width or simply size to their content. It is not a layout change the reader
+would notice — no column moves, nothing stacks — which is why it is not listed
+with the two above.

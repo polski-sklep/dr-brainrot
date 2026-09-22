@@ -46,7 +46,7 @@ is worth more than clearing ten at the bottom.</p>
   <table>
     <thead><tr>
       <th class="col-check"><input type="checkbox" id="queue-all" aria-label="Select every source in the queue"></th>
-      <th>Source</th><th>Kind</th><th class="num">Minutes</th><th>Seen in</th>
+      <th>Source</th><th>Kind</th><th class="num">Minutes</th><th class="col-flex">Seen in</th>
     </tr></thead>
     <tbody>
       {% for r in rows %}
@@ -56,7 +56,7 @@ is worth more than clearing ten at the bottom.</p>
         <td class="cell-source" title="{{ r.display_name }}">{{ r.display_name }}</td>
         <td class="cell-nowrap muted">{{ KIND_NAMES.get(r.kind, r.kind) }}</td>
         <td class="num">{{ r.minutes|min }}</td>
-        <td class="cell-nowrap muted">{{ r.seen_in|join(', ') }}</td>
+        <td class="cell-nowrap muted col-flex">{{ r.seen_in|join(', ') }}</td>
       </tr>
       {% endfor %}
     </tbody>

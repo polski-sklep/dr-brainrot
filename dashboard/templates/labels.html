@@ -61,7 +61,7 @@ Changing a label re-records each week's overage immediately.</p>
 
 <div class="table-wrap">
 <table id="label-table">
-  <thead><tr><th>Kind</th><th>Source</th><th>Current label</th><th>Change to</th></tr></thead>
+  <thead><tr><th>Kind</th><th>Source</th><th class="col-flex">Current label</th><th>Change to</th></tr></thead>
   <tbody>
   {% for s in sources %}{% include "_label_row.html" %}{% else %}
   <tr><td colspan="4" class="absent">No sources match.</td></tr>

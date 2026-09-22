@@ -79,7 +79,7 @@
     <thead><tr>
       <th>Group</th><th>Device</th><th>Provenance</th><th class="num">Measured</th>
       <th class="num th-wrap">Tool (not content, excluded)</th>
-      <th>Unmeasured</th><th>Covered elsewhere (excluded)</th><th>Import</th>
+      <th>Unmeasured</th><th class="col-flex">Covered elsewhere (excluded)</th><th>Import</th>
     </tr></thead>
     <tbody>
     {% for t in totals %}
@@ -97,7 +97,7 @@
           {% if t.unmeasured_items %}<span class="unmeasured">{{ t.unmeasured_items }} unmeasured item{{ "" if t.unmeasured_items == 1 else "s" }}</span> — left out, not counted as zero
           {% else %}<span class="muted">none</span>{% endif %}
         </td>
-        <td>
+        <td class="col-flex">
           {% if t.covered_excluded_min %}
             <span class="excluded">{{ t.covered_excluded_min|min }} excluded</span>
             <ul class="tight">{% for reason, mins in t.covered_reasons %}<li>{{ mins|min }}: already measured by {{ reason }}</li>{% endfor %}</ul>
@@ -121,7 +121,7 @@
   <h3>Imports covering this week</h3>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Import</th><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th>Error / warnings</th></tr></thead>
+    <thead><tr><th>Import</th><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th class="col-flex">Error / warnings</th></tr></thead>
     <tbody>
     {% for i in week_imports %}
       <tr id="import-{{ i.id }}">
@@ -130,7 +130,7 @@
         <td class="import-{{ i.status }} cell-nowrap"><strong>{{ i.status }}</strong></td>
         <td class="cell-day">{{ i.received_at|local_dt }}</td>
         <td class="cell-day">{% if i.period_start %}{{ i.period_start }} – {{ i.period_end }}{% else %}—{% endif %}</td>
-        <td>
+        <td class="col-flex">
           {% if i.error %}<div class="error">Failed: {{ i.error }}</div>{% endif %}
           {% if i.warnings %}<ul class="tight">{% for w in i.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
         </td>
@@ -239,7 +239,7 @@
   <h2>Cost per keeper (whole diagnostic, ranked)</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th class="num">#</th><th>Group</th><th class="num">Price</th><th class="num">Minutes</th><th class="num">Keepers</th><th>Provenance</th><th>Blind spots</th></tr></thead>
+    <thead><tr><th class="num">#</th><th>Group</th><th class="num">Price</th><th class="num">Minutes</th><th class="num">Keepers</th><th>Provenance</th><th class="col-flex">Blind spots</th></tr></thead>
     <tbody>
     {% for k in keepers %}
       <tr>
@@ -249,7 +249,7 @@
         <td class="num">{% if k.minutes is none %}<span class="absent">no minutes source</span>{% else %}{{ k.minutes|min }}{% endif %}</td>
         <td class="num">{{ k.keepers }}</td>
         <td>{% for p in k.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in k.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
-        <td>{% if k.blind_spots %}<ul class="tight">{% for s in k.blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}</td>
+        <td class="col-flex">{% if k.blind_spots %}<ul class="tight">{% for s in k.blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -308,7 +308,7 @@
   <h2>Latest import per kind</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th>Import id</th><th>Error / warnings</th></tr></thead>
+    <thead><tr><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th>Import id</th><th class="col-flex">Error / warnings</th></tr></thead>
     <tbody>
     {% for i in imports %}
       <tr>
@@ -320,7 +320,7 @@
         <td class="cell-day">{{ i.received_at|local_dt }}</td>
         <td class="cell-day">{% if i.period_start %}{{ i.period_start }} – {{ i.period_end }}{% else %}—{% endif %}</td>
         <td class="cell-nowrap">{{ i.id }} <span class="muted">{{ i.parser_version }}</span></td>
-        <td>
+        <td class="col-flex">
           {% if i.error %}<div class="error">Failed: {{ i.error }}</div>{% endif %}
           {% if i.warnings %}<ul class="tight">{% for w in i.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
         </td>

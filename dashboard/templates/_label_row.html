@@ -4,7 +4,7 @@
     {{ s.display_name }}
     {% if s.display_name != s.source_key %}<span class="sub">{{ s.source_key }}</span>{% endif %}
   </td>
-  <td class="label-current">
+  <td class="label-current col-flex">
     {% if s.label is none %}<span class="state state-unlabelled">unlabelled → counts as wasteful</span>
     {% elif s.label == TOOL %}<span class="state state-tool">{{ TOOL_TEXT }}</span>
     {% else %}<span class="state state-{{ s.label }}"><strong>{{ s.label }}</strong></span>{% endif %}
