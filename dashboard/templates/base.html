@@ -3,14 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}DRBR{% endblock %} · DRBR diagnostic</title>
+<title>{% block title %}Overview{% endblock %} · Dr. Brainrot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M2 13 h4.2 l2-6.4 l2.9 12.2 l2.1-7.3 h8.6' fill='none' stroke='%231D5FD1' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
 <script src="{{ HTMX_URL }}" integrity="{{ HTMX_SRI }}" crossorigin="anonymous" defer></script>
 </head>
 <body>
 <header class="site">
   <nav>
-    <strong>DRBR</strong>
+    <a class="wordmark" href="{{ url_for('overview') }}">
+      <svg class="mark" viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+        <path d="M2 13 h4.2 l2-6.4 l2.9 12.2 l2.1-7.3 h8.6" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="wordmark-text"><span class="wordmark-dr">Dr.</span>Brainrot</span>
+    </a>
     <a href="{{ url_for('overview') }}"{% if request.endpoint == 'overview' %} aria-current="page"{% endif %}>Overview</a>
     <a href="{{ url_for('labels_page') }}"{% if request.endpoint in ('labels_page', 'set_label', 'labels_queue', 'labels_bulk') %} aria-current="page"{% endif %}>Labels</a>
     <a href="{{ url_for('records_page') }}"{% if request.endpoint == 'records_page' %} aria-current="page"{% endif %}>Records</a>

@@ -8,6 +8,25 @@ terminology. Every number on screen still comes from `report.py`.
 
 ---
 
+## 0. Identity
+
+The product is **Dr. Brainrot**; `DRBR` stays the short form in body copy and
+in code. The wordmark sets `Dr.` in muted medium weight against `Brainrot` in
+bold, so the joke is in the typography rather than in an illustration.
+
+The mark is a **pulse line** in the accent, 19px, drawn once in `base.html`
+and reused as the tab icon via an inline `data:` URI — no extra request, and
+no second file to keep in step. It is a clinical glyph, which suits a tool
+that calls itself a doctor and runs a fixed eight-week diagnostic, and it is
+literally a chart line, which is what the tool produces.
+
+A spiral was the first idea and is the more obvious symbol for brain rot —
+inward, going nowhere — and it is already the motif at the centre of the POP
+logo this tool grew out of. It was rejected on evidence: rendered at 160px,
+40px and 19px side by side, the spiral is handsome large and collapses into an
+indistinct dot at header size. A mark that only works at one size is not a
+mark. The pulse holds at all three.
+
 ## 1. Visual direction
 
 A restrained analytical tool, not a product dashboard. Neutral surfaces,
@@ -230,6 +249,12 @@ a changing figure does not shift its neighbours.
   both to one width was the main cause of the old layout's cramped tables
   sitting beside empty space, and a single page-wide cap was the same mistake
   one level up.
+- **A box must hug its content.** Capping prose at `--measure` while leaving
+  its *container* full width produces the worst of both: a readable paragraph
+  inside 1,280px of empty panel. `.rule` and `.generated` are therefore capped
+  to their text plus padding. Above 1100px `.generated` goes further and puts
+  its provenance line in a second column, so the width is used rather than
+  merely reduced.
 - **Every full-width table names one column that absorbs the slack** — a
   title, a reason, a warning (`.col-flex`). Without it, auto table layout
   spreads surplus across all ten columns and pushes a value away from the
