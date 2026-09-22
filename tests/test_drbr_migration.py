@@ -92,11 +92,11 @@ def test_upgrade_sets_version_and_creates_drbr_tables(v1):
     db.init_db(v1)
     db.migrate(v1)
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
-    assert db.SCHEMA_VERSION == 5
+    assert db.SCHEMA_VERSION == 6
     assert "overage_min" in [r[1] for r in v1.execute("PRAGMA table_info(weeks)")]
     names = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"sources", "item_labels", "imports", "measurements", "category_measurements",
-            "vault_captures", "vault_observations", "prompts_sent"} <= names
+            "vault_captures", "vault_observations", "prompts_sent", "insights"} <= names
 
 
 def test_existing_episodes_default_to_spotify(v1):
@@ -516,3 +516,84 @@ def test_0005_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, 
     with pytest.raises(db.MigrationError, match="foreign key"):
         db.migrate(v1)
     _assert_still_v4(v1, before)
+
+
+# --- 0006: the weekly insights summary (DR5.8), a new table only ------------
+
+def _v5_with_drbr_rows(v1, monkeypatch):
+    """A v5 database with rows in every DRBR table (the 0005 fixture, migrated)."""
+    _v4_with_drbr_rows(v1, monkeypatch)
+    db.migrate(v1)                                   # SCHEMA_VERSION is 5 here
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+
+
+def test_v5_to_v6_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
+    """0006 is additive: one new table, nothing rebuilt, nothing else touched."""
+    _v5_with_drbr_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    assert all(before[t] for t in DRBR_TABLES)
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name='insights'").fetchone() is None
+
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
+    assert _all_rows(v1) == before                   # not one existing row changed
+    assert v1.execute("SELECT COUNT(*) FROM insights").fetchone()[0] == 0
+    assert v1.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+
+    fresh = sqlite3.connect(str(tmp_path / "fresh6.db"))
+    fresh.row_factory = sqlite3.Row
+    db.init_db(fresh)
+    db.migrate(fresh)
+    assert _schema(fresh) == _schema(v1)
+
+
+def test_v1_to_v6_reaches_the_same_schema_as_v5_to_v6(v1, monkeypatch, tmp_path):
+    straight = _v1_database(tmp_path / "straight6.db")
+    _v5_with_drbr_rows(v1, monkeypatch)
+    db.init_db(straight)
+    db.migrate(straight)
+    db.migrate(v1)
+    assert _schema(straight) == _schema(v1)
+
+
+def test_v6_constrains_insight_status(v1):
+    db.init_db(v1)
+    db.migrate(v1)
+    v1.execute(f"INSERT INTO insights (created_at, week_start, status) VALUES ('{T0}', '{T0}', 'ok')")
+    v1.execute(f"INSERT INTO insights (created_at, week_start, status) VALUES ('{T0}', '{T0}', 'failed')")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO insights (created_at, week_start, status) VALUES ('{T0}', '{T0}', 'maybe')")
+    with pytest.raises(sqlite3.IntegrityError):     # status is NOT NULL
+        v1.execute(f"INSERT INTO insights (created_at, week_start) VALUES ('{T0}', '{T0}')")
+
+
+def _broken_0006(tmp_path, tail: str):
+    broken = tmp_path / "migrations6"
+    broken.mkdir()
+    for name in ("0002_drbr.sql", "0003_no_debt.sql", "0004_desktop_apps.sql", "0005_tool_label.sql"):
+        (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
+    good = (db.MIGRATIONS_DIR / "0006_insights.sql").read_text()
+    (broken / "0006_insights.sql").write_text(good + "\n" + tail + "\n")
+    return broken
+
+
+def test_failed_0006_rolls_back_whole(v1, monkeypatch, tmp_path):
+    """A step that fails part-way leaves the database at v5, table and all, and retries whole."""
+    _v5_with_drbr_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0006(tmp_path, "CREATE TABLE sources (x);"))
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name='insights'").fetchone() is None
+    assert _all_rows(v1) == before
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
+    assert _all_rows(v1) == before
+    assert v1.execute("SELECT COUNT(*) FROM insights").fetchone()[0] == 0

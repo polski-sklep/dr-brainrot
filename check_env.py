@@ -51,9 +51,16 @@ REQUIRED = {
 SECRET_KEYS = {
     "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET",
     "SPOTIFY_REFRESH_TOKEN", "TELEGRAM_BOT_TOKEN",
-    "YOUTUBE_API_KEY", "DRBR_INGEST_TOKEN",
+    "YOUTUBE_API_KEY", "DRBR_INGEST_TOKEN", "ANTHROPIC_API_KEY",
 }
-STEPS = 9
+
+#: Deliberately not in REQUIRED: the weekly summary (DR5.8) is the only thing
+#: that uses it, and without it the Overview falls back to DRBR's own computed
+#: sentences. Missing is a fine state, not a failure.
+ANTHROPIC_KEY = "ANTHROPIC_API_KEY"
+ANTHROPIC_SHAPE = r"sk-ant-[A-Za-z0-9_-]{20,}"
+
+STEPS = 10
 
 failures: list[str] = []
 unavailable_list: list[str] = []
@@ -376,6 +383,23 @@ def check_qbserve(env: dict[str, str]) -> None:
               "Set it to open at login (not a failure)")
 
 
+def check_anthropic(env: dict[str, str]) -> None:
+    """Shape only. No live call: this script must never spend money or leave a
+    trace on a provider, and the weekly summary proves the key by itself."""
+    print(f"\n[10/{STEPS}] Anthropic — optional, weekly summary only (shape check, no API call)")
+    val = env.get(ANTHROPIC_KEY, "")
+    if not val:
+        ok(f"{ANTHROPIC_KEY} unset: the Overview's weekly summary shows DRBR's own computed "
+           "sentences instead (optional; remove the key to turn the generated summary off)")
+        return
+    if not re.fullmatch(ANTHROPIC_SHAPE, val):
+        fail(f"{ANTHROPIC_KEY} does not match expected shape /{ANTHROPIC_SHAPE}/ "
+             f"(got {mask(ANTHROPIC_KEY, val)}); unset it to turn the weekly summary off")
+        return
+    ok(f"{ANTHROPIC_KEY} = {mask(ANTHROPIC_KEY, val)} (shape only; one summary a week, "
+       "aggregates only, never source names)")
+
+
 def main() -> int:
     ping = "--ping" in sys.argv
     print("DRBR — environment and credential check")
@@ -389,6 +413,7 @@ def main() -> int:
     check_vision()
     check_coldturkey(env)
     check_qbserve(env)
+    check_anthropic(env)
 
     print("\n" + "=" * 60)
     if failures:

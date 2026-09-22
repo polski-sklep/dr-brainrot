@@ -59,6 +59,7 @@ import config
 import db
 import drbr_types as T
 import ingest_api
+import insights
 import jobs
 import labels
 import report
@@ -250,6 +251,9 @@ FLASH_TEXT = {
     "sync-failed": ("warn", "Sync ran but some sources failed — see the source table below."),
     "labelled": ("ok", "Labels saved. Every week's figures were re-recorded."),
     "fixed": ("ok", "Reading corrected. The week's totals now include it."),
+    "insight-written": ("ok", "Summary rewritten from the figures above."),
+    "insight-fallback": ("warn", "The summary could not be generated, so DRBR's own computed "
+                                 "sentences are shown instead."),
 }
 
 
@@ -445,6 +449,9 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             needs_your_eye=report.needs_your_eye(c, clk, settings),
             unlabelled=labels.unlabelled_summary(c, clk, settings),
             flash=flash_from(request.args),
+            # Appended, never reordered: the design pass reads this call's
+            # argument order. `insight` is an insights.Insight or None.
+            insight=insights.latest(c, clk, settings),
         )
 
     def _label_filters(args) -> tuple[str | None, str | None]:
@@ -544,6 +551,21 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         for r in results.values():
             log.info("sync %s: %s", r.name, r.summary if r.ok else r.error)
         code = "sync-failed" if failed else "synced"
+        return redirect(url_for("overview", msg=code), code=303)
+
+    @app.post("/insights/refresh")
+    def refresh_insight():
+        """Rewrite this week's summary now, instead of waiting for tomorrow's job.
+
+        `force=True` because `write_summary` writes at most one row a week; this
+        is the one way to ask for another. It never raises: a failure stores
+        itself and comes back as DRBR's own computed sentences, which is what
+        the warn flash says.
+        """
+        result = insights.write_summary(conn(), clk, settings, force=True)
+        log.info("insight refreshed from the dashboard: %s",
+                 result.fallback_reason or f"written by {result.model}")
+        code = "insight-written" if result.model else "insight-fallback"
         return redirect(url_for("overview", msg=code), code=303)
 
     @app.get("/records")

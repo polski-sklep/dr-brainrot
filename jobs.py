@@ -17,6 +17,8 @@ the functions each source owns:
 5. `handlers_labels.send_label_digest` — one line about unlabelled sources,
    at most every third day, pointing at the dashboard (DR5.6).
 6. One diagnostic-end notice, ever.
+7. `insights.write_summary` — the Overview's weekly written summary (DR5.8),
+   which writes at most one row a week and never fails the run.
 
 Steps 1-3 are the *data-fetching* half and are also callable on their own as
 `run_sync`, so a dashboard "Sync now" button can do exactly what the morning
@@ -41,6 +43,7 @@ import drbr_types as T
 import evidence
 import handlers_imports
 import handlers_labels
+import insights
 from clock import Clock
 from config import Settings
 from sources import coldturkey_local, qbserve, vault
@@ -107,7 +110,14 @@ def run_sync(conn, clk: Clock, settings: Settings, bot=None) -> dict[str, StepRe
 
 
 def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
-    """Run every daily step. Returns the names of steps that failed."""
+    """Run every daily step. Returns the names of steps that failed.
+
+    `insights` is deliberately *not* in that list. It is commentary on figures
+    DRBR already has, it depends on a third party, and it is optional (no key,
+    no call). A summary that could not be written is recorded in the `insights`
+    table and logged; making the morning job exit non-zero over it would turn a
+    missing paragraph into a red launchd log next to real data failures.
+    """
     results = run_sync(conn, clk, settings, bot)
     failed = [name for name, result in results.items() if not result.ok]
     for name, fn in (
@@ -117,7 +127,21 @@ def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
     ):
         if not _run_step(conn, name, fn).ok:
             failed.append(name)
+    _run_step(conn, "insights", lambda: _insights(conn, clk, settings))
     return failed
+
+
+def _insights(conn, clk: Clock, settings: Settings) -> str:
+    """The weekly Overview summary (DR5.8). At most one row a week; never raises.
+
+    `write_summary` skips when this week already has a row, so calling it every
+    morning costs one SELECT six days out of seven. Only the status is logged:
+    the summary itself belongs on the dashboard, not in logs/jobs.log.
+    """
+    insight = insights.write_summary(conn, clk, settings)
+    if insight.model is None:
+        return f"week {insight.week_start}: DRBR's own sentences — {insight.fallback_reason}"
+    return f"week {insight.week_start}: written by {insight.model}"
 
 
 def _outbox(conn, clk: Clock, settings: Settings) -> str:

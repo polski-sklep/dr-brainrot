@@ -20,6 +20,7 @@ import clock  # noqa: E402
 import config  # noqa: E402
 import db  # noqa: E402
 import drbr_types as T  # noqa: E402
+import insights  # noqa: E402
 import labels  # noqa: E402
 from dashboard import app as dashboard_app  # noqa: E402
 from tests.test_allowance import label_source, make_settings, measure, open_db  # noqa: E402
@@ -240,3 +241,97 @@ def test_a_refused_htmx_toggle_answers_with_a_row_not_a_page(client, conn, clk, 
     assert body.lstrip().startswith("<tr") and "<!doctype" not in body.lower()
     assert "did not come from this dashboard" in body
     assert labels.get_source(conn, src.id).label is None        # nothing written
+
+
+# --- the weekly summary panel (DR5.8) ---------------------------------------
+
+def _complete_weeks(conn, clk, settings):
+    """Two finished weeks of figures, and a clock in the week after them, so
+    `write_summary` has something to summarise and actually calls the client."""
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Facebook", day="2026-09-16",
+            minutes=200.0, device=T.DEVICE_IPHONE, provenance=T.PROV_SCREENSHOT)
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Facebook", day="2026-09-23",
+            minutes=100.0, device=T.DEVICE_IPHONE, provenance=T.PROV_SCREENSHOT)
+    clk.set("2026-09-30T10:00:00+00:00")
+
+
+def test_the_overview_carries_the_insight_context_key(client, conn, clk, settings, monkeypatch):
+    """The design pass reads `insight`; it is None until something is written."""
+    seen = {}
+
+    real = dashboard_app.render_template
+
+    def capture(name, **ctx):
+        if name == "overview.html":
+            seen.update(ctx)
+        return real(name, **ctx)
+
+    monkeypatch.setattr(dashboard_app, "render_template", capture)
+    assert client.get("/").status_code == 200
+    assert "insight" in seen and seen["insight"] is None
+
+    _complete_weeks(conn, clk, settings)
+    insights.write_summary(conn, clk, settings, client=_FakeInsightClient("Steady."))
+    seen.clear()
+    assert client.get("/").status_code == 200
+    insight = seen["insight"]
+    assert insight.summary == "Steady."
+    assert insight.model == "claude-opus-5" and insight.fallback_reason is None
+
+
+class _FakeInsightClient:
+    """The same shape `tests/test_insights.py` injects. Never goes out."""
+
+    def __init__(self, text="A summary.", *, raises=None):
+        self.calls, self.raises, self.text = [], raises, text
+        outer = self
+
+        class _Messages:
+            def create(self, **kwargs):
+                outer.calls.append(kwargs)
+                if outer.raises is not None:
+                    raise outer.raises
+                return outer._response()
+
+        self.messages = _Messages()
+
+    def _response(self):
+        block = type("B", (), {"type": "text", "text": self.text})()
+        usage = type("U", (), {"input_tokens": 10, "output_tokens": 5})()
+        return type("R", (), {"content": [block], "stop_reason": "end_turn", "usage": usage})()
+
+
+def test_refresh_insight_rewrites_this_weeks_summary(client, conn, clk, settings, monkeypatch):
+    _complete_weeks(conn, clk, settings)
+    fake = _FakeInsightClient("Rewritten.")
+    real_write = insights.write_summary        # bound before the patch, so no recursion
+
+    def with_fake_client(c, k, s, *, client=None, **kw):
+        return real_write(c, k, s, client=fake, **kw)
+
+    monkeypatch.setattr(dashboard_app.insights, "write_summary", with_fake_client)
+
+    resp = post(client, "/insights/refresh")
+    assert resp.status_code == 303 and "msg=insight-written" in resp.headers["Location"]
+    assert dashboard_app.FLASH_TEXT["insight-written"][0] == "ok"
+    assert insights.latest(conn, clk, settings).summary == "Rewritten."
+
+    # Forced: a second press writes again rather than returning the first row.
+    assert post(client, "/insights/refresh").status_code == 303
+    assert len(fake.calls) == 2
+
+
+def test_refresh_insight_says_so_when_it_falls_back(client, conn, clk, settings):
+    """No API key in test settings: the row is failed and the flash warns."""
+    resp = post(client, "/insights/refresh")
+    assert resp.status_code == 303 and "msg=insight-fallback" in resp.headers["Location"]
+    assert dashboard_app.FLASH_TEXT["insight-fallback"][0] == "warn"
+    assert conn.execute("SELECT status FROM insights").fetchone()["status"] == "failed"
+    shown = insights.latest(conn, clk, settings)
+    assert shown.model is None and shown.fallback_reason
+
+
+def test_refresh_insight_refuses_a_write_from_anywhere_else(client, conn):
+    resp = client.post("/insights/refresh", headers={"Sec-Fetch-Site": "cross-site"})
+    assert resp.status_code == 403
+    assert conn.execute("SELECT COUNT(*) FROM insights").fetchone()[0] == 0

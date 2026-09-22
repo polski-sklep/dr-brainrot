@@ -87,6 +87,7 @@ All configuration is in `.env`. `.env.example` lists every key with placeholders
 | `DRBR_DIAGNOSTIC_WEEKS` | Length of the diagnostic (8) |
 | `DRBR_DASHBOARD_PORT` | Dashboard and extension ingest port on 127.0.0.1 (8750) |
 | `DRBR_INGEST_TOKEN` | Shared secret the extension sends. `python -c "import secrets;print(secrets.token_urlsafe(32))"` |
+| `ANTHROPIC_API_KEY` | **Optional.** Only the Overview's weekly summary uses it (one Claude Opus 5 call a week, aggregates only). Empty = DRBR's own computed sentences |
 
 **Spotify:** create an app at developer.spotify.com, with redirect URI exactly
 `http://127.0.0.1:8888/callback`. Then run `.venv/bin/python auth_spotify.py`
@@ -303,6 +304,8 @@ obsidian-ingest's `.env` and that `drbr/data/` exists.
 cross-site posts. Every page shows the countdown to the end date.
 
 - **Overview:**
+  - the **weekly summary** — three to five plain sentences reading the figures
+    below it (see "Weekly summary");
   - weekly totals by source, with provenance badges (API / page data / parsed
     screenshot / manual export);
   - a standing line: brain-rot content only, tools excluded;
@@ -319,6 +322,42 @@ cross-site posts. Every page shows the countdown to the end date.
 - **Records:** the raw measurements, filterable by group, label and date.
 
 No targets, scores or streaks, by design.
+
+## Weekly summary
+
+The Overview opens with three to five plain sentences reading the week's
+figures — "wasteful content fell 38% week on week; 90% of it bypassed the
+queue" — written by Claude Opus 5 from the numbers DRBR already computed.
+DECISIONS DR5.8 has the reasoning; the short version:
+
+**What it is.** One generated paragraph a week, describing measured patterns.
+It does not say whether anything was worth your time, does not suggest
+relabelling anything, and gives no advice — the system counts, you label. Every
+number in it has to come from the figures it was given, and those figures are
+stored beside it so any sentence can be checked.
+
+**Cadence.** The daily job writes it once per allowance week, after the week has
+rolled over, so it always summarises **complete** weeks; the current, unfinished
+week is left out. Six mornings out of seven the step is a single database read.
+The **Refresh** button on the panel rewrites it on demand.
+
+**What is sent.** Aggregates only — report *group* names (podcasts, YouTube, X,
+iPhone apps, desktop web, desktop apps), minutes by label per group per week,
+week-on-week changes, allowance and overage, the reflex share, cost per keeper,
+funnel counts, and which weeks' evidence never arrived. **No show, channel, app,
+domain, video, note title or path ever leaves this Mac**, and nothing from the
+vault does. A test seeds the database with distinctive names and fails if any
+string in the payload is not a date, a number or one of DRBR's own constants.
+
+**Cost.** One Claude Opus 5 call a week: a few thousand input tokens and at most
+400 output tokens, so a few cents a month.
+
+**Turning it off.** Delete or empty `ANTHROPIC_API_KEY` in `.env`. Nothing is
+called and nothing is sent; the panel shows DRBR's own computed sentences with
+the reason printed beside them ("No ANTHROPIC_API_KEY is set…"). The same
+fallback covers a failed call, and an honest "not enough data yet" before the
+first week is complete. `check_env.py` treats the key as optional, checks its
+shape only, and never makes a live call.
 
 ## Backup and recovery
 
@@ -393,6 +432,7 @@ absent. obsidian-ingest's tests run from its own directory with the same venv.
 bot.py poll.py triage.py db.py spotify.py clock.py config.py   POP, label-aware (CONTRACTS Part I + II §7)
 drbr_types.py evidence.py labels.py allowance.py report.py     shared DRBR core
 sources/youtube.py screentime.py ocr_vision.py coldturkey.py coldturkey_local.py qbserve.py vault.py
+insights.py                                                     the Overview's weekly written summary (DR5.8)
 handlers_imports.py handlers_labels.py                          Telegram extensions
 ingest_api.py dashboard/ extension/                             local API, dashboard, browser extension
 jobs.py reparse.py check_env.py drbr                            daily job, re-parse CLI, env check, launcher

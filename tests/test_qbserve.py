@@ -492,7 +492,7 @@ def _check(env, capsys):
 
 def test_check_env_qbserve_step(tmp_path, qb_db, capsys, monkeypatch):
     out, failed = _check({}, capsys)
-    assert "[9/9]" in out and "desktop apps not measured" in out and not failed
+    assert "[9/10]" in out and "desktop apps not measured" in out and not failed
 
     out, failed = _check({"DRBR_QBSERVE_DB": str(tmp_path / "nope.sqlite")}, capsys)
     assert failed and "does not exist" in out

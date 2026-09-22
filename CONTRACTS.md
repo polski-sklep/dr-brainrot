@@ -1068,3 +1068,112 @@ that day's slot. **The HTTP endpoint for "Sync now" is not built here** —
 `GROUP_VAULT = "vault"`. Not in `REPORT_GROUPS`, not a `report_group()` result:
 the vault produces counts, never minutes. It exists so the attention and
 provenance tables can name it.
+
+## §20 Post-build amendment — the weekly insights summary (DR5.8)
+
+A written summary at the top of the Overview, generated once a week from the
+figures `report.py` already computes. Aggregates only leave this Mac.
+
+### `insights.py` (new)
+
+```python
+build_payload(conn, clk, settings) -> dict          # aggregate-only facts; read-only, deterministic
+write_summary(conn, clk, settings, *, client=None, force=False) -> Insight   # never raises
+fallback_summary(payload: dict) -> str              # DRBR's own sentences, computed locally
+latest(conn, clk, settings) -> Insight | None       # the newest stored row, or None
+
+@dataclass(frozen=True)
+class Insight:
+    summary: str                  # the paragraph to print
+    created_at: str               # UTC ISO instant (clock.iso)
+    model: str | None             # None IS the fallback — nothing else to branch on
+    week_start: str               # the allowance week it was generated in, UTC ISO
+    fallback_reason: str | None   # printable, verbatim; None exactly when a model wrote `summary`
+    based_on_through: str | None  # LOCAL date YYYY-MM-DD in settings.tz; None when no week is complete
+
+MODEL = "claude-opus-5"; MAX_TOKENS = 400; PAYLOAD_SCHEMA = 1; WEEKS = 8
+STATUS_OK = "ok"; STATUS_FAILED = "failed"        # the stored column; nothing renders it
+REASON_NO_KEY; REASON_TOO_LITTLE; REASON_CALL_FAILED; REASON_UNKNOWN
+SYSTEM_PROMPT; USER_PROMPT_HEADER; user_prompt(payload) -> str
+class SummaryUnusable(RuntimeError)
+```
+
+**The `insight` context key** (what the design session renders). The Overview's
+`render_template("overview.html", …)` call carries `insight`, appended after
+`flash` and never reordered. It is an `Insight` or `None`.
+
+- `insight is None` — nothing has been generated yet. Render no panel.
+- `insight.model is None` — DRBR wrote the sentences itself. **This, and only
+  this, is the fallback test**; there is no `is_fallback` and no `status` on the
+  dataclass. Print `insight.fallback_reason` beside the summary: it is the real
+  reason in words ("No ANTHROPIC_API_KEY is set, so DRBR wrote these sentences
+  from its own figures.", "API call failed: RuntimeError: …", "Too little data:
+  …"), never a code, and is non-None exactly when `model` is None.
+- `insight.model` set (`"claude-opus-5"`) — a model wrote it;
+  `fallback_reason` is None.
+- `insight.summary` is one paragraph of plain text: 3–5 short sentences, no
+  markdown, no headings, no lists. Render it as text, not as markup.
+- `insight.created_at` is a UTC instant; the `local_dt` filter formats it.
+- `insight.based_on_through` is a **local date** (`YYYY-MM-DD`, `settings.tz`) —
+  the Saturday of the last complete measurement week. Directly comparable to
+  `report.window_start(...)`, to a `T.MeasurementWeek.end` and to
+  `T.iso_date(T.local_date(clk.now(), tz))`, which is what lets the panel say
+  the summary was written before later data arrived. It is never an instant and
+  is never derived from `week_start`.
+
+`POST /insights/refresh` → endpoint `refresh_insight`. Same-origin only (the
+standing `Sec-Fetch-Site` guard), 303 to the Overview with `?msg=` =
+`insight-written` (level `ok`) or `insight-fallback` (level `warn`). Both codes
+are in `FLASH_TEXT`.
+
+### The payload, field by field
+
+Aggregate-only (DR5.8). Deterministic, JSON-serialisable, every float rounded
+to 1 place, lists in fixed order.
+
+```
+schema, generated_for_week_start, timezone, based_on_through, complete_weeks,
+weekly_allowance_min
+diagnostic: {started, ended, start, end, week_number, total_weeks}
+weeks[]:    week_start, days {from, to}, wasteful_min, worthwhile_min, tool_min,
+            screenshot_ocr_min, allowance_min, overage_min, reflex_wasteful_min,
+            reflex_share_of_wasteful, unmeasured_items,
+            change_from_previous_week {wasteful_min, wasteful_pct, worthwhile_min,
+                                       worthwhile_pct, tool_min} | null,
+            by_group[]: group, wasteful_min, worthwhile_min, tool_min, gated_min,
+                        ungated_min, share_ungated, wasteful_ungated_min,
+                        unmeasured_items, covered_excluded_min
+            coverage_gaps[]: one sentence per weekly import that never arrived
+cost_per_keeper[]: group, minutes, keepers, minutes_per_keeper
+funnels: pop {captured, survived_lock, promoted, played, fully_played, *_rate},
+         vault {captured, unprocessed, kept, excluded, edited_kept}
+```
+
+`group` is always one of the fixed `T.REPORT_GROUPS` constants (plus
+`GROUP_WEB` / `GROUP_OTHER` in `cost_per_keeper`), never a source key. The only
+prose is `coverage_gaps`, assembled from `report.GROUP_TEXT` and
+`report.EXPECTED_WEEKLY`; stored import warnings and errors are never copied.
+No source name, item title, note title, path, URL or video id can reach it.
+
+### `db.py` / migrations
+
+`SCHEMA_VERSION = 6`. `migrations/0006_insights.sql` adds `insights (id,
+created_at, model, week_start, summary, payload, status CHECK IN ('ok','failed'),
+error, input_tokens, output_tokens)` plus `idx_insights_week`. Additive: no table
+is rebuilt.
+
+### `jobs.py`
+
+`run_daily` gains an `insights` step after `diagnostic_end`. It is **not** in
+`SYNC_STEPS` and **not** added to the returned failed-step list.
+
+### `config.py`
+
+`Settings.anthropic_api_key: str = ""` (`ANTHROPIC_API_KEY`, in `_KEYS`).
+Optional; empty means the panel shows DRBR's computed sentences.
+
+### `check_env.py`
+
+`check_anthropic(env)`, step 10 of 10 (`STEPS = 10`). Shape only
+(`ANTHROPIC_SHAPE`), never a live call; unset is an `OK`, not a failure. The key
+is in `SECRET_KEYS`, so it is only ever printed masked.
