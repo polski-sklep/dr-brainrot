@@ -124,6 +124,15 @@ BASIS_TEXT = {
     T.BASIS_DEFAULT: "unlabelled → wasteful",
 }
 
+#: Shown when a write is refused because it did not come from this dashboard.
+#: A form this app served sends `Sec-Fetch-Site: same-origin`; anything else
+#: (another localhost port, another site) is refused, since there is no CSRF
+#: token to check instead.
+WRITE_REFUSED = (
+    "This change was refused because the request did not come from this dashboard. "
+    "Open http://127.0.0.1:8750/ directly and try again."
+)
+
 UNKNOWN_CHANNEL_REASON = (
     "Not toggleable: this is a bucket for videos with no identifiable channel. "
     "A label here would apply to unrelated channels at once, so its minutes "
@@ -387,7 +396,18 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
     def _refuse_cross_site_writes():
         if request.method == "POST" and not request.path.startswith("/api/"):
             if request.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
-                abort(403, description="cross-site form posts are refused")
+                # `same-site` is refused as well as `cross-site`: another page on
+                # another localhost port is same-site, and this app has no CSRF
+                # token. A form served by this dashboard always sends
+                # `same-origin`, so the guard only fires on a write that came
+                # from somewhere else.
+                abort(403, description=WRITE_REFUSED)
+
+    @app.errorhandler(403)
+    def _explain_refusal(exc):
+        """Say why, rather than showing a bare 403 the user cannot act on."""
+        detail = getattr(exc, "description", "") or WRITE_REFUSED
+        return render_template("refused.html", detail=detail), 403
 
     @app.get("/")
     def overview():

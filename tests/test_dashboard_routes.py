@@ -215,3 +215,16 @@ def test_flash_codes_are_whitelisted(client):
             return ["synced", "not-a-real-code"]
 
     assert dashboard_app.flash_from(Args()) == [dashboard_app.FLASH_TEXT["synced"]]
+
+
+def test_a_refused_write_explains_itself(client, conn, clk, settings):
+    """A bare 403 page is unactionable; say what happened and what to do."""
+    _unlabelled(conn, clk, settings)
+    ids = [str(r.source_id) for r in labels.label_queue(conn, clk, settings)]
+    resp = client.post("/labels/bulk", data={"label": T.TOOL, "source_id": ids},
+                       headers={"Sec-Fetch-Site": "same-site"})
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 403
+    assert "did not come from this dashboard" in body and "127.0.0.1:8750" in body
+    # and nothing was written
+    assert all(s.label is None for s in labels.list_sources(conn, label=labels.UNLABELLED))
