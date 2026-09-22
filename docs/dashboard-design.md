@@ -152,8 +152,15 @@ a changing figure does not shift its neighbours.
   `--s2`/`--s3`.
 - **Table density** is compact: 13px text, `8px 12px` cell padding, hairline
   row rules, ~30px single-line rows. Long free text is clamped with an
-  ellipsis and its full value kept in `title`, so one long video title can no
-  longer stretch a row or push later columns off screen.
+  ellipsis and its full value kept in `title`.
+- **The clamp goes on an inner block, not the cell.** A `max-width` on a `<td>`
+  is advisory under `table-layout: auto`, so a single 101-character video
+  title was widening the whole Item column and forcing the Records table into
+  horizontal scroll. `.clamp` is a block inside the cell, which the column
+  must then size to. Records fits its ten columns in 1510px with no scroll.
+- **A column is never widened by a marker most rows do not carry.** The
+  `lower confidence` chip stays beside the figure it qualifies, as `app.py`
+  requires, but wraps under it rather than adding its own width to every row.
 - **Radius**: controls 5px, panels 8px, chips 4px.
 - **Shadow** exists only as `--shadow-pop`, for floating elements. Ordinary
   sections are framed by a border, never lifted off the page.
@@ -174,9 +181,11 @@ it is the only moment the tool has something urgent to say.
 
 **Metrics.** Related figures share **one bordered panel with internal
 dividers**, not one card each. Label above (12px secondary), value (26px
-semibold tabular), qualifier below (11px muted). Figures that are excluded
-from the count — tool minutes — sit on `--surface-sunk` at a smaller size, so
-the panel shows them without implying they are part of the total.
+semibold tabular), qualifier below (11px muted). **Every value in a strip is
+the same size.** A figure excluded from the count — tool minutes — is demoted
+by its ground (`--surface-sunk`) and its colour (`--text-secondary`), never by
+being smaller: one number at a different size in a row of five reads as a
+mistake rather than as a distinction.
 
 **Tables.** Sentence-case 12px headers on a sunk ground with a `--border-strong`
 underline. Numeric columns right-aligned and tabular. Hover tints the row.
@@ -235,10 +244,11 @@ nothing changed and why the rule exists. Red appears here and on a genuinely
 failed import, nowhere else — it is the rarest colour in the system, and the
 sentence carries the meaning with or without it.
 
-**Bulk actions.** The bar sits directly under the table it acts on rather
-than floating over it, so the selection and the action are read together. The
-running count of selected rows is stated in words; the header checkbox carries
-a real indeterminate state when the selection is partial.
+**Bulk actions.** The bar sits *above* the table and sticks to the top of the
+viewport. The queue runs to a hundred rows, so an action bar below the table
+is unreachable from any row worth acting on. The running count of selected
+rows is stated in words; the header checkbox carries a real indeterminate
+state when the selection is partial.
 
 ---
 

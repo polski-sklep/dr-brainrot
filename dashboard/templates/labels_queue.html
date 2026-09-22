@@ -32,6 +32,16 @@ and is not counted.</p>
 is worth more than clearing ten at the bottom.</p>
 
 <form method="post" action="{{ url_for('labels_bulk') }}" id="queue-form">
+  <div class="bulkbar">
+    <span class="bulkbar-label">Label the selected as</span>
+    <span class="segmented">
+      <button type="submit" name="label" value="{{ WASTEFUL }}">wasteful</button>
+      <button type="submit" name="label" value="{{ WORTHWHILE }}">worthwhile</button>
+      <button type="submit" name="label" value="{{ TOOL }}">tool (not content)</button>
+    </span>
+    <span class="spacer"></span>
+    <span class="count" id="queue-selected"></span>
+  </div>
   <div class="table-wrap">
   <table>
     <thead><tr>
@@ -51,16 +61,6 @@ is worth more than clearing ten at the bottom.</p>
       {% endfor %}
     </tbody>
   </table>
-  </div>
-  <div class="bulkbar">
-    <span class="bulkbar-label">Label the selected as</span>
-    <span class="segmented">
-      <button type="submit" name="label" value="{{ WASTEFUL }}">wasteful</button>
-      <button type="submit" name="label" value="{{ WORTHWHILE }}">worthwhile</button>
-      <button type="submit" name="label" value="{{ TOOL }}">tool (not content)</button>
-    </span>
-    <span class="spacer"></span>
-    <span class="count" id="queue-selected"></span>
   </div>
 </form>
 {% else %}

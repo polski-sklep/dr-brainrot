@@ -167,11 +167,11 @@
   <p class="legend"><span class="swatch bar-wasteful"></span> wasteful (includes unlabelled) <span class="swatch bar-worthwhile"></span> worthwhile <span class="sep">·</span> weeks labelled by their Sunday</p>
   <div class="table-wrap">
   <table class="compact">
-    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Worthwhile</th><th class="num th-wrap">Of which parsed screenshots</th><th class="num th-wrap">Tool (not content, not in the bars)</th></tr></thead>
+    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Worthwhile</th><th class="num th-wrap" title="A part of the wasteful and worthwhile minutes beside it, not a separate total">Of those, read from screenshots</th><th class="num th-wrap">Tool (not content, not in the bars)</th></tr></thead>
     <tbody>{% for b in chart.bars %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
   </table>
   </div>
-  <p class="note">Bars are content only; tool minutes are the last column and are never stacked. The two series are told apart by lightness, not by colour: DRBR makes no good/bad claim about either. Each bar stacks every source, so it mixes API, page-data, export and parsed-screenshot minutes; the fourth column says how much of each bar is lower-confidence OCR.</p>
+  <p class="note"><strong>Wasteful and worthwhile are the week.</strong> <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes DRBR read by OCR from a Screen Time screenshot instead of measuring directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. The two series are told apart by lightness, not colour: DRBR makes no good/bad claim about either.</p>
   {% endif %}
 </section>
 

@@ -294,7 +294,7 @@ ul.tight li { margin: 1px 0; }
 }
 /* Excluded-from-the-count figures read as an aside, not as a headline. */
 .metric-aside { background: var(--surface-sunk); }
-.metric-aside .metric-value { font-size: 18px; font-weight: 550; color: var(--text-secondary); }
+.metric-aside .metric-value { color: var(--text-secondary); }
 
 /* ==========================================================================
    Tables
@@ -370,22 +370,24 @@ tfoot th, tfoot td {
 }
 td.num { font-weight: 500; color: var(--text); }
 
-/* Long free text must not break the grid: clamp it, keep it hoverable. */
-.cell-item {
-  max-width: 380px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* Long free text must not break the grid. The clamp goes on an inner block,
+   not the cell: a max-width on a <td> is advisory under table-layout: auto,
+   so one 101-character video title was widening the whole Item column. */
+.clamp { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-item .clamp { max-width: 300px; }
+.cell-source .clamp { max-width: 170px; }
+.cell-status .clamp { max-width: 150px; }
+
+/* The lower-confidence marker stays beside the number it qualifies — that is
+   a rule from app.py, not a style choice — but it drops under the figure
+   instead of widening the column by its own length on every row. */
+.cell-minutes { white-space: normal; }
+.cell-minutes .lowconf { display: inline-block; margin: 2px 0 0; }
 .cell-nowrap { white-space: nowrap; }
-/* Status carries a wrapping exclusion note; capped so it cannot push the
-   columns after it off the viewport. */
-.cell-status { max-width: 26ch; }
-.cell-status .sub { white-space: normal; }
-/* Source names clamp like item titles do, so every row is one line high and
-   the columns after them stay aligned. The full value stays in `title`. */
-.cell-source { max-width: 200px; white-space: nowrap; }
-.cell-source, .cell-source .sub { overflow: hidden; text-overflow: ellipsis; }
+/* Status keeps its exclusion note on one clamped line, so a covered row is
+   the same height as every other row. The full reason stays in `title`. */
+.cell-status { white-space: nowrap; }
+
 .cell-day { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
 
 /* Excluded rows are struck from the count, so they recede. */
@@ -706,11 +708,17 @@ svg.split .axis { stroke: var(--axis); stroke-width: 1; }
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s3);
-  margin-top: var(--s3);
+  margin-bottom: var(--s2);
   padding: var(--s3) var(--s4);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-panel);
+  /* The list runs to a hundred rows; the action that applies to the selection
+     has to stay reachable without scrolling back to the top. */
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-shadow: var(--shadow-pop);
 }
 .bulkbar-label { font-size: var(--fs-meta); color: var(--text-secondary); }
 .bulkbar .segmented button { min-height: 28px; padding: 4px 10px; font-size: var(--fs-table); }
