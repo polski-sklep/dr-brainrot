@@ -41,6 +41,14 @@
   --info-bg:       #EFF5FE;   /* explainer panels. Says "read me", not "act". */
   --info-border:   #C6DAF6;
 
+  /* -- Label colours. A user decision, not a verdict by DRBR: the hue names
+        which label you chose, and the word is always printed beside it. They
+        are deliberately lighter and flatter than the semantic colours above,
+        and they only ever appear inside a chip — never on a figure. -------- */
+  --lbl-wasteful-bg:     #FDECEC;  --lbl-wasteful-bd:   #F0C7C7;  --lbl-wasteful-fg:   #A32F2F;  /* 6.1:1 */
+  --lbl-worthwhile-bg:   #EAF6EE;  --lbl-worthwhile-bd: #BFE0CB;  --lbl-worthwhile-fg: #1F7A47;  /* 4.8:1 */
+  --lbl-tool-bg:         #EDF3FB;  --lbl-tool-bd:       #C8DAF0;  --lbl-tool-fg:       #41637F;  /* 5.7:1 */
+
   /* -- Semantic. Reserved; see the header note. ------------------------ */
   --warn:          #8F5F00;   /* 5.1:1 on --warn-bg, 5.5:1 on white.       */
   --warn-bg:       #FFF8C5;
@@ -55,8 +63,12 @@
   /* -- Chart: a neutral lightness ramp, deliberately hue-free. The light
         series clears 3:1 against the page so the bar is perceivable, and
         3.3:1 against the dark series so the split is readable. ------------ */
-  --series-wasteful:   #3B4250;
-  --series-worthwhile: #8A94A3;
+  --series-wasteful:   #9E4440;   /* 6.3:1 on the page                        */
+  --series-worthwhile: #9BC6A9;   /* light on purpose: see --series-edge       */
+  --series-edge:       #43815B;   /* 4.6:1. Carries the light bar's edge, so   */
+                                  /* the fill can stay light enough to keep a  */
+                                  /* 38-point lightness gap from wasteful —    */
+                                  /* which is what red/green readers rely on.  */
   --axis:              #C6CBD2;
 
   /* -- Type ------------------------------------------------------------ */
@@ -491,9 +503,9 @@ tr.covered:hover td { background: var(--surface-hover); }
   color: var(--text-secondary);
   white-space: nowrap;
 }
-.state-wasteful { background: #EFF1F4; border-color: #C6CBD2; color: #2B2F37; }
-.state-worthwhile { background: var(--surface); border-color: var(--border-strong); color: var(--text-secondary); }
-.state-tool { background: var(--surface-sunk); border-color: var(--hairline); color: var(--text-muted); font-weight: 500; }
+.state-wasteful { background: var(--lbl-wasteful-bg); border-color: var(--lbl-wasteful-bd); color: var(--lbl-wasteful-fg); }
+.state-worthwhile { background: var(--lbl-worthwhile-bg); border-color: var(--lbl-worthwhile-bd); color: var(--lbl-worthwhile-fg); }
+.state-tool { background: var(--lbl-tool-bg); border-color: var(--lbl-tool-bd); color: var(--lbl-tool-fg); font-weight: 500; }
 .state-unlabelled { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
 
 /* A caution about the number itself, not about where it came from. */
@@ -539,7 +551,8 @@ tr.covered:hover td { background: var(--surface-hover); }
   color: var(--text-secondary);
   margin: 0;
 }
-.filters .spacer { flex: 1 1 auto; }
+/* Pushes what follows to the far edge of any flex row. */
+.spacer { flex: 1 1 auto; }
 .filters a { font-size: var(--fs-meta); padding-bottom: 6px; }
 
 select, input[type="date"], input[type="text"] {
@@ -639,7 +652,13 @@ svg.split .bar-total { fill: var(--text); font-weight: 600; font-size: 11px; fon
 svg.split .axis { stroke: var(--axis); stroke-width: 1; }
 
 .bar-wasteful { fill: var(--series-wasteful); background: var(--series-wasteful); }
-.bar-worthwhile { fill: var(--series-worthwhile); background: var(--series-worthwhile); }
+.bar-worthwhile {
+  fill: var(--series-worthwhile);
+  background: var(--series-worthwhile);
+  stroke: var(--series-edge);
+  stroke-width: 1;
+}
+.swatch.bar-worthwhile { border: 1px solid var(--series-edge); }
 
 /* The frame stops where the bars do: an eight-week chart fills it, a
    two-week chart does not pretend to. */
@@ -769,6 +788,60 @@ svg.split .axis { stroke: var(--axis); stroke-width: 1; }
 .bulkbar-label { font-size: var(--fs-meta); color: var(--text-secondary); }
 .bulkbar .segmented button { min-height: 28px; padding: 4px 10px; font-size: var(--fs-table); }
 .bulkbar .count { margin: 0; }
+
+/* ==========================================================================
+   Generated prose — the one thing on this dashboard that is not a counted
+   fact. It must never be mistakeable for one, so it is the only surface that
+   is a paragraph rather than a figure, it carries a chip saying what wrote
+   it, and it always states what it was written from.
+   ========================================================================== */
+
+.generated {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-panel);
+  padding: var(--s3) var(--s4);
+}
+.generated-stale { border-left-color: var(--warn); }
+
+.generated-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-bottom: var(--s2);
+}
+.generated-refresh { flex: none; }
+.generated-refresh button { font-size: var(--fs-meta); min-height: 26px; padding: 3px 10px; }
+
+/* Prose, not data: longer line height and the prose measure, so it reads as
+   something written rather than something tabulated. */
+.generated-body {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  color: var(--text);
+}
+.generated-warn {
+  margin: var(--s2) 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-meta);
+  color: var(--warn);
+}
+.generated-meta {
+  margin: var(--s3) 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--s2);
+}
+
+/* Who wrote it. Quiet: the point is that it is stated, not that it shouts. */
+.state-generated { background: var(--info-bg); border-color: var(--info-border); color: #2F5E96; }
+.state-computed { background: var(--surface-sunk); border-color: var(--border); color: var(--text-secondary); }
 
 /* A refused or failed action, on its own page. Red is reserved for this and
    for a genuinely failed import — it is the rarest colour in the system, and

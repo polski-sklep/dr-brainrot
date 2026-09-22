@@ -101,12 +101,49 @@ tell the user they did well.
 provenance tier carries a dot *shape* as well as a weight; the chart carries
 direct value labels above each bar.
 
+### Label colours
+
+Added at the user's explicit request, after the neutral scheme below had been
+built and shown to them. They name **which label you chose** — they are not a
+verdict by DRBR, and the word is always printed inside the chip, so colour is
+still never the only signal.
+
+| Token | Text on its own tint | Role |
+|---|---|---|
+| `--lbl-wasteful-*` | `#A32F2F` on `#FDECEC` — **6.1:1** | The wasteful chip. |
+| `--lbl-worthwhile-*` | `#1F7A47` on `#EAF6EE` — **4.8:1** | The worthwhile chip. |
+| `--lbl-tool-*` | `#41637F` on `#EDF3FB` — **5.7:1** | The tool chip. |
+
+Three deliberate choices inside that:
+
+- The tool blue is a **desaturated slate**, not `--accent`. Accent means
+  interactive, and a tool chip is not a link. The chip's tint and border
+  separate it further.
+- These tints are lighter and flatter than the semantic colours, and they
+  appear **only inside a chip** — never on a figure. Red therefore still
+  reads as failure where failure is a filled notice panel or bold status
+  text, which is a different component at a different size.
+- Honest caveat: reserving red for failure alone was cleaner. It was given up
+  deliberately, and the separation now rests on component rather than hue.
+
 ### Chart
+
+The bars follow the labels — a legend that disagreed with the chips beside it
+would be worse than either scheme alone.
 
 | Token | Value | Contrast | Role |
 |---|---|---|---|
-| `--series-wasteful` | `#3B4250` | 10.1:1 on white | Wasteful (includes unlabelled). |
-| `--series-worthwhile` | `#8A94A3` | **3.1:1** on white, **3.3:1** against the dark series | Worthwhile. |
+| `--series-wasteful` | `#9E4440` | 6.3:1 on white | Wasteful (includes unlabelled). |
+| `--series-worthwhile` | `#9BC6A9` | 1.9:1 fill, **stroked** | Worthwhile. |
+| `--series-edge` | `#43815B` | **4.6:1** | The worthwhile bar's stroke. |
+
+Red against green is the one pairing a colour-blind reader cannot separate,
+so the two bars are **38 lightness points apart** as well as different hues —
+the split survives greyscale and every common form of CVD. Every green light
+enough to hold that gap fails the 3:1 non-text threshold on white as a flat
+fill, so the light fill is **stroked**: the stroke carries the edge contrast
+and the fill carries the lightness gap. Direct value labels sit above each
+bar as a third, non-visual cue.
 
 Hue-free on purpose. The obvious research answer here was the Okabe–Ito
 colourblind-safe pair (`#0072B2` blue / `#E69F00` orange); it was rejected for
@@ -287,6 +324,19 @@ underline so the explanation is visibly available rather than a secret. Native
 `title` only: no library, no JavaScript, and it degrades to plain text. Hints
 sit on column headers and on the few terms in body copy that the diagnostic
 cannot do without.
+
+**Generated prose.** The AI summary is the one thing on the dashboard that is
+not a counted fact, so it is the only surface that is a paragraph rather than
+a figure. It carries a chip naming what wrote it (`written by a model` /
+`computed on this Mac`), and a footer stating when it was written, by which
+model, and the last day its figures cover. Its heading names the week it
+describes, because the strip above it defaults to the *current* week while the
+summary is about the *last complete* one — two adjacent weeks with nothing
+saying so is the confusion DR5.7 was written to end. When no model wrote it,
+the verbatim reason is printed in the amber treatment. When a newer complete
+week has finished, the panel keeps the summary and adds a line: a summary
+written on Tuesday is still true about Tuesday. `insight is None` renders
+nothing at all, never an empty panel.
 
 **Notice.** A refused or failed action, on its own page: a bordered panel
 with a red left edge, the reason in full, and a muted second line saying that
