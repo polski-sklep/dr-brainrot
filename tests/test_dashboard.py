@@ -131,15 +131,19 @@ def test_every_page_renders_for_a_populated_database(client, conn, clk, settings
         assert "<svg" in html and "bar-wasteful" in html
 
 
-def test_overview_defaults_to_the_last_complete_week_and_links_the_current_one(client, clk):
+def test_overview_defaults_to_the_current_week_and_links_the_previous_one(client, clk):
+    """DR5.7: the page opens on the week the allowance section describes.
+
+    Defaulting to the last complete week put two different weeks on one screen
+    with nothing saying so, and in week 1 that week was outside the diagnostic.
+    """
     clk.set("2026-09-16T10:00:00+00:00")        # Wednesday of the week opening Sun 13 Sep
     html = text(client.get("/"))
     weeknav = flat(section(html, "weekly-totals"))
-    assert "Week Sun 2026-09-06 – Sat 2026-09-12" in weeknav
-    assert "?week=2026-09-13" in html and "current week" in weeknav
+    assert "Week Sun 2026-09-13 – Sat 2026-09-19" in weeknav and "in progress" in weeknav
 
-    current = flat(section(text(client.get("/?week=2026-09-15")), "weekly-totals"))
-    assert "Week Sun 2026-09-13 – Sat 2026-09-19" in current and "in progress" in current
+    older = flat(section(text(client.get("/?week=2026-09-08")), "weekly-totals"))
+    assert "Week Sun 2026-09-06 – Sat 2026-09-12" in older
 
 
 def test_bad_week_parameter_is_refused(client):
@@ -586,7 +590,9 @@ def test_overview_states_scope_and_shows_tool_minutes_outside_the_bars(client, c
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-08", minutes=30.0)
     clk.set("2026-09-16T10:00:00+00:00")
 
-    html = text(client.get("/"))
+    # The page now opens on the current week (DR5.7), so ask for the week the
+    # minutes above are in; the point of this test is tool minutes, not the default.
+    html = text(client.get("/?week=2026-09-08"))
     assert "Brain-rot content only: tools are excluded" in flat(html)
 
     totals = section(html, "weekly-totals")

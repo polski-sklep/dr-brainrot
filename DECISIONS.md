@@ -1518,3 +1518,21 @@ run does and shows exactly what the log would have said. `run_daily` calls it
 rather than keeping a second copy of the order. Without a bot it sends
 nothing, and skipping the Qbserve staleness warning does not consume that
 day's slot.
+
+### DR5.7 — The dashboard opens on the current week, and never before go-live
+The overview defaulted to the last complete week while the allowance section
+always described the current one, so two different weeks sat side by side with
+nothing saying which was which. In week 1 the default was also a week *before*
+`DRBR_GO_LIVE`, i.e. outside the diagnostic. Now: the default is the current
+week; a `?week=` earlier than the diagnostic window clamps forward; a future
+week clamps back; and the "previous week" link disappears in the first week
+rather than leading nowhere. `test_overview_defaults_to_the_last_complete_week...`
+was renamed and repointed with this change, in the same commit, because it
+stated the old behaviour as the intent.
+
+Also added here, the routes behind DR5.6: `POST /sync` (run every self-fetching
+source now), `GET /labels/queue` (biggest undecided source first, its own
+template so `/labels` keeps its table as the page's first `<tbody>`),
+`POST /labels/bulk`, and `POST /measurements/<id>/fix` (a person settles a
+reading OCR could not). Flash messages travel as whitelisted `?msg=` codes
+rather than a Flask session, so the app still needs no secret key.

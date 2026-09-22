@@ -59,10 +59,12 @@ import config
 import db
 import drbr_types as T
 import ingest_api
+import jobs
 import labels
 import report
 from clock import Clock
 from config import Settings
+from sources import screentime
 from sources.youtube import DataApiClient
 
 log = logging.getLogger("drbr.dashboard")
@@ -180,42 +182,76 @@ class WeekChoice:
     sunday: str                # local Sunday of the measurement week
     saturday: str
     is_current: bool
-    prev_sunday: str
+    prev_sunday: str | None    # None when the previous week is before the diagnostic
     next_sunday: str | None    # None when the next week is in the future
     current_sunday: str
     last_complete_sunday: str
 
 
-def choose_week(clk: Clock, settings: Settings, raw: str | None) -> WeekChoice:
-    """`?week=YYYY-MM-DD` (any local day) -> that allowance week; default the last complete one."""
+def choose_week(clk: Clock, settings: Settings, raw: str | None,
+                floor: str | None = None) -> WeekChoice:
+    """`?week=YYYY-MM-DD` (any local day) -> that allowance week; default **this** week.
+
+    The default is the current week, not the last complete one (DR5.7). The
+    allowance section has always described the current week, so defaulting the
+    rest of the page to the previous one put two different weeks side by side
+    with nothing saying so — and before the diagnostic had run a full week, it
+    opened on a week outside the diagnostic entirely.
+
+    `floor` is the first local day the diagnostic covers: a week before it
+    holds no diagnostic data, so a `?week=` pointing there clamps forward and
+    the "previous week" link disappears rather than leading nowhere.
+    """
     tz = settings.tz
     current = clock.iso(clock.week_start_for(clk.now(), tz))
     current_m = T.measurement_week_for_allowance_week(current, tz)
     last_m = T.measurement_week(current_m.sunday - timedelta(days=7))
+    floor_m = T.measurement_week(T.parse_date(floor)) if floor else None
     if raw:
         try:
             chosen_m = T.measurement_week(T.parse_date(raw))
         except ValueError:
             abort(400, description=f"week must be a date YYYY-MM-DD, got {raw!r}")
     else:
-        chosen_m = last_m
+        chosen_m = current_m
+    if floor_m is not None and chosen_m.sunday < floor_m.sunday:
+        chosen_m = floor_m
+    if chosen_m.sunday > current_m.sunday:
+        chosen_m = current_m
     week_start = T.allowance_week_start_for_day(chosen_m.sunday, tz)
+    prev_sunday = chosen_m.sunday - timedelta(days=7)
+    has_prev = floor_m is None or prev_sunday >= floor_m.sunday
     next_sunday = chosen_m.sunday + timedelta(days=7)
     return WeekChoice(
         week_start=week_start,
         sunday=chosen_m.start,
         saturday=chosen_m.end,
         is_current=chosen_m.sunday == current_m.sunday,
-        prev_sunday=T.iso_date(chosen_m.sunday - timedelta(days=7)),
+        prev_sunday=T.iso_date(prev_sunday) if has_prev else None,
         next_sunday=T.iso_date(next_sunday) if next_sunday <= current_m.sunday else None,
         current_sunday=current_m.start,
         last_complete_sunday=last_m.start,
     )
 
 
+#: Flash messages survive a redirect as `?msg=` codes rather than a Flask
+#: session, so the app still needs no secret key. Only these codes render.
+FLASH_TEXT = {
+    "synced": ("ok", "Sync finished. Everything DRBR can fetch by itself is up to date."),
+    "sync-failed": ("warn", "Sync ran but some sources failed — see the source table below."),
+    "labelled": ("ok", "Labels saved. Every week's figures were re-recorded."),
+    "fixed": ("ok", "Reading corrected. The week's totals now include it."),
+}
+
+
+def flash_from(args) -> list[tuple[str, str]]:
+    """-> [(level, text)] for the codes in `?msg=`. Unknown codes are ignored."""
+    return [FLASH_TEXT[code] for code in args.getlist("msg") if code in FLASH_TEXT]
+
+
 def split_bars(splits: list[report.WeekSplit], current_week_start: str, tz: str) -> dict:
     """Geometry for the stacked wasteful/worthwhile bars. Scale only; no judgement."""
-    height, bar_w, gap, top, label_h = 160, 56, 36, 28, 40
+    height, bar_w, gap, top, label_h = 168, 44, 30, 26, 42
     peak = max((s.wasteful_min + s.worthwhile_min for s in splits), default=0.0)
     scale = (height / peak) if peak > 0 else 0.0
     bars = []
@@ -244,6 +280,20 @@ def split_bars(splits: list[report.WeekSplit], current_week_start: str, tz: str)
         "base": top + height,
         "empty": peak == 0,
     }
+
+
+def week_summary(splits: list[report.WeekSplit], week_start: str) -> report.WeekSplit | None:
+    """The chosen week's split, picked out of the list `report.label_split` returned.
+
+    Selection, not computation. The Overview's summary strip prints the same
+    figures the bars are drawn from, so there is no second definition of a
+    week's wasteful, worthwhile or tool minutes. A week outside the diagnostic
+    window has no split, and the strip then prints nothing rather than zero.
+    """
+    for s in splits:
+        if s.week_start == week_start:
+            return s
+    return None
 
 
 def week_imports(conn: sqlite3.Connection, clk: Clock, settings: Settings,
@@ -342,7 +392,8 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
     @app.get("/")
     def overview():
         c = conn()
-        week = choose_week(clk, settings, request.args.get("week"))
+        floor = report.window_start(c, clk, settings)
+        week = choose_week(clk, settings, request.args.get("week"), floor)
         status = report.allowance_status(c, clk, settings)
         splits = report.label_split(c, clk, settings)
         totals = report.weekly_totals(c, clk, settings, week.week_start)
@@ -352,6 +403,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             week=week,
             totals=totals,
             chart=split_bars(splits, status.week_start, settings.tz),
+            week_split=week_summary(splits, week.week_start),
             allowance=status,
             gated=gated,
             reflex_min=reflex_total(gated),
@@ -360,7 +412,12 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             blind_spots=report.blind_spots(c, clk, settings),
             imports=report.latest_imports(c, clk, settings),
             week_imports=week_imports(c, clk, settings, totals),
-            window_start=report.window_start(c, clk, settings),
+            window_start=floor,
+            needs=report.needs_attention(c, clk, settings),
+            provenance_rows=report.provenance_map(c, clk, settings),
+            needs_your_eye=report.needs_your_eye(c, clk, settings),
+            unlabelled=labels.unlabelled_summary(c, clk, settings),
+            flash=flash_from(request.args),
         )
 
     def _label_filters(args) -> tuple[str | None, str | None]:
@@ -380,6 +437,8 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             sources=labels.list_sources(conn(), kind=kind, label=label),
             f_kind=kind, f_label=label, kinds=T.SOURCE_KINDS, UNLABELLED=labels.UNLABELLED,
             toggleable=label_toggleable, covered=labels.is_covered_elsewhere,
+            unlabelled=labels.unlabelled_summary(conn(), clk, settings),
+            flash=flash_from(request.args),
         )
 
     @app.post("/labels/<int:source_id>")
@@ -405,6 +464,60 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         params = {k: v for k, v in (("kind", request.form.get("f_kind")),
                                     ("label", request.form.get("f_label"))) if v}
         return redirect(url_for("labels_page", **params) + f"#source-{source_id}", code=303)
+
+    @app.get("/labels/queue")
+    def labels_queue():
+        """The decisions that move the numbers most, biggest first (DR5.6).
+
+        Its own URL and its own template: `/labels` keeps its table as the
+        page's first `<tbody>`, which the dashboard tests read positionally.
+        """
+        c = conn()
+        return render_template(
+            "labels_queue.html",
+            rows=labels.label_queue(c, clk, settings),
+            unlabelled=labels.unlabelled_summary(c, clk, settings),
+            seen_text=labels.PROVENANCE_SEEN,
+            flash=flash_from(request.args),
+        )
+
+    @app.post("/labels/bulk")
+    def labels_bulk():
+        """Label a whole selection at once — one transaction, one recompute."""
+        new_label = request.form.get("label", "")
+        if new_label not in T.SOURCE_LABELS:
+            abort(400, description=f"label must be one of {', '.join(T.SOURCE_LABELS)}")
+        ids = [int(v) for v in request.form.getlist("source_id") if v.isdigit()]
+        if not ids:
+            abort(400, description="select at least one source")
+        changed = labels.bulk_set_label(conn(), clk, ids, new_label, settings=settings)
+        log.info("%d source(s) labelled %s in bulk from the dashboard", changed, new_label)
+        return redirect(url_for("labels_queue", msg="labelled"), code=303)
+
+    @app.post("/measurements/<int:measurement_id>/fix")
+    def fix_measurement(measurement_id: int):
+        """A reading OCR could not settle, settled by the person who was there."""
+        raw = (request.form.get("minutes") or "").strip()
+        try:
+            minutes = float(raw)
+        except ValueError:
+            abort(400, description=f"minutes must be a number, got {raw!r}")
+        try:
+            screentime.correct_measurement(conn(), clk, settings, measurement_id, minutes)
+        except screentime.CorrectionError as exc:
+            abort(400, description=str(exc))
+        log.info("measurement %d corrected by hand from the dashboard", measurement_id)
+        return redirect(url_for("overview", msg="fixed"), code=303)
+
+    @app.post("/sync")
+    def sync_now():
+        """Run every source DRBR can fetch by itself, now, instead of at 09:30."""
+        results = jobs.run_sync(conn(), clk, settings)
+        failed = [r.name for r in results.values() if not r.ok]
+        for r in results.values():
+            log.info("sync %s: %s", r.name, r.summary if r.ok else r.error)
+        code = "sync-failed" if failed else "synced"
+        return redirect(url_for("overview", msg=code), code=303)
 
     @app.get("/records")
     def records_page():

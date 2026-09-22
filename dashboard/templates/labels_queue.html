@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{# Minimal markup on purpose: the design pass owns how this looks. The route,
+   the ordering (biggest measured decision first) and the bulk action are the
+   product here. #}
+{% block title %}Label queue{% endblock %}
+{% block content %}
+<h1>Label queue</h1>
+
+{% for level, text in flash %}<p class="flash flash-{{ level }}">{{ text }}</p>{% endfor %}
+
+<p>DRBR measures <strong>brain-rot content only</strong>. Is this content you consume? If yes:
+wasteful or worthwhile. If you only go there to get something done, it is a <strong>tool</strong>
+and is not counted.</p>
+
+{% if unlabelled.count %}
+<p>{{ unlabelled.count }} source{{ '' if unlabelled.count == 1 else 's' }} undecided,
+{{ unlabelled.minutes|min }} measured{% if unlabelled.top_group %},
+mostly {{ GROUP_NAMES.get(unlabelled.top_group, unlabelled.top_group) }}{% endif %}.
+Biggest first — the top rows move the figures most.</p>
+
+<form method="post" action="{{ url_for('labels_bulk') }}">
+  <table class="compact">
+    <thead><tr><th></th><th>Source</th><th>Kind</th><th class="num">Minutes</th><th>Seen in</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr id="queue-{{ r.source_id }}">
+        <td><input type="checkbox" name="source_id" value="{{ r.source_id }}"
+                   aria-label="select {{ r.display_name }}"></td>
+        <td>{{ r.display_name }}</td>
+        <td>{{ KIND_NAMES.get(r.kind, r.kind) }}</td>
+        <td class="num">{{ r.minutes|min }}</td>
+        <td>{{ r.seen_in|join(', ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p>Label the selected as:
+    <button name="label" value="{{ WASTEFUL }}">wasteful</button>
+    <button name="label" value="{{ WORTHWHILE }}">worthwhile</button>
+    <button name="label" value="{{ TOOL }}">tool (not content)</button>
+  </p>
+</form>
+{% else %}
+<p>Nothing to decide: every source with measured minutes is labelled.</p>
+{% endif %}
+
+<p><a href="{{ url_for('labels_page') }}">All sources</a></p>
+{% endblock %}
