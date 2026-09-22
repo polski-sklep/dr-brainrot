@@ -1642,3 +1642,34 @@ dataclass. `jobs.run_daily` gains the `insights` step (not `run_sync`: a "Sync
 now" press must not spend money). `dashboard/app.py` passes `insight` to the
 Overview and adds `POST /insights/refresh`. Tests never call the API: the suite
 blocks the network and every test injects a fake client or runs the no-key path.
+
+### DR5.9 — A fallback summary is retried the next morning; a written one is not
+
+**22 September 2026.** DR5.8 wrote the summary at most once per allowance week
+and counted a `failed` row as written, so that a missing key or a broken
+provider could not turn the daily job into a daily API call. A real failure
+showed that rule to be the wrong shape. Three generations ran within eight
+minutes: the first succeeded, the second came back `400 credit balance is too
+low`, the third succeeded again. Nothing had been fixed in between — the
+balance was simply brushing the floor.
+
+Under the old rule, if that middle attempt had been the morning's only one, the
+Overview would have shown DRBR's own computed sentences for a further seven
+days, and only a person noticing the amber line and pressing refresh would have
+recovered it. A summary that reads "no model involved" for a week because of a
+four-minute outage is not honest reporting, it is a stuck flag.
+
+**So the skip condition is now the status, not the existence, of the row.** A
+row with `status='ok'` closes the week. A fallback row does not, and the next
+daily run tries again.
+
+The original cost worry does not survive contact with the code: the no-key and
+too-little-data paths both return before a client is built, so they were never
+capable of spending anything, retried daily or not. What remains is a provider
+that is actually down or an account that is actually empty — one rejected call
+a morning, which bills nothing and stops on its own the day it is fixed.
+
+**Mechanics:** one condition in `insights.write_summary`, plus
+`test_a_fallback_week_is_retried_by_the_next_run`. `force` is unchanged, and so
+is the refresh button. `latest()` already reads the newest row, so a successful
+retry supersedes the fallback with no further change.

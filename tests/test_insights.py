@@ -473,6 +473,26 @@ def test_a_summary_is_written_once_a_week_unless_forced(two_weeks, conn, clk, se
     assert len(next_week.calls) == 1
 
 
+def test_a_fallback_week_is_retried_by_the_next_run(two_weeks, conn, clk, settings):
+    """A passing failure must not freeze the whole week on DRBR's own sentences."""
+    failed = insights.write_summary(
+        conn, clk, settings, client=FakeClient(raises=RuntimeError("connection reset by peer")))
+    assert failed.model is None
+
+    # Same week, no force: the failure is retried rather than returned again.
+    retry = FakeClient("Written on the second attempt.")
+    result = insights.write_summary(conn, clk, settings, client=retry)
+    assert len(retry.calls) == 1
+    assert result.model == insights.MODEL
+    assert result.summary == "Written on the second attempt."
+    assert insights.latest(conn, clk, settings).summary == "Written on the second attempt."
+
+    # And once it has succeeded the week is closed again.
+    after = FakeClient("Third.")
+    assert insights.write_summary(conn, clk, settings, client=after).summary == (
+        "Written on the second attempt.")
+    assert after.calls == []
+
 def test_an_api_failure_is_stored_and_the_fallback_is_returned(two_weeks, conn, clk, settings):
     fake = FakeClient(raises=RuntimeError("connection reset by peer"))
     result = insights.write_summary(conn, clk, settings, client=fake)

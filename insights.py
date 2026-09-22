@@ -547,10 +547,19 @@ def write_summary(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
                   client=None, force: bool = False) -> Insight:
     """Build the payload, ask Claude for the summary, store the row, return it.
 
-    Once a week: a row already written for the current allowance week is
-    returned untouched unless `force` (the Overview's refresh button). A
-    `failed` row counts as written, so a missing key or a broken provider
-    cannot turn the daily job into a daily API call; refresh retries it.
+    Once a week, once written: a *successful* row for the current allowance
+    week is returned untouched unless `force` (the Overview's refresh button).
+    A fallback row is retried by the next daily run, because the failure that
+    produced it is usually a passing one — a network blip, a rate limit, a
+    balance that is topped up an hour later — and without a retry a single bad
+    morning leaves the whole week showing DRBR's own sentences until someone
+    notices the panel and presses refresh.
+
+    That retry cannot become a daily API call for the reasons that would
+    deserve the worry. No key and too little data both return above, before any
+    client is built, so they cost a SELECT. What remains is a provider that is
+    genuinely down or an account that is genuinely empty: one rejected call a
+    day, which bills nothing and stops the day it is fixed.
 
     Never raises. Anything at all going wrong — no key, too little data, a
     network error, a refusal, a truncated or empty answer — stores
@@ -560,7 +569,7 @@ def write_summary(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
     week_start = clock.iso(clock.week_start_for(clk.now(), settings.tz))
     if not force:
         row = _existing(conn, week_start)
-        if row is not None:
+        if row is not None and row["status"] == STATUS_OK:
             return _row_to_insight(row)
 
     payload = build_payload(conn, clk, settings)
