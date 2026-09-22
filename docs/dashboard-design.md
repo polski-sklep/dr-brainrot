@@ -8,7 +8,37 @@ terminology. Every number on screen still comes from `report.py`.
 
 ---
 
-## 0. Identity
+## 0. What the Overview is for
+
+Three questions, in this order, and nothing above them:
+
+1. **Is it going down?** One figure, last week beside it, the direction, and
+   the bars underneath. The parts are a list under the figure, not four cards
+   competing with it.
+2. **What was it?** Named sources, biggest first. This is the change that
+   mattered: "Desktop web 49 min" names the pipe the evidence arrived down,
+   "Brave 163 min" names the thing you did. An undecided row is tinted and
+   carries its own decision link — it is the only row on the page that asks
+   for something.
+3. **What isn't counted yet?** The awaited-evidence states, compact, showing
+   only what is not already in.
+
+Everything else — weekly totals, the allowance detail, gated, cost per keeper,
+funnels, imports, the reflex working — is on **Records**, under "Diagnostic
+detail", unchanged and still auditable. It was moved, never deleted. The
+record filters apply to the record table only, and the page says so.
+
+**Undecided time is the page's real finding.** Of the 495 minutes charged in
+the week of 13 Sep, 290 were on sources nobody had labelled. It is charged as
+wasteful, drawn as its own band, and named as work to do — never folded
+silently into a headline that would read as behaviour.
+
+**A section move takes its neighbours' affordances with it.** Moving
+`weekly-totals` to Records also moved the week navigation that lived inside
+it, and the Overview nearly shipped with no way to change week. Check what a
+section *contains* before moving it, not just what it is called.
+
+## 0.1 Identity
 
 The product is **Dr. Brainrot**; `DRBR` stays the short form in body copy and
 in code. The wordmark sets `Dr.` in muted medium weight against `Brainrot` in

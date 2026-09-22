@@ -13,6 +13,15 @@
    named as the thing to act on rather than folded into the headline.       #}
 <section id="week-summary">
   <h2>Week of Sun {{ week.sunday }} – Sat {{ week.saturday }}{% if week.is_current %} (in progress){% elif everything_in %} (complete){% endif %}</h2>
+  <p class="weeknav">
+    <strong>Week Sun {{ week.sunday }} – Sat {{ week.saturday }}</strong>
+    {% if week.is_current %}<em>(current week, in progress)</em>
+    {% elif everything_in %}<em class="all-in">(complete — every source is in)</em>{% endif %}
+    {% if week.prev_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.prev_sunday) }}">← previous</a>{% endif %}
+    {% if week.next_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.next_sunday) }}">next →</a>{% endif %}
+    {% if not week.is_current %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.current_sunday) }}">current week</a>{% endif %}
+    {% if week.sunday != week.last_complete_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview') }}">last complete week</a>{% endif %}
+  </p>
 
   {%- set prev = chart.bars|selectattr("split.week_start", "lessthan", week.week_start)|map(attribute="split")|list|last if chart.bars else none %}
   <div class="headline">
@@ -48,7 +57,7 @@
 
 {# ------------------------------------------------------------------ 2 #}
 <section id="label-split">
-  <h2>Labelled content, per week</h2>
+  <h2>Where the week went, week by week</h2>
   {% if not chart.bars %}
   <p class="absent">No diagnostic weeks yet.</p>
   {% else %}
@@ -60,17 +69,18 @@
     <line x1="0" x2="{{ chart.width }}" y1="{{ chart.base }}" y2="{{ chart.base }}" class="axis"/>
     {% for b in chart.bars %}
     <g>
-      <title>Week of {{ b.sunday }}: wasteful {{ b.split.wasteful_min|min }}, worthwhile {{ b.split.worthwhile_min|min }}</title>
+      <title>Week of {{ b.sunday }}: wasteful {{ b.split.wasteful_min|min }}, undecided {{ b.split.unclassified_min|min }}, worthwhile {{ b.split.worthwhile_min|min }}</title>
       {% if b.waste_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.waste_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.waste_h) }}" class="bar-wasteful"/>{% endif %}
+      {% if b.undec_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.undec_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.undec_h) }}" class="bar-undecided"/>{% endif %}
       {% if b.worth_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.worth_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.worth_h) }}" class="bar-worthwhile"/>{% endif %}
-      <text x="{{ b.cx }}" y="{{ '%.1f'|format(b.total_y) }}" text-anchor="middle" class="bar-total">{{ (b.split.wasteful_min + b.split.worthwhile_min)|min }}</text>
+      <text x="{{ b.cx }}" y="{{ '%.1f'|format(b.total_y) }}" text-anchor="middle" class="bar-total">{{ (b.split.charged_min + b.split.worthwhile_min)|min }}</text>
       <text x="{{ b.cx }}" y="{{ chart.base + 16 }}" text-anchor="middle">{{ b.sunday[5:] }}</text>
       {% if b.current %}<text x="{{ b.cx }}" y="{{ chart.base + 30 }}" text-anchor="middle" class="muted">in progress</text>{% endif %}
     </g>
     {% endfor %}
   </svg>
   </div>
-  <p class="legend"><span class="swatch bar-wasteful"></span> wasteful <span class="swatch bar-worthwhile"></span> worthwhile <span class="sep">·</span> undecided time is not in these bars <span class="sep">·</span> each week is named by its Sunday</p>
+  <p class="legend"><span class="swatch bar-wasteful"></span> wasteful <span class="swatch bar-undecided"></span> undecided <span class="swatch bar-worthwhile"></span> worthwhile <span class="sep">·</span> each week is named by its Sunday</p>
   </div>
   <div class="table-wrap">
   <table class="compact">
@@ -79,7 +89,7 @@
   </table>
   </div>
   </div>
-  <p class="note"><strong>The bars show only what you have labelled.</strong> Undecided time is in the table beside them but not in the bars yet, so a bar is smaller than its week whenever sources are still undecided. <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes were read by OCR from a Screen Time screenshot instead of measured directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; no claim is made about either.</p>
+  <p class="note"><strong>Each bar is a whole week.</strong> Wasteful and undecided are both charged against the allowance; undecided is drawn apart so you can see how much of the week is a decision you have not made. <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes were read by OCR from a Screen Time screenshot instead of measured directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; no claim is made about either.</p>
   {% endif %}
 </section>
 
@@ -189,259 +199,6 @@
   labels behind it are yours.</p>
 </section>
 {% endif %}
-
-{# ---- Below here moves to Records once its route carries the context. ---- #}
-
-{# ------------------------------------------------------------------ 0 #}
-<section id="reflex">
-  <h2>Reflex: what you opened without deciding first</h2>
-  <p class="note">Minutes of wasteful content that never went through capture, the lock and triage — you just opened it.
-  This is the honest measure of how much was reflex rather than choice. Measured minutes only.</p>
-  <div class="table-wrap">
-  <table class="compact">
-    <thead><tr><th>Group</th><th class="num">Reflex minutes</th><th>{{ hint("Provenance", "Where the figure came from, and how directly. An API reported it; a screenshot was read by OCR and is less reliable.") }}</th></tr></thead>
-    <tbody>
-    {% for r in gated %}{% if r.wasteful_ungated_min %}
-      <tr><th>{{ GROUP_NAMES.get(r.group, r.group) }}</th><td class="num">{{ r.wasteful_ungated_min|min }}</td>
-          <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
-    {% endif %}{% endfor %}
-    </tbody>
-    <tfoot>
-      <tr><th>All groups</th><td class="num">{{ reflex_min|min }}</td><td></td></tr>
-    </tfoot>
-  </table>
-  </div>
-</section>
-
-{# ------------------------------------------------------------------ 1 #}
-<section id="weekly-totals">
-  <h2>Weekly totals by source</h2>
-  <p class="weeknav">
-    <strong>Week Sun {{ week.sunday }} – Sat {{ week.saturday }}</strong>
-    {% if week.is_current %}<em>(current week, in progress)</em>
-    {% elif everything_in %}<em class="all-in">(complete — every source is in)</em>{% endif %}
-    {% if week.prev_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.prev_sunday) }}#weekly-totals">← previous</a>{% endif %}
-    {% if week.next_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.next_sunday) }}#weekly-totals">next →</a>{% endif %}
-    {% if not week.is_current %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.current_sunday) }}#weekly-totals">current week</a>{% endif %}
-    {% if week.sunday != week.last_complete_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview') }}#weekly-totals">last complete week</a>{% endif %}
-  </p>
-  <div class="table-wrap">
-  <table>
-    <thead><tr>
-      <th>Group</th><th>Device</th><th>{{ hint("Provenance", "Where the figure came from, and how directly. An API reported it; a screenshot was read by OCR and is less reliable.") }}</th><th class="num">{{ hint("Measured", "Minutes there is actually a figure for. A source with no data is left out, never counted as zero.") }}</th>
-      <th class="num th-wrap">Tool (not content, excluded)</th>
-      <th>Unmeasured</th><th class="col-flex">{{ hint("Covered elsewhere (excluded)", "Minutes another source already counted. They are excluded here so nothing is double-counted.") }}</th><th>{{ hint("Import", "The file or feed this week's figures came from, and whether it arrived cleanly.") }}</th>
-    </tr></thead>
-    <tbody>
-    {% for t in totals %}
-      <tr>
-        <td class="cell-nowrap">{{ GROUP_NAMES.get(t.group, t.group) }}</td>
-        <td class="cell-nowrap muted">{{ t.device }}</td>
-        <td>{{ badge(t.provenance) }}</td>
-        <td class="num">
-          {% if t.minutes is none %}<span class="absent">not received</span>
-          {% elif t.minutes == 0 and t.unmeasured_items %}<span class="absent">nothing measured</span>
-          {% else %}{{ t.minutes|min }}{{ lowconf(t.provenance) }}{% endif %}
-        </td>
-        <td class="num tool-min">{% if t.tool_min %}{{ t.tool_min|min }}{% else %}none{% endif %}</td>
-        <td>
-          {% if t.unmeasured_items %}<span class="unmeasured">{{ t.unmeasured_items }} unmeasured item{{ "" if t.unmeasured_items == 1 else "s" }}</span> — no figure yet, not counted as zero
-          {% else %}<span class="muted">none</span>{% endif %}
-        </td>
-        <td class="col-flex">
-          {% if t.covered_excluded_min %}
-            <span class="excluded">{{ t.covered_excluded_min|min }} excluded</span>
-            <ul class="tight">{% for reason, mins in t.covered_reasons %}<li>{{ mins|min }}: already measured by {{ reason }}</li>{% endfor %}</ul>
-          {% else %}<span class="muted">none</span>{% endif %}
-        </td>
-        <td class="import-{{ t.import_status or 'api' }}">
-          {% if t.import_status is none %}polled via API (no import)
-          {% elif t.import_status == "not_due" %}<strong>not due yet</strong><span class="sub">asked for on Monday {{ week.due_on }}</span>
-          {% elif t.import_status == "missing" %}<strong>missing</strong><span class="sub">nothing has arrived for this week yet</span>
-          {% elif t.import_status == "so_far" %}<strong>partial</strong><span class="sub">covers part of the week so far</span>
-          {% elif t.import_status == "incomplete" %}<strong>incomplete</strong><span class="sub">nothing covering the whole week yet</span>
-          {% elif t.import_status == "partial" %}<strong>partial</strong><span class="sub">arrived, with warnings — <a href="#import-{{ t.import_id }}">import #{{ t.import_id }}</a></span>
-          {% elif t.import_status == "ok" %}<strong>received</strong><span class="sub"><a href="#import-{{ t.import_id }}">import #{{ t.import_id }}</a></span>
-          {% else %}{{ t.import_status }}{% endif %}
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="note">Measured means content — wasteful plus worthwhile, with unlabelled counted as wasteful. Sources you called a tool are not content, so they sit in their own column and are counted nowhere else. Figures read from screenshots come from OCR, so they are less reliable than ones an API reported.</p>
-  {% if week_imports %}
-  <h3>Imports covering this week</h3>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>Import</th><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th class="col-flex">Error / warnings</th></tr></thead>
-    <tbody>
-    {% for i in week_imports %}
-      <tr id="import-{{ i.id }}">
-        <td class="cell-nowrap">#{{ i.id }} <span class="muted">{{ i.parser_version }}</span></td>
-        <td class="cell-nowrap">{{ IMPORT_KIND_NAMES.get(i.kind, i.kind) }}</td>
-        <td class="import-{{ i.status }} cell-nowrap"><strong>{{ i.status }}</strong></td>
-        <td class="cell-day">{{ i.received_at|local_dt }}</td>
-        <td class="cell-day">{% if i.period_start %}{{ i.period_start }} – {{ i.period_end }}{% else %}—{% endif %}</td>
-        <td class="col-flex">
-          {% if i.error %}<div class="error">Failed: {{ i.error }}</div>{% endif %}
-          {% if i.warnings %}<ul class="tight">{% for w in i.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% endif %}
-</section>
-
-{# ------------------------------------------------------------------ 3 #}
-<section id="allowance">
-  <h2>Allowance status (this week)</h2>
-  <div class="cols">
-  <div>
-  <div class="table-wrap">
-  <table class="compact">
-    <tbody>
-      <tr><th>Spent (all wasteful content, pooled)</th><td class="num">{{ allowance.spent_wasteful_min|min }}</td></tr>
-      <tr><th>… of that, read from screenshots</th><td class="num">{{ allowance.spent_screenshot_ocr_min|min }}{% if allowance.spent_screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
-      <tr><th>Remaining</th><td class="num">{{ allowance.remaining_min }} min</td></tr>
-      <tr><th>Over the allowance so far</th><td class="num">{{ allowance.overage_min }} min</td></tr>
-      <tr><th>{{ hint("Allowance", "The weekly pool of wasteful minutes you set for yourself. It never carries over.") }}</th><td class="num">{{ allowance.allowance_min }} min</td></tr>
-      <tr><th>Promoted in the queue (a commitment, counted separately)</th><td class="num">{{ allowance.promoted_min }} min</td></tr>
-    </tbody>
-  </table>
-  </div>
-  <p class="note">Week opens {{ allowance.week_start|local_dt }}. Screen Time, Cold Turkey and YouTube data arrives late, so spent can still rise after the week ends. Going over is recorded against that week alone and never carried forward — every week starts with the full allowance.</p>
-  </div>
-  {% set over_weeks = chart.bars|selectattr("split.overage_min")|list %}
-  <div>
-  <h3>Weeks over the allowance</h3>
-  {% if over_weeks %}
-  <div class="table-wrap">
-  <table class="compact">
-    <thead><tr><th>Week of</th><th class="num th-wrap">Wasteful content</th><th class="num">Allowance</th><th class="num">Over by</th></tr></thead>
-    <tbody>{% for b in over_weeks %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.allowance_min }} min</td><td class="num">{{ b.split.overage_min }} min</td></tr>{% endfor %}</tbody>
-  </table>
-  </div>
-  {% else %}
-  <p class="note">No week in the diagnostic window has gone over.</p>
-  {% endif %}
-  </div>
-  </div>
-</section>
-
-<section id="gated">
-  <h2>Gated vs ungated (week of {{ week.sunday }})</h2>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>Group</th><th class="th-wrap">{{ hint("Ungated (reflex) share", "You opened it without queueing it first.") }}</th><th class="num th-wrap">Wasteful, bypassed the queue</th><th class="num th-wrap">Bypassed the queue (all content)</th><th class="num th-wrap">{{ hint("Through the queue", "You captured it, waited out the lock and promoted it before opening it.") }}</th><th>Provenance</th></tr></thead>
-    <tbody>
-    {% for r in gated %}
-      <tr>
-        <td class="cell-nowrap">{{ GROUP_NAMES.get(r.group, r.group) }}</td>
-        <td class="reflex">{% if r.share_ungated is none %}<span class="absent">nothing consumed</span>{% else %}{{ r.share_ungated|pct }} ungated{% endif %}</td>
-        <td class="num"><strong>{{ r.wasteful_ungated_min|min }}</strong></td>
-        <td class="num">{{ r.ungated_min|min }}</td>
-        <td class="num">{{ r.gated_min|min }}</td>
-        <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="note">Gated means you queued it, waited out the lock and promoted it before opening it. Screen Time and Cold Turkey minutes are always ungated — they cannot tell either way. Rows measured elsewhere, unmeasured rows and tool minutes add nothing here.</p>
-</section>
-
-<section id="cost-per-keeper">
-  <h2>Cost per keeper: what each thing you kept cost you</h2>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th class="num">#</th><th>Group</th><th class="num">{{ hint("Price", "Minutes spent in this group for each thing you kept. A high price means a lot of time for one keeper.") }}</th><th class="num">Minutes</th><th class="num">{{ hint("Keepers", "Something you captured and still kept after processing it in your vault.") }}</th><th>Provenance</th><th class="col-flex">Blind spots</th></tr></thead>
-    <tbody>
-    {% for k in keepers %}
-      <tr>
-        <td class="num muted">{{ loop.index }}</td>
-        <td>{{ GROUP_NAMES.get(k.group, k.group) }}</td>
-        <td class="num">{% if k.minutes_per_keeper is none %}<span class="absent">no keepers yet</span>{% else %}{{ k.minutes_per_keeper|min }} per keeper{% endif %}</td>
-        <td class="num">{% if k.minutes is none %}<span class="absent">no minutes source</span>{% else %}{{ k.minutes|min }}{% endif %}</td>
-        <td class="num">{{ k.keepers }}</td>
-        <td>{% for p in k.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in k.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
-        <td class="col-flex">{% if k.blind_spots %}<ul class="tight">{% for s in k.blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="note">Content minutes of any label (tools excluded), divided by the notes you actually kept in the vault. Ranked across the whole diagnostic. Groups with nothing kept yet have no price and are listed last.</p>
-</section>
-
-<section id="funnels">
-  <h2>Funnels: what happens to what you capture</h2>
-  {% set p = funnels.pop %}
-  <div class="cols">
-  <div id="pop-funnel">
-    <h3>Queue (counts, never time)</h3>
-    <div class="table-wrap">
-    <table class="compact">
-      <tbody>
-        <tr><th>Captured (past the lock window)</th><td class="num">{{ p.captured }}</td><td class="muted"></td></tr>
-        <tr><th>{{ hint("Survived the lock", "The 48-hour wait between capturing something and being allowed to play it.") }}</th><td class="num">{{ p.survived_lock }}</td><td class="muted">{{ p.survived_rate|pct }} of captured</td></tr>
-        <tr><th>{{ hint("Promoted", "You decided, after the lock, that it was still worth your time.") }}</th><td class="num">{{ p.promoted }}</td><td class="muted">{{ p.promoted_rate|pct }} of survived</td></tr>
-        <tr><th>Played</th><td class="num">{{ p.played }}</td><td class="muted">{{ p.played_rate|pct }} of promoted</td></tr>
-        <tr><th>Fully played</th><td class="num">{{ p.fully_played }}</td><td class="muted">{{ p.fully_played_rate|pct }} of promoted</td></tr>
-        <tr><th>Median days to drop</th><td class="num">{% if p.median_days_to_drop is none %}—{% else %}{{ '%.1f'|format(p.median_days_to_drop) }} days{% endif %}</td><td class="muted"></td></tr>
-        <tr><th>{{ hint('"Still holds" answered yes', "At triage, whether you said the reason you captured it still held.") }}</th><td class="num">{{ p.still_holds_yes_rate|pct }}</td><td class="muted">of {{ p.still_holds_answered }} answered</td></tr>
-      </tbody>
-    </table>
-    </div>
-    <p class="note">Anything still inside its lock window is not counted here yet.</p>
-  </div>
-  {% set v = funnels.vault %}
-  <div id="vault-funnel">
-    <h3>Vault (counts, never time)</h3>
-    <div class="table-wrap">
-    <table class="compact">
-      <tbody>
-        <tr><th>Captured (unprocessed + kept)</th><td class="num">{{ v.captured }}</td><td class="muted"></td></tr>
-        <tr><th>{{ hint("Still unprocessed in the inbox", "Captured into the vault but not yet processed in Obsidian.") }}</th><td class="num">{{ v.unprocessed }}</td><td class="muted"></td></tr>
-        <tr><th>Kept</th><td class="num">{{ v.kept }}</td><td class="muted">{% if v.captured %}{{ (v.kept / v.captured)|pct }} of captured{% endif %}</td></tr>
-        <tr><th>Kept and edited after capture</th><td class="num">{{ v.edited_kept }}</td><td class="muted">of the kept</td></tr>
-      </tbody>
-    </table>
-    </div>
-    <p class="note"><strong>Excluded</strong> (vanished or in the trash), outside the denominator: <span class="num">{{ v.excluded }}</span></p>
-  </div>
-  </div>
-</section>
-
-<section id="imports">
-  <h2>Latest data from each source</h2>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th>Import id</th><th class="col-flex">Error / warnings</th></tr></thead>
-    <tbody>
-    {% for i in imports %}
-      <tr>
-        <td class="cell-nowrap">{{ IMPORT_KIND_NAMES.get(i.kind, i.kind) }}</td>
-        {% if i.id is none %}
-        <td class="import-missing cell-nowrap"><strong>none received</strong></td><td></td><td></td><td></td><td></td>
-        {% else %}
-        <td class="import-{{ i.status }} cell-nowrap"><strong>{{ i.status }}</strong></td>
-        <td class="cell-day">{{ i.received_at|local_dt }}</td>
-        <td class="cell-day">{% if i.period_start %}{{ i.period_start }} – {{ i.period_end }}{% else %}—{% endif %}</td>
-        <td class="cell-nowrap">{{ i.id }} <span class="muted">{{ i.parser_version }}</span></td>
-        <td class="col-flex">
-          {% if i.error %}<div class="error">Failed: {{ i.error }}</div>{% endif %}
-          {% if i.warnings %}<ul class="tight">{% for w in i.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
-        </td>
-        {% endif %}
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-</section>
 
 <section id="blind-spots">
   <h2>Blind spots: what isn't measured</h2>

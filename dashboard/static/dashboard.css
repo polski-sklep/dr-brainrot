@@ -71,6 +71,8 @@
      the page — the same tint-plus-border shape every chip on the page uses. */
   --series-wasteful:        #F6CFCF;   /* the wasteful chip's tint, a shade  */
   --series-wasteful-edge:   #A32F2F;   /* stronger, with the chip's own red   */
+  --series-undecided:       #FCEFBC;   /* the undecided chip's tint: a band   */
+  --series-undecided-edge:  #8F5F00;   /* you are meant to want to remove      */
   --series-worthwhile:      #CBE8D6;   /* likewise for worthwhile: the bars   */
   --series-worthwhile-edge: #1F7A47;   /* are chips, drawn tall               */
   --axis:              #C6CBD2;
@@ -754,6 +756,13 @@ svg.split .axis { stroke: var(--axis); stroke-width: 1; }
   stroke: var(--series-worthwhile-edge);
   stroke-width: 1.5;
 }
+.bar-undecided {
+  fill: var(--series-undecided);
+  background: var(--series-undecided);
+  stroke: var(--series-undecided-edge);
+  stroke-width: 1.5;
+}
+.swatch.bar-undecided { border: 1px solid var(--series-undecided-edge); }
 .swatch.bar-wasteful { border: 1px solid var(--series-wasteful-edge); }
 .swatch.bar-worthwhile { border: 1px solid var(--series-worthwhile-edge); }
 

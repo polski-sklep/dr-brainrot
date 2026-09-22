@@ -125,10 +125,14 @@ def test_every_page_renders_for_a_populated_database(client, conn, clk, settings
     if path.startswith("/records"):
         assert "Good video" in html
     if path == f"/?week={WEEK_SUNDAY}":
-        for sid in ("weekly-totals", "label-split", "allowance", "gated", "cost-per-keeper",
-                    "funnels", "blind-spots", "imports"):
+        # the Overview answers three questions; the detail lives on Records
+        for sid in ("week-summary", "label-split", "top-sources", "coverage", "blind-spots"):
             assert f'<section id="{sid}">' in html
         assert "<svg" in html and "bar-wasteful" in html
+        detail = text(client.get(f"/records?week={WEEK_SUNDAY}"))
+        for sid in ("weekly-totals", "allowance", "gated", "cost-per-keeper", "funnels",
+                    "imports", "reflex"):
+            assert f'<section id="{sid}">' in detail
 
 
 def test_overview_defaults_to_the_current_week_and_links_the_previous_one(client, clk):
@@ -139,10 +143,10 @@ def test_overview_defaults_to_the_current_week_and_links_the_previous_one(client
     """
     clk.set("2026-09-16T10:00:00+00:00")        # Wednesday of the week opening Sun 13 Sep
     html = text(client.get("/"))
-    weeknav = flat(section(html, "weekly-totals"))
+    weeknav = flat(section(html, "week-summary"))
     assert "Week Sun 2026-09-13 – Sat 2026-09-19" in weeknav and "in progress" in weeknav
 
-    older = flat(section(text(client.get("/?week=2026-09-08")), "weekly-totals"))
+    older = flat(section(text(client.get("/?week=2026-09-08")), "week-summary"))
     assert "Week Sun 2026-09-06 – Sat 2026-09-12" in older
 
 
@@ -200,7 +204,7 @@ def test_countdown_ended(client, conn, clk, path):
 
 def test_provenance_badges_are_distinct_per_tier_and_screenshots_are_marked(client, conn, clk, settings):
     populate(conn, clk, settings)
-    rows = body_rows(section(text(client.get(f"/?week={WEEK_SUNDAY}")), "weekly-totals"))
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))
 
     tiers = {T.PROV_API: "prov-api", T.PROV_PAGE: "prov-page",
              T.PROV_SCREENSHOT: "prov-screenshot", T.PROV_EXPORT: "prov-export"}
@@ -225,7 +229,7 @@ def test_unmeasured_items_are_a_count_never_zero_minutes(client, conn, clk, sett
     measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCbad", day="2026-09-08",
             minutes=None, status="progress_missing", item_key="badvideo001")
     clk.set("2026-09-16T10:00:00+00:00")
-    rows = body_rows(section(text(client.get(f"/?week={WEEK_SUNDAY}")), "weekly-totals"))
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))
     yt = flat(row_for(rows, "YouTube", "prov-page"))
     assert "1 unmeasured item" in yt and "not counted as zero" in yt
     assert "nothing measured" in yt
@@ -233,7 +237,7 @@ def test_unmeasured_items_are_a_count_never_zero_minutes(client, conn, clk, sett
 
 
 def test_missing_weekly_evidence_is_not_received_not_zero(client):
-    rows = body_rows(section(text(client.get(f"/?week={WEEK_SUNDAY}")), "weekly-totals"))
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))
     screentime = flat(row_for(rows, "iPhone apps", "prov-screenshot"))
     assert "not received" in screentime and "missing" in screentime
     assert "0 min" not in screentime
@@ -241,7 +245,7 @@ def test_missing_weekly_evidence_is_not_received_not_zero(client):
 
 def test_covered_elsewhere_is_shown_as_excluded_with_its_reason(client, conn, clk, settings):
     populate(conn, clk, settings)
-    rows = body_rows(section(text(client.get(f"/?week={WEEK_SUNDAY}")), "weekly-totals"))
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))
     iphone = flat(row_for(rows, "iPhone apps", "prov-screenshot"))
     assert "33 min excluded" in iphone
     assert "YouTube history (account-level)" in iphone
@@ -253,7 +257,7 @@ def test_import_status_incomplete_and_partial_with_warnings(client, conn, clk, s
     rec = evidence.begin_import(conn, clk, kind="coldturkey", parser_version="test-1")
     rec.warnings.append("skipped 3 days on or after the export date")
     evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-06", period_end="2026-09-12")
-    html = text(client.get(f"/?week={WEEK_SUNDAY}"))
+    html = text(client.get(f"/records?week={WEEK_SUNDAY}"))
     rows = body_rows(section(html, "weekly-totals"))
     assert "incomplete" in flat(row_for(rows, "YouTube", "prov-page"))
     assert "partial" in flat(row_for(rows, "Desktop web", "prov-export"))
@@ -264,7 +268,7 @@ def test_import_status_incomplete_and_partial_with_warnings(client, conn, clk, s
 def test_failed_import_is_visible(client, conn, clk):
     rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="test-1")
     evidence.fail_import(conn, rec, "could not read the week header")
-    imports = flat(section(text(client.get("/")), "imports"))
+    imports = flat(section(text(client.get("/records")), "imports"))
     assert "failed" in imports and "could not read the week header" in imports
 
 
@@ -275,7 +279,7 @@ def test_failed_import_is_visible(client, conn, clk):
 def test_cost_per_keeper_says_no_keepers_yet(client, conn, clk, settings):
     seed_week(conn, clk, settings)
     clk.set("2026-09-16T10:00:00+00:00")
-    rows = body_rows(section(text(client.get("/")), "cost-per-keeper"))
+    rows = body_rows(section(text(client.get("/records")), "cost-per-keeper"))
     podcasts = flat(row_for(rows, "Podcasts"))
     assert "no keepers yet" in podcasts
     assert "prov-api" in row_for(rows, "Podcasts")
@@ -286,14 +290,14 @@ def test_cost_per_keeper_prices_a_group_with_keepers(client, conn, clk, settings
     seed_week(conn, clk, settings)
     vault_capture(conn, clk, group=T.GROUP_YOUTUBE, outcome="kept")
     clk.set("2026-09-16T10:00:00+00:00")
-    rows = body_rows(section(text(client.get("/")), "cost-per-keeper"))
+    rows = body_rows(section(text(client.get("/records")), "cost-per-keeper"))
     assert "40 min per keeper" in flat(rows[0]) and "YouTube" in rows[0]
     assert "prov-vault" in rows[0]
 
 
 def test_vault_numbers_are_never_minutes(client, conn, clk, settings):
     populate(conn, clk, settings)
-    funnels = section(text(client.get("/")), "funnels")
+    funnels = section(text(client.get("/records")), "funnels")
     vault = funnels.split('<div id="vault-funnel">')[1]
     assert not re.search(r"\d\s*min\b", flat(funnels)), flat(funnels)
     v = flat(vault)
@@ -303,7 +307,7 @@ def test_vault_numbers_are_never_minutes(client, conn, clk, settings):
 
 def test_allowance_status_is_plain_numbers(client, conn, clk, settings):
     populate(conn, clk, settings)
-    allowance_html = flat(section(text(client.get("/")), "allowance"))
+    allowance_html = flat(section(text(client.get("/records")), "allowance"))
     for label in ("Spent", "Remaining", "Over the allowance so far", "Allowance",
                   "Weeks over the allowance"):
         assert label in allowance_html
@@ -318,7 +322,7 @@ def test_weeks_over_the_allowance_table_lists_each_weeks_own_overage(client, con
             minutes=118.0)                                          # 250 against 180
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-14",
             minutes=200.0)                                          # current week: 20 over so far
-    html = section(text(client.get("/")), "allowance")
+    html = section(text(client.get("/records")), "allowance")
     table = html.split("Weeks over the allowance", 1)[1]
     rows = body_rows(table)
     assert len(rows) == 2
@@ -332,7 +336,7 @@ def test_weeks_over_the_allowance_table_lists_each_weeks_own_overage(client, con
 
 def test_gated_vs_ungated_shows_the_reflex_share(client, conn, clk, settings):
     populate(conn, clk, settings)
-    rows = body_rows(section(text(client.get(f"/?week={WEEK_SUNDAY}")), "gated"))
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "gated"))
     iphone = row_for(rows, "iPhone apps")
     assert '<td class="reflex">100% ungated</td>' in iphone
     assert "nothing consumed" in flat(row_for(rows, "Desktop web"))      # None share, not 0%
@@ -464,7 +468,8 @@ def test_records_rows_show_provenance_status_and_import(client, conn, clk, setti
 def test_records_filters(client, conn, clk, settings):
     populate(conn, clk, settings)
     yt = text(client.get("/records?group=youtube"))
-    assert "Good video" in yt and "Instagram" not in yt and "prov-export" not in yt
+    table = yt.split('<table id="records">')[1].split("</table>")[0]   # the filter applies here only
+    assert "Good video" in table and "Instagram" not in table and "prov-export" not in table
 
     worth = body_rows(text(client.get("/records?label=worthwhile")))
     assert len(worth) == 1 and "Good video" in worth[0]
@@ -597,7 +602,7 @@ def test_overview_states_scope_and_shows_tool_minutes_outside_the_bars(client, c
     html = text(client.get("/?week=2026-09-08"))
     assert "Brain-rot content only: tools are excluded" in flat(html)
 
-    totals = section(html, "weekly-totals")
+    totals = section(text(client.get("/records?week=2026-09-08")), "weekly-totals")
     assert "Tool (not content, excluded)" in totals
     desktop = row_for(body_rows(totals), "Desktop web")
     assert "30 min" in desktop and "200 min" in desktop
@@ -607,9 +612,10 @@ def test_overview_states_scope_and_shows_tool_minutes_outside_the_bars(client, c
     cells = re.findall(r'<td class="num[^"]*">(.*?)</td>', week_row_html, re.S)
     # wasteful, undecided, worthwhile, parsed-screenshot, tool
     assert flat(cells[0]) == "30 min" and flat(cells[2]) == "0 min" and flat(cells[4]) == "200 min"
-    assert "Week of 2026-09-06: wasteful 30 min, worthwhile 0 min" in split       # the bar holds content only
+    # the bar holds content only: wasteful + undecided + worthwhile, never tool
+    assert "Week of 2026-09-06: wasteful 30 min, undecided 0 min, worthwhile 0 min" in split
 
-    keepers = row_for(body_rows(section(html, "cost-per-keeper")), "<td>Desktop web</td>")
+    keepers = row_for(body_rows(section(text(client.get("/records")), "cost-per-keeper")), "<td>Desktop web</td>")
     assert "30 min" in keepers and "200 min" not in keepers
     assert "sources you mark as tool" in section(html, "blind-spots")
 
