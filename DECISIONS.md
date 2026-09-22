@@ -1673,3 +1673,48 @@ a morning, which bills nothing and stops on its own the day it is fixed.
 `test_a_fallback_week_is_retried_by_the_next_run`. `force` is unchanged, and so
 is the refresh button. `latest()` already reads the newest row, so a successful
 retry supersedes the fallback with no further change.
+
+### DR5.10 — A week that has not been asked for is "not due yet", not "missing"
+
+**22 September 2026.** The Import column had two words for absent evidence,
+`missing` and `incomplete`, and used them from the first hour of a week. On
+Tuesday the 22nd, looking at a week that was two days old, Jacob asked: "It
+says 'missing and incomplete,' but do I owe anything yet?"
+
+He did not. DRBR asks for manual evidence on the Monday *after* a measurement
+week ends, and never asks for a week in progress. iPhone apps read `missing`
+because Screen Time is a weekly screenshot that cannot exist yet, and would
+have read `missing` every day of every week by construction. YouTube read
+`incomplete` because page data covered two days of a seven-day week that had
+only had two days. Both were describing a schedule working correctly in the
+vocabulary of a fault.
+
+DR5.6 had offered this change and it was declined in favour of the blunter
+wording, on the reasonable ground that it never lets you forget a source
+exists. Meeting it in practice reversed the judgement, which is the right way
+round: the question the page provoked was the argument for changing it.
+
+**So the four absent-evidence states are now two pairs**, the same fact about
+coverage worded by whether the week has been asked for: `not_due`/`missing` for
+nothing arrived, `so_far`/`incomplete` for coverage that does not span the
+week. The threshold is `report.week_is_due`, read from the two rules
+`handlers_imports.send_due_prompts` already prompts on — the Monday after the
+week, and never a week that ended before go-live (DR2.2). Sharing one rule is
+the point: a page that says "missing" on a day DRBR would not ask is the bug
+being fixed, and two copies of the threshold would let it return.
+
+`week.due_on` carries that Monday to the page, because the label alone still
+does not answer the question asked — the date does. `everything_in` gives a
+finished, fully covered week a positive state to report instead of silence.
+
+**Values stay slugs, not prose.** The Import cell renders
+`class="import-{{ t.import_status }}"`, so "not due yet" would have become
+three CSS classes. The backend decides which state holds; the template owns the
+words and the styling, and neither new state should be amber — neither is a
+problem, and amber is what prompted the question.
+
+**Mechanics:** `report.py` gains `IMPORT_NOT_DUE`, `IMPORT_SO_FAR`,
+`IMPORT_AWAITED`, `due_on`, `week_is_due` and `everything_in`; `weekly_totals`
+decides per week. `WeekChoice` gains `due` and `due_on`. `dashboard/app.py`
+passes `everything_in`. The wording lives in `overview.html`, which belongs to
+the UI session and was handed over rather than edited from here.

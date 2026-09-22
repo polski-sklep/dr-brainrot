@@ -10,6 +10,7 @@ report pass), and no report function turns a vault capture into minutes.
 """
 from __future__ import annotations
 
+import dataclasses
 import pathlib
 import sys
 
@@ -117,7 +118,7 @@ def test_weekly_totals_carry_provenance_device_and_import_status(conn, clk, sett
     yt = by_key[(T.GROUP_YOUTUBE, T.PROV_PAGE, T.DEVICE_ACCOUNT)]
     assert yt.minutes == pytest.approx(40)            # worthwhile still counted in totals
     assert yt.unmeasured_items == 1
-    assert yt.import_status == report.IMPORT_INCOMPLETE   # synced mid-week: not covered yet
+    assert yt.import_status == report.IMPORT_SO_FAR       # synced mid-week, and the week still runs
 
     ios = by_key[(T.GROUP_IPHONE, T.PROV_SCREENSHOT, T.DEVICE_IPHONE)]
     assert ios.minutes == pytest.approx(90)           # screenshot stays screenshot
@@ -222,7 +223,36 @@ def test_weekly_totals_mark_missing_evidence_as_none_not_zero(conn, clk, setting
     for key in [(T.GROUP_YOUTUBE, T.PROV_PAGE), (T.GROUP_IPHONE, T.PROV_SCREENSHOT),
                 (T.GROUP_DESKTOP, T.PROV_EXPORT)]:
         assert missing[key].minutes is None
-        assert missing[key].import_status == report.IMPORT_MISSING
+        # Wednesday of the week itself: nothing is owed yet (DR5.10).
+        assert missing[key].import_status == report.IMPORT_NOT_DUE
+
+
+def test_absence_is_only_a_gap_once_the_week_has_been_asked_for(conn, clk, settings):
+    """The same absence, worded by the schedule. WEEK is Sun 6 - Sat 12 Sep."""
+    mweek = T.measurement_week_for_allowance_week(WEEK, settings.tz)
+    assert report.due_on(mweek).isoformat() == "2026-09-14"      # the Monday after
+
+    def ios_status():
+        rows = report.weekly_totals(conn, clk, settings, WEEK)
+        return next(r for r in rows if r.group == T.GROUP_IPHONE).import_status
+
+    clk.set(WED)                                                 # mid-week
+    assert ios_status() == report.IMPORT_NOT_DUE
+    clk.set("2026-09-13T10:00:00+00:00")                         # Sunday: still not asked
+    assert ios_status() == report.IMPORT_NOT_DUE
+    clk.set("2026-09-14T06:00:00+00:00")                         # Monday, 08:00 Warsaw
+    assert ios_status() == report.IMPORT_MISSING
+    assert not report.everything_in(report.weekly_totals(conn, clk, settings, WEEK))
+
+
+def test_a_week_that_ended_before_go_live_is_never_due(conn, clk, settings):
+    """DR2.2: it is never asked for, so its absence is never called a gap."""
+    live = dataclasses.replace(settings, go_live="2026-09-06")
+    early = T.measurement_week(T.parse_date("2026-08-30"))       # ends Sat 5 Sep
+    clk.set("2026-10-01T10:00:00+00:00")                         # long past its Monday
+    assert report.week_is_due(clk, live, early) is False
+    # The week go-live falls in is asked for as usual.
+    assert report.week_is_due(clk, live, T.measurement_week(T.parse_date("2026-09-06"))) is True
 
 
 # ==========================================================================

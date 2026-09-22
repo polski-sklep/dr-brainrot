@@ -196,6 +196,8 @@ class WeekChoice:
     next_sunday: str | None    # None when the next week is in the future
     current_sunday: str
     last_complete_sunday: str
+    due: bool                  # the Monday this week's evidence is asked for has come
+    due_on: str                # that Monday, so the page can name the day
 
 
 def choose_week(clk: Clock, settings: Settings, raw: str | None,
@@ -241,6 +243,8 @@ def choose_week(clk: Clock, settings: Settings, raw: str | None,
         next_sunday=T.iso_date(next_sunday) if next_sunday <= current_m.sunday else None,
         current_sunday=current_m.start,
         last_complete_sunday=last_m.start,
+        due=report.week_is_due(clk, settings, chosen_m),
+        due_on=T.iso_date(report.due_on(chosen_m)),
     )
 
 
@@ -467,6 +471,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             blind_spots=report.blind_spots(c, clk, settings),
             imports=report.latest_imports(c, clk, settings),
             week_imports=week_imports(c, clk, settings, totals),
+            everything_in=report.everything_in(totals),
             window_start=floor,
             needs=report.needs_attention(c, clk, settings),
             provenance_rows=report.provenance_map(c, clk, settings),

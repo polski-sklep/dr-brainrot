@@ -75,8 +75,46 @@ EXPECTED_WEEKLY = (
 #: Qbserve (DR5.3) is read daily; older than this, the job warns and blind_spots says so.
 QBSERVE_STALE_HOURS = 36
 
-IMPORT_MISSING = "missing"          # no rows and no import covering the week
-IMPORT_INCOMPLETE = "incomplete"    # rows exist, but no import covers the whole week yet
+#: What the Import column says about a week's evidence. Four of these are two
+#: pairs: the same fact about coverage, worded by whether the week has been
+#: asked for yet (DR5.10). Values are slugs, not prose — the template maps them
+#: to words and to a CSS class, so they must stay space-free.
+IMPORT_MISSING = "missing"          # asked for, and nothing has arrived
+IMPORT_NOT_DUE = "not_due"          # nothing has arrived, and nothing is owed yet
+IMPORT_INCOMPLETE = "incomplete"    # asked for, but no import covers the whole week
+IMPORT_SO_FAR = "so_far"            # covers part of a week that is still running
+
+
+#: The four states that mean a week's evidence is not all in yet.
+IMPORT_AWAITED = (IMPORT_MISSING, IMPORT_NOT_DUE, IMPORT_INCOMPLETE, IMPORT_SO_FAR)
+
+
+def everything_in(totals) -> bool:
+    """Does every expected source cover the whole week? (`ok`/`partial` both do.)
+
+    `partial` counts: it means an import arrived and parsed with warnings, not
+    that the week is uncovered. The unreadable rows it stands for are already
+    reported as unmeasured items, in their own column.
+    """
+    return not any(t.import_status in IMPORT_AWAITED for t in totals)
+
+
+def due_on(mweek: T.MeasurementWeek) -> date:
+    """The Monday a week's manual evidence is first asked for."""
+    return mweek.saturday + timedelta(days=2)
+
+
+def week_is_due(clk: Clock, settings: Settings, mweek: T.MeasurementWeek) -> bool:
+    """Has that Monday arrived? Before it, absence is a schedule, not a gap.
+
+    This is the threshold `handlers_imports.send_due_prompts` prompts on, read
+    from the same two rules, so the word on the page and the day of the ask
+    cannot drift apart. A week that ended before go-live is never asked for at
+    all (DR2.2), so it is never due.
+    """
+    if settings.go_live and mweek.end < settings.go_live:
+        return False
+    return T.local_date(clk.now(), settings.tz) >= due_on(mweek)
 
 #: Standing per-group caveats shown on the cost-per-keeper table.
 GROUP_BLIND_SPOTS: dict[str, tuple[str, ...]] = {
@@ -401,6 +439,7 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
             b["minutes"] += float(r["minutes"])
 
     mweek = T.measurement_week_for_allowance_week(week_start, settings.tz)
+    due = week_is_due(clk, settings, mweek)
     out: list[SourceTotal] = []
     for (group, provenance, device), v in acc.items():
         status = import_id = None
@@ -408,8 +447,9 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         if kind is not None:
             imp = _covering_import(conn, settings, kind, mweek)
             # Rows exist but no import covers the whole week yet (e.g. a
-            # YouTube sync made mid-week): the figure is honest but incomplete.
-            status = imp["status"] if imp else IMPORT_INCOMPLETE
+            # YouTube sync made mid-week): the figure is honest but partial.
+            # Only once the week has been asked for is that a gap.
+            status = imp["status"] if imp else (IMPORT_INCOMPLETE if due else IMPORT_SO_FAR)
             import_id = imp["id"] if imp else None
         out.append(SourceTotal(group, provenance, device, v["minutes"], v["unmeasured_items"],
                                v["covered_excluded_min"], status, import_id,
@@ -423,7 +463,8 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
             continue
         imp = _covering_import(conn, settings, kind, mweek)
         if imp is None:
-            out.append(SourceTotal(group, provenance, device, None, 0, 0.0, IMPORT_MISSING))
+            out.append(SourceTotal(group, provenance, device, None, 0, 0.0,
+                                   IMPORT_MISSING if due else IMPORT_NOT_DUE))
         else:
             # Evidence arrived and simply held no rows for this week.
             out.append(SourceTotal(group, provenance, device, 0.0, 0, 0.0, imp["status"], imp["id"]))

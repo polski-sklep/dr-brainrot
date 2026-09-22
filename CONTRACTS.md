@@ -792,6 +792,13 @@ All functions are read-only and take `(conn, clk, settings, ...)`.
 ```python
 diagnostic_banner(...) -> evidence.Diagnostic
 weekly_totals(..., week_start: str) -> list[SourceTotal(group, provenance: str, device, minutes, unmeasured_items, covered_excluded_min, import_status)]
+  import_status: None (API-polled) | 'ok' | 'partial' | 'not_due' | 'missing' | 'so_far' | 'incomplete'
+  The last four are two pairs: nothing arrived ('not_due' before the week is asked
+  for, 'missing' after) and partial coverage ('so_far' before, 'incomplete' after).
+  Slugs, not prose: the template maps them to words and to a CSS class (DR5.10).
+week_is_due(clk, settings, mweek) -> bool   # the Monday after the week has come
+due_on(mweek) -> date                       # that Monday
+everything_in(totals) -> bool               # every expected source covers the week
 label_split(..., weeks: int = 8) -> list[WeekSplit(week_start, wasteful_min, worthwhile_min)]
 allowance_status(...) -> AllowanceStatus(week_start, allowance_min, debt_min, effective_min, spent_wasteful_min, remaining_min, promoted_min)
 gated_vs_ungated(..., week_start: str) -> list[GatedRow(group, gated_min, ungated_min, share_ungated|None)]

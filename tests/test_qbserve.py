@@ -464,7 +464,9 @@ def test_blind_spots_when_configured_but_never_imported(conn, clk, settings, tmp
     week = T.allowance_week_start_for_day(date(2026, 9, 13), TZ)
     assert not [t for t in report.weekly_totals(conn, clk, plain, week) if t.group == T.GROUP_DESKTOP_APPS]
     missing = [t for t in report.weekly_totals(conn, clk, settings, week) if t.group == T.GROUP_DESKTOP_APPS]
-    assert [(t.minutes, t.import_status) for t in missing] == [(None, report.IMPORT_MISSING)]
+    # Nothing arrived. Whether that reads "missing" or "not due yet" is the
+    # schedule's business (DR5.10) and is tested in test_report.
+    assert [(t.minutes, t.import_status) for t in missing] == [(None, report.IMPORT_NOT_DUE)]
 
 
 def test_new_vocabulary_is_registered():
