@@ -472,6 +472,8 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             imports=report.latest_imports(c, clk, settings),
             week_imports=week_imports(c, clk, settings, totals),
             everything_in=report.everything_in(totals),
+            top_sources=report.top_sources(c, clk, settings, week.week_start),
+            all_sources_count=len(report.top_sources(c, clk, settings, week.week_start, limit=None)),
             window_start=floor,
             needs=report.needs_attention(c, clk, settings),
             provenance_rows=report.provenance_map(c, clk, settings),
