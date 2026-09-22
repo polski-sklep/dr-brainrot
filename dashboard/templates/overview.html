@@ -35,11 +35,11 @@
     <div class="metric metric-aside">
       <span class="metric-label">Tool</span>
       <span class="metric-value">{% if week_split %}{{ week_split.tool_min|min }}{% else %}<span class="absent">—</span>{% endif %}</span>
-      <span class="metric-note">not content — left out of everything</span>
+      <span class="metric-note">not content — DRBR ignores it</span>
     </div>
   </div>
-  <p class="note">All five figures are for the week above. If a week's data has not arrived yet, DRBR leaves it out rather
-  than calling it zero — weekly totals, below, shows what is still missing.</p>
+  <p class="note">All five figures are for the week above. Where data has not arrived yet DRBR shows nothing rather
+  than calling it zero — weekly totals, below, says what is still missing.</p>
 </section>
 
 {# ------------------------------------------------------------------ 0 #}
@@ -94,7 +94,7 @@
         </td>
         <td class="num tool-min">{% if t.tool_min %}{{ t.tool_min|min }}{% else %}none{% endif %}</td>
         <td>
-          {% if t.unmeasured_items %}<span class="unmeasured">{{ t.unmeasured_items }} unmeasured item{{ "" if t.unmeasured_items == 1 else "s" }}</span> — left out, not counted as zero
+          {% if t.unmeasured_items %}<span class="unmeasured">{{ t.unmeasured_items }} unmeasured item{{ "" if t.unmeasured_items == 1 else "s" }}</span> — no figure yet, not counted as zero
           {% else %}<span class="muted">none</span>{% endif %}
         </td>
         <td class="col-flex">
@@ -116,7 +116,7 @@
     </tbody>
   </table>
   </div>
-  <p class="note">Measured means content — wasteful plus worthwhile, with unlabelled counted as wasteful. Sources you called a tool are not content, so they sit in their own column and count nowhere else. Figures read from screenshots come from OCR, so they are less reliable than ones an API reported.</p>
+  <p class="note">Measured means content — wasteful plus worthwhile, with unlabelled counted as wasteful. Sources you called a tool are not content, so they sit in their own column and are counted nowhere else. Figures read from screenshots come from OCR, so they are less reliable than ones an API reported.</p>
   {% if week_imports %}
   <h3>Imports covering this week</h3>
   <div class="table-wrap">

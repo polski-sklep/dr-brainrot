@@ -123,7 +123,16 @@ against the page.
 ### Copy
 
 Plain and direct, in the second person. The rule is that a sentence should
-survive being read once. "Wasteful (including unlabelled) content minutes that
+survive being read once.
+
+**Three absences, three verbs.** A figure can be missing for three different
+reasons and the copy must never blur them, because keeping them apart is the
+whole point of the diagnostic. A *tool* is something you decided is not
+content, so DRBR **ignores** it. An *unmeasured* row is one DRBR has **no
+figure** for — never zero. A *covered elsewhere* row was **already counted**
+by another source and is excluded so nothing is double-counted. Using one
+tidy phrase for all three reads better and says less; it was tried and
+reverted. "Wasteful (including unlabelled) content minutes that
 never passed through capture, lock and triage" became "Minutes of wasteful
 content that never went through capture, the lock and triage — you just opened
 it." The terminology the diagnostic depends on — wasteful, worthwhile, tool,
