@@ -228,3 +228,15 @@ def test_a_refused_write_explains_itself(client, conn, clk, settings):
     assert "did not come from this dashboard" in body and "127.0.0.1:8750" in body
     # and nothing was written
     assert all(s.label is None for s in labels.list_sources(conn, label=labels.UNLABELLED))
+
+
+def test_a_refused_htmx_toggle_answers_with_a_row_not_a_page(client, conn, clk, settings):
+    """htmx swaps the response into one <tr>; a whole document there is garbage."""
+    src = label_source(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", None)
+    resp = client.post(f"/labels/{src.id}", data={"label": T.TOOL},
+                       headers={"Sec-Fetch-Site": "same-site", "HX-Request": "true"})
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 403
+    assert body.lstrip().startswith("<tr") and "<!doctype" not in body.lower()
+    assert "did not come from this dashboard" in body
+    assert labels.get_source(conn, src.id).label is None        # nothing written

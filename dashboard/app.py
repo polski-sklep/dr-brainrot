@@ -405,8 +405,15 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
 
     @app.errorhandler(403)
     def _explain_refusal(exc):
-        """Say why, rather than showing a bare 403 the user cannot act on."""
+        """Say why, rather than showing a bare 403 the user cannot act on.
+
+        An htmx request gets a bare fragment: the label toggle swaps the
+        response into one `<tr>`, and a full document there renders as
+        garbage instead of telling the user anything.
+        """
         detail = getattr(exc, "description", "") or WRITE_REFUSED
+        if request.headers.get("HX-Request") == "true":
+            return render_template("_refused_row.html", detail=detail), 403
         return render_template("refused.html", detail=detail), 403
 
     @app.get("/")
