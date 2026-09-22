@@ -290,8 +290,8 @@ def test_week_header_reports_pooled_wasteful_spend(conn, settings, spotify):
 
     header = bot.texts[-1]
     assert header.startswith("Week of")
-    assert "Last week spent 100 wasteful content minutes across sources" in header
-    assert "Spent so far 0 wasteful content minutes across sources" in header
+    assert "Last week spent 100 counted content minutes across sources" in header
+    assert "Spent so far 0 counted content minutes across sources" in header
 
 
 def test_render_stats_points_to_the_dashboard(conn, settings):

@@ -705,7 +705,7 @@ def test_drbr_pooled_label_aware_week_end_to_end(tmp_path):
     _measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCimpulse", day="2026-09-09",
              minutes=30.0, item_key="Impulse0001")                         # ungated, wasteful
     pooled = report.label_split(conn, clk, settings, weeks=1)[0]
-    assert (pooled.wasteful_min, pooled.worthwhile_min) == (80, 25)
+    assert (pooled.charged_min, pooled.worthwhile_min) == (80, 25)
 
     # --- rollover: 80 wasteful against 180, not over
     clk.set(next_week)

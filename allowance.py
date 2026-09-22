@@ -64,23 +64,33 @@ class GroupMinutes:
 
     wasteful_min: float = 0.0
     worthwhile_min: float = 0.0
+    unclassified_min: float = 0.0  # no label yet (DR5.11): counted nowhere, shown everywhere
     covered_excluded_min: float = 0.0
     unmeasured_items: int = 0
     tool_min: float = 0.0          # not content (DR5.5): shown, never charged or valued
+
+    @property
+    def charged_min(self) -> float:
+        """This group's decided plus undecided minutes — what the allowance counted."""
+        return self.wasteful_min + self.unclassified_min
 
 
 @dataclass(frozen=True)
 class PooledMinutes:
     """Everything consumed in one allowance week, split by label.
 
-    `wasteful_min` is the only figure the allowance, debt and alerts read.
-    `worthwhile_min` is measured and reported, never charged. `tool_min` is
-    time on sources labelled tool (not content, DR5.5): shown separately and in
-    neither of the other two.
+    `wasteful_min` is the only figure the allowance, debt and alerts read, and
+    since DR5.11 it holds only what the user has actually called wasteful.
+    `worthwhile_min` is measured and reported, never charged. `unclassified_min`
+    is time on sources with no label yet: it charges nothing, because a number
+    that falls when you label rather than when you consume less is not
+    measuring consumption. `tool_min` is time on sources labelled tool (not
+    content, DR5.5). Every minute lands in exactly one of the four.
     """
 
     wasteful_min: float
     worthwhile_min: float
+    unclassified_min: float = 0.0
     by_group: dict[str, GroupMinutes] = field(default_factory=dict)
     covered_excluded_min: float = 0.0
     unmeasured_items: int = 0
@@ -90,6 +100,20 @@ class PooledMinutes:
     screenshot_ocr_min: float = 0.0
     screenshot_ocr_wasteful_min: float = 0.0
     tool_min: float = 0.0
+
+    @property
+    def charged_min(self) -> float:
+        """What the allowance, overage and alerts count: decided plus undecided.
+
+        The reported headline is `wasteful_min` alone, because a figure that
+        falls when you label rather than when you consume less is measuring the
+        labelling. The allowance is a different instrument. It is a rail, and a
+        rail that ignores everything it cannot identify is not a rail: in the
+        week of 13 Sep the undecided minutes (312) outweighed the decided ones
+        (251), so charging only the decided would have taken a week that was
+        200 minutes over and called it comfortably inside (DR5.11).
+        """
+        return self.wasteful_min + self.unclassified_min
 
 
 @dataclass(frozen=True)
@@ -295,6 +319,20 @@ def spotify_label(conn: sqlite3.Connection, row: sqlite3.Row) -> labels.Resolved
     return labels.resolve(conn, source_id=source_id, item_ref=T.item_ref("spotify", row["spotify_id"]))
 
 
+def _field(resolved: labels.ResolvedLabel) -> str:
+    """Which bucket a resolved label counts in.
+
+    The resolver still answers `wasteful` for an unlabelled source, because
+    that is what the gate and the gate's warning need: an unrecognised thing
+    is treated as brain rot until the user says otherwise. Reporting asks a
+    different question — what has the user actually decided? — so it reads the
+    basis, not the label, and keeps the undecided minutes apart (DR5.11).
+    """
+    if resolved.basis == T.BASIS_DEFAULT:
+        return "unclassified_min"
+    return f"{resolved.label}_min"
+
+
 def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str) -> PooledMinutes:
     """Every minute consumed in one allowance week, split wasteful/worthwhile/tool. Read-only."""
     groups: dict[str, dict] = {}
@@ -302,13 +340,13 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
 
     def bucket(group: str) -> dict:
         return groups.setdefault(group, {"wasteful_min": 0.0, "worthwhile_min": 0.0,
+                                         "unclassified_min": 0.0,
                                          "covered_excluded_min": 0.0, "unmeasured_items": 0,
                                          "tool_min": 0.0})
 
     for row in _spotify_rows(conn, settings, week_start):
         minutes = int(row["delta_ms"]) / MIN_MS
-        label = spotify_label(conn, row).label
-        bucket(T.GROUP_PODCASTS)[f"{label}_min"] += minutes
+        bucket(T.GROUP_PODCASTS)[_field(spotify_label(conn, row))] += minutes
 
     go_live = getattr(settings, "go_live", "") or ""
     for row in _measurement_rows(conn, settings, week_start):
@@ -331,19 +369,20 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
         if row["status"] != "ok":
             b["unmeasured_items"] += 1
             continue
-        label = measurement_label(conn, row).label
-        b[f"{label}_min"] += float(row["minutes"])
-        if label == T.TOOL:
+        resolved = measurement_label(conn, row)
+        b[_field(resolved)] += float(row["minutes"])
+        if resolved.label == T.TOOL:
             continue            # not content: kept out of the OCR share of content minutes too
         if row["provenance"] == T.PROV_SCREENSHOT:
             ocr["all"] += float(row["minutes"])
-            if label == T.WASTEFUL:
+            if _field(resolved) == "wasteful_min":
                 ocr["wasteful"] += float(row["minutes"])
 
     by_group = {g: GroupMinutes(**v) for g, v in sorted(groups.items())}
     return PooledMinutes(
         wasteful_min=sum(g.wasteful_min for g in by_group.values()),
         worthwhile_min=sum(g.worthwhile_min for g in by_group.values()),
+        unclassified_min=sum(g.unclassified_min for g in by_group.values()),
         by_group=by_group,
         covered_excluded_min=sum(g.covered_excluded_min for g in by_group.values()),
         unmeasured_items=sum(g.unmeasured_items for g in by_group.values()),
@@ -433,7 +472,7 @@ def overage_for(week: db.Week, pooled: PooledMinutes) -> int:
     unclamped, and never reduces any other week's allowance. This replaces
     POP's carried debt (D1.5/D1.6).
     """
-    return max(0, whole_minutes(pooled.wasteful_min) - week.allowance_min)
+    return max(0, whole_minutes(pooled.charged_min) - week.allowance_min)
 
 
 def on_measurements_changed(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> None:

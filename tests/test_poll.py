@@ -492,7 +492,7 @@ def test_exceeded_text_records_the_overage_and_takes_nothing_from_next_week(conn
     poll.check_alerts(conn, clk, settings, bot)
     exceeded = [t for t in bot.texts if t.startswith("Over the allowance")]
     assert exceeded == [
-        "Over the allowance: 200 wasteful content minutes used across sources against 180 min. 20 min over. "
+        "Over the allowance: 200 counted content minutes used across sources against 180 min. 20 min over. "
         "That is recorded for this week; next week still starts with the full allowance."
     ]
     assert "comes off" not in exceeded[0] and "debt" not in exceeded[0].lower()
@@ -1062,7 +1062,7 @@ def test_alert_text_names_pooled_minutes_used_across_sources(conn, settings):
     use_minutes(conn, clk, 150)
     bot = FakeBot()
     poll.check_alerts(conn, clk, settings, bot)
-    assert bot.texts == ["150 of 180 wasteful content minutes used this week across sources. 30 min left."]
+    assert bot.texts == ["150 of 180 counted content minutes used this week across sources. 30 min left."]
 
 
 def test_a_deadline_post_shows_the_items_label(conn, settings):

@@ -286,7 +286,7 @@ def test_alerts_come_only_from_wasteful_consumption(conn, clk, settings,
     label, _ = expected(override, source_label)
     if label == T.WASTEFUL:
         assert len(bot.texts) == 2
-        assert any("Over the allowance: 200 wasteful content minutes used across sources" in t for t in bot.texts)
+        assert any("Over the allowance: 200 counted content minutes used across sources" in t for t in bot.texts)
     else:
         assert bot.texts == []
 
@@ -323,24 +323,24 @@ def test_pooled_minutes_across_every_source_in_one_week(conn, clk, settings):
 
     pooled = allowance.pooled_minutes(conn, settings, WEEK)
 
-    assert pooled.wasteful_min == pytest.approx(30 + 20 + 50 + 25 + 15 + 5)
+    assert pooled.charged_min == pytest.approx(30 + 20 + 50 + 25 + 15 + 5)
     assert pooled.worthwhile_min == pytest.approx(10)
     assert pooled.covered_excluded_min == pytest.approx(52)
     assert pooled.unmeasured_items == 1
     g = pooled.by_group
-    assert g[T.GROUP_PODCASTS].wasteful_min == pytest.approx(30)
-    assert (g[T.GROUP_YOUTUBE].wasteful_min, g[T.GROUP_YOUTUBE].worthwhile_min) == (20, 10)
+    assert g[T.GROUP_PODCASTS].charged_min == pytest.approx(30)
+    assert (g[T.GROUP_YOUTUBE].charged_min, g[T.GROUP_YOUTUBE].worthwhile_min) == (20, 10)
     assert g[T.GROUP_YOUTUBE].unmeasured_items == 1
-    assert g[T.GROUP_IPHONE].wasteful_min == pytest.approx(50)
+    assert g[T.GROUP_IPHONE].charged_min == pytest.approx(50)
     assert g[T.GROUP_IPHONE].covered_excluded_min == pytest.approx(40)
-    assert g[T.GROUP_X].wasteful_min == pytest.approx(30)
-    assert g[T.GROUP_DESKTOP].wasteful_min == pytest.approx(15)
+    assert g[T.GROUP_X].charged_min == pytest.approx(30)
+    assert g[T.GROUP_DESKTOP].charged_min == pytest.approx(15)
     assert g[T.GROUP_DESKTOP].covered_excluded_min == pytest.approx(12)
 
     # And the allowance reads it: 145 wasteful against 180 is "approaching".
     bot = FakeBot()
     poll.check_alerts(conn, clk, settings, bot)
-    assert bot.texts == ["145 of 180 wasteful content minutes used this week across sources. 35 min left."]
+    assert bot.texts == ["145 of 180 counted content minutes used this week across sources. 35 min left."]
 
 
 def test_covered_elsewhere_rows_never_reach_allowance_or_overage(conn, clk, settings):
@@ -412,8 +412,8 @@ def test_a_sunday_before_1800_day_is_charged_to_the_week_opening_that_evening(co
 
     before = allowance.pooled_minutes(conn, settings, WEEK)
     after = allowance.pooled_minutes(conn, settings, NEXT_WEEK)
-    assert before.wasteful_min == pytest.approx(40)      # Spotify: the instant
-    assert after.wasteful_min == pytest.approx(25)       # the day: next allowance week
+    assert before.charged_min == pytest.approx(40)      # Spotify: the instant
+    assert after.charged_min == pytest.approx(25)       # the day: next allowance week
     assert T.allowance_week_start_for_day(date(2026, 9, 13), settings.tz) == NEXT_WEEK
 
 
@@ -432,8 +432,8 @@ def test_week_attribution_across_the_dst_boundary(conn, clk, settings):
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-10-25", minutes=7.0)
 
     assert allowance.week_end(settings, before_dst) == after_dst
-    assert allowance.pooled_minutes(conn, settings, before_dst).wasteful_min == pytest.approx(13)
-    assert allowance.pooled_minutes(conn, settings, after_dst).wasteful_min == pytest.approx(27)
+    assert allowance.pooled_minutes(conn, settings, before_dst).charged_min == pytest.approx(13)
+    assert allowance.pooled_minutes(conn, settings, after_dst).charged_min == pytest.approx(27)
 
 
 def test_rollover_overage_across_the_dst_boundary(conn, clk, settings):
@@ -730,13 +730,17 @@ def test_tool_minutes_are_pooled_apart_from_wasteful_and_worthwhile(conn, clk, s
             period_end="2026-09-12", minutes=30.0)                         # OCR, tool
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-09-06",
             period_end="2026-09-12", minutes=10.0)                         # OCR, wasteful
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", T.WASTEFUL)
+    label_source(conn, clk, T.KIND_IPHONE_APP, "Instagram", T.WASTEFUL)
 
     pooled = allowance.pooled_minutes(conn, settings, WEEK)
-    assert pooled.wasteful_min == pytest.approx(30)
+    assert pooled.wasteful_min == pytest.approx(30) == pooled.charged_min
     assert pooled.worthwhile_min == 0
     assert pooled.tool_min == pytest.approx(100)
-    assert pooled.by_group[T.GROUP_DESKTOP] == allowance.GroupMinutes(20.0, 0.0, 0.0, 0, 70.0)
-    assert pooled.by_group[T.GROUP_IPHONE] == allowance.GroupMinutes(10.0, 0.0, 0.0, 0, 30.0)
+    assert pooled.by_group[T.GROUP_DESKTOP] == allowance.GroupMinutes(
+        wasteful_min=20.0, tool_min=70.0)
+    assert pooled.by_group[T.GROUP_IPHONE] == allowance.GroupMinutes(
+        wasteful_min=10.0, tool_min=30.0)
     # The OCR share describes content minutes only.
     assert (pooled.screenshot_ocr_min, pooled.screenshot_ocr_wasteful_min) == (10.0, 10.0)
 

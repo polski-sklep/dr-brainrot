@@ -362,15 +362,15 @@ def test_spotify_client_is_covered_elsewhere_and_excluded_from_pooled_minutes(co
     week = T.allowance_week_start_for_day(date(2026, 9, 13), TZ)
     pooled = allowance.pooled_minutes(conn, settings, week)
     apps = pooled.by_group[T.GROUP_DESKTOP_APPS]
-    assert apps.wasteful_min == pytest.approx(5.0)            # Slack 2.5 + Mail 2.5, unlabelled
+    assert apps.charged_min == pytest.approx(5.0)            # Slack 2.5 + Mail 2.5, unlabelled
     assert apps.covered_excluded_min == pytest.approx(2.0)    # the Spotify client
-    assert pooled.by_group[T.GROUP_X].wasteful_min == pytest.approx(1.0)
-    assert pooled.wasteful_min == pytest.approx(6.0)
+    assert pooled.by_group[T.GROUP_X].charged_min == pytest.approx(1.0)
+    assert pooled.charged_min == pytest.approx(6.0)
 
     slack = labels.ensure_source(conn, clk, T.KIND_DESKTOP_APP, "com.tinyspeck.slackmacgap")
     labels.set_source_label(conn, clk, slack.id, T.WORTHWHILE)
     pooled = allowance.pooled_minutes(conn, settings, week)
-    assert pooled.by_group[T.GROUP_DESKTOP_APPS].wasteful_min == pytest.approx(2.5)
+    assert pooled.by_group[T.GROUP_DESKTOP_APPS].charged_min == pytest.approx(2.5)
     assert pooled.by_group[T.GROUP_DESKTOP_APPS].worthwhile_min == pytest.approx(2.5)
 
     split = allowance.gated_split(conn, settings, week)[T.GROUP_DESKTOP_APPS]
@@ -408,7 +408,7 @@ def test_end_to_end_through_the_daily_job(conn, clk, settings):
         "Spotify polling (podcasts only; music is out of scope)"]
     assert not any("Qbserve" in line for line in report.blind_spots(conn, clk, settings))
     split = report.label_split(conn, clk, settings)
-    assert split[-1].wasteful_min == pytest.approx(6.0)
+    assert split[-1].charged_min == pytest.approx(6.0)
 
     app = dashboard_app.create_app(settings, clk, lambda: db.connect(settings))
     app.config["TESTING"] = True

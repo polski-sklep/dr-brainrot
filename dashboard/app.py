@@ -251,12 +251,12 @@ def choose_week(clk: Clock, settings: Settings, raw: str | None,
 #: Flash messages survive a redirect as `?msg=` codes rather than a Flask
 #: session, so the app still needs no secret key. Only these codes render.
 FLASH_TEXT = {
-    "synced": ("ok", "Sync finished. Everything DRBR can fetch by itself is up to date."),
+    "synced": ("ok", "Sync finished. Everything that can be fetched automatically is up to date."),
     "sync-failed": ("warn", "Sync ran but some sources failed — see the source table below."),
     "labelled": ("ok", "Labels saved. Every week's figures were re-recorded."),
     "fixed": ("ok", "Reading corrected. The week's totals now include it."),
     "insight-written": ("ok", "Summary rewritten from the figures above."),
-    "insight-fallback": ("warn", "The summary could not be generated, so DRBR's own computed "
+    "insight-fallback": ("warn", "The summary could not be generated, so the computed "
                                  "sentences are shown instead."),
 }
 

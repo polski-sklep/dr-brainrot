@@ -113,15 +113,18 @@ def test_queue_is_empty_when_everything_is_labelled(client, conn, clk, settings)
 def test_bulk_labels_a_selection_and_re_records_overage(client, conn, clk, settings):
     _unlabelled(conn, clk, settings)
     week = db.current_week(conn, clk, settings).week_start
-    before = allowance.pooled_minutes(conn, settings, week).wasteful_min
-    assert before == pytest.approx(175.0)          # unlabelled counts as wasteful
+    before = allowance.pooled_minutes(conn, settings, week).charged_min
+    assert before == pytest.approx(175.0)          # undecided still counts against the week
 
     ids = [r.source_id for r in labels.label_queue(conn, clk, settings) if r.display_name != "reddit.com"]
     resp = post(client, "/labels/bulk", label=T.TOOL, source_id=[str(i) for i in ids])
     assert resp.status_code == 303 and "msg=labelled" in resp.headers["Location"]
 
     after = allowance.pooled_minutes(conn, settings, week)
-    assert after.wasteful_min == pytest.approx(20.0)      # only reddit.com is still content
+    # Only reddit.com is still content, and it is still undecided: charged to the
+    # week, but never called wasteful on the person's behalf (DR5.11).
+    assert (after.wasteful_min, after.unclassified_min) == (0.0, pytest.approx(20.0))
+    assert after.charged_min == pytest.approx(20.0)
     assert after.tool_min == pytest.approx(155.0)
     assert conn.execute("SELECT overage_min FROM weeks WHERE week_start = ?", (week,)).fetchone()[0] == 0
 
@@ -163,7 +166,7 @@ def _unreadable_facebook(conn, clk, settings):
 def test_a_person_can_settle_a_reading_and_the_week_follows(client, conn, clk, settings):
     mid = _unreadable_facebook(conn, clk, settings)
     week = db.current_week(conn, clk, settings).week_start
-    assert allowance.pooled_minutes(conn, settings, week).wasteful_min == 0
+    assert allowance.pooled_minutes(conn, settings, week).charged_min == 0
 
     resp = post(client, f"/measurements/{mid}/fix", minutes="147")
     assert resp.status_code == 303 and "msg=fixed" in resp.headers["Location"]
@@ -171,7 +174,7 @@ def test_a_person_can_settle_a_reading_and_the_week_follows(client, conn, clk, s
     row = conn.execute("SELECT minutes, status, detail FROM measurements WHERE id = ?", (mid,)).fetchone()
     assert row["minutes"] == pytest.approx(147.0) and row["status"] == "ok"
     assert "2h 27m" in row["detail"]                       # the original reading is kept
-    assert allowance.pooled_minutes(conn, settings, week).wasteful_min == pytest.approx(147.0)
+    assert allowance.pooled_minutes(conn, settings, week).charged_min == pytest.approx(147.0)
 
 
 @pytest.mark.parametrize("value", ["-5", "2000", "", "lots"])

@@ -581,7 +581,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert count(conn, "listening") == listening_rows
     assert not any("(wasteful only)" in t for t in tg.texts())       # 100 wasteful of 1000: no alert; worthwhile never counts
     pooled = allowance.pooled_minutes(conn, settings, GO_LIVE_WEEK)
-    assert pooled.wasteful_min == pytest.approx(100)                                # 30 + 50 + 20
+    assert pooled.charged_min == pytest.approx(100)                                # 30 + 50 + 20
     assert pooled.worthwhile_min == pytest.approx(100)                              # counted, never charged
 
     # [17] Spotify: a token that lost its scope must fail loudly, never read as zero.
@@ -669,7 +669,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert any("Quantum Gravity" in p and "Label: worthwhile (source label) · costs 0 min — worthwhile" in p
                for p in posts)
     assert any("API title 4" in p and "Label: worthwhile (your tag at capture)" in p for p in posts)
-    assert "Last week spent 169 wasteful content minutes across sources" in posts[-1]
+    assert "Last week spent 169 counted content minutes across sources" in posts[-1]
     assert "went" not in posts[-1] and "Debt" not in posts[-1]
 
     # ------------------------------------------------------------------
@@ -854,17 +854,17 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
 
     # [7] one pooled allowance: every source's wasteful minutes in one figure
     pooled = allowance.pooled_minutes(conn, settings, GO_LIVE_WEEK)
-    assert {g: round(v.wasteful_min, 2) for g, v in pooled.by_group.items()} == {
+    assert {g: round(v.charged_min, 2) for g, v in pooled.by_group.items()} == {
         T.GROUP_PODCASTS: 100.0, T.GROUP_YOUTUBE: 69.33, T.GROUP_X: 141.72,
         T.GROUP_IPHONE: 748.97, T.GROUP_DESKTOP: 75.35}
-    assert pooled.wasteful_min == pytest.approx(1135.37)
+    assert pooled.charged_min == pytest.approx(1135.37)
     assert pooled.worthwhile_min == pytest.approx(100 + 27.0833333 + 38)
     assert pooled.covered_excluded_min == pytest.approx(40)
     assert pooled.screenshot_ocr_min == pytest.approx(911.9666667)
 
     split = {w.week_start: w for w in report.label_split(conn, clk, settings)}
     assert list(split) == [GO_LIVE_WEEK, NEXT_WEEK]            # weeks before the diagnostic are not bars
-    assert split[GO_LIVE_WEEK].wasteful_min == pytest.approx(1135.37)
+    assert split[GO_LIVE_WEEK].charged_min == pytest.approx(1135.37)
 
     status = report.allowance_status(conn, clk, settings)
     # Last week's 135 over is recorded on that week; this week keeps its full 1000.

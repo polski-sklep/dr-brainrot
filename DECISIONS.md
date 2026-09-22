@@ -1718,3 +1718,53 @@ problem, and amber is what prompted the question.
 decides per week. `WeekChoice` gains `due` and `due_on`. `dashboard/app.py`
 passes `everything_in`. The wording lives in `overview.html`, which belongs to
 the UI session and was handed over rather than edited from here.
+
+### DR5.11 — Unlabelled is undecided, not wasteful
+
+**22 September 2026.** Asked to assess the whole thing, Jacob said the numbers
+were over-indexed and that the core wasteful-versus-worthwhile question had
+ended up at the bottom. Reading the rows behind the headline turned that from a
+layout complaint into a measurement one.
+
+The week of 13 Sep reported 495 wasteful minutes. It was made of 205 minutes on
+sources he had actually called wasteful and 290 on sources nobody had labelled
+at all — and the two largest of those were **Brave, 163 min**, a phone browser
+with no visibility inside it, and **`file:`, 82 min**, local files opened from
+his own disk. Of the twenty largest sources that week, two were labelled
+brain-rot content. The default "unlabelled counts as wasteful" was written when
+we assumed most measured time would be content; 1,437 of 2,073 minutes were
+tools, so the assumption was simply wrong.
+
+The deeper fault is that the headline could not be falsified. It fell when he
+labelled and rose when evidence arrived — never because he watched less, which
+is the only movement the diagnostic exists to detect.
+
+**So the headline counts only what the person has decided.** `wasteful_min` is
+labelled-wasteful alone; the undecided minutes are `unclassified_min`, reported
+beside it rather than folded into it. Nothing is hidden and nothing is dropped.
+
+**The allowance still counts both**, as `charged_min`. An allowance is a rail,
+and a rail that ignores everything it cannot identify is not a rail: charging
+only the decided minutes would have taken a week that was 135 minutes over and
+called it comfortably inside. `charged_min` reproduces the old figure exactly,
+so no recorded overage changes and no history is rewritten.
+
+**The gate is unchanged too, and deliberately.** `labels.resolve` still answers
+`wasteful` for an unlabelled source, because a gate is a decision point where an
+unrecognised thing should be treated as brain rot until the person says
+otherwise. Reporting is a measurement, where it should not. The two readings are
+separated by basis, not by a second resolver: `allowance._field` reads
+`BASIS_DEFAULT` and nothing else changed about precedence.
+
+Alert and triage copy stopped calling the charged figure "wasteful content
+minutes" — it now holds undecided minutes too, and the old wording would have
+asserted a judgement the person had not made.
+
+**Also in this pass: `report.top_sources`.** The Reflex section listed "Desktop
+web 49, Desktop apps 5.6" — the pipe the evidence arrived through, not the thing
+consumed. Nobody watches desktop web; they watch VICE Vault, streamseast.ws, X.
+The names were in the database and no surface used them. `top_sources` returns
+the week by name, biggest first, with the label (None when undecided, never
+guessed), the reflex share per row and the provenances. Tool sources never
+appear. It reuses `pooled_minutes`' exclusions so the list and the totals cannot
+drift apart, and a test asserts exactly that.

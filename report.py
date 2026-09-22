@@ -197,6 +197,12 @@ class WeekSplit:
     allowance_min: int | None = None    # that week's allowance (its snapshot, or config if never opened)
     overage_min: int = 0                # recorded, never carried (DR5.2); "so far" for the current week
     tool_min: float = 0.0               # not content (DR5.5): shown, never in the bars or the allowance
+    unclassified_min: float = 0.0       # no label yet (DR5.11): charged, but never called brain rot
+
+    @property
+    def charged_min(self) -> float:
+        """Decided plus undecided — what the allowance counted for this week."""
+        return self.wasteful_min + self.unclassified_min
 
 
 @dataclass(frozen=True)
@@ -475,12 +481,95 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
     return out
 
 
+@dataclass(frozen=True)
+class SourceLine:
+    """One named thing consumed in a week: a show, a channel, an app, a site.
+
+    Groups and provenances answer "how do we know this"; this answers "what was
+    it". `label` is None when nobody has decided yet — never guessed, so the
+    row can offer the decision instead of asserting one.
+    """
+
+    source_id: int | None
+    display_name: str
+    group: str
+    minutes: float
+    label: str | None
+    reflex_min: float                   # of `minutes`, how much bypassed the queue
+    provenances: frozenset = frozenset()
+
+    @property
+    def all_reflex(self) -> bool:
+        return self.minutes > 0 and self.reflex_min >= self.minutes - 1e-9
+
+
+def top_sources(conn: sqlite3.Connection, clk: Clock, settings: Settings,
+                week_start: str, limit: int | None = 8) -> list[SourceLine]:
+    """The week's content by name, biggest first. Tool sources never appear.
+
+    The same rows `pooled_minutes` counts, under the same exclusions — covered
+    elsewhere, unmeasured, pre-go-live — so this list and the week's totals
+    cannot disagree. `limit=None` returns every source.
+    """
+    acc: dict[tuple, dict] = {}
+
+    def line(key, *, name: str, group: str, source_id: int | None) -> dict:
+        return acc.setdefault(key, {"display_name": name, "group": group, "source_id": source_id,
+                                    "minutes": 0.0, "reflex_min": 0.0, "label": None,
+                                    "provenances": set()})
+
+    def add(bucket: dict, minutes: float, resolved, gated: bool, provenance: str) -> None:
+        bucket["minutes"] += minutes
+        if not gated:
+            bucket["reflex_min"] += minutes
+        bucket["label"] = None if resolved.basis == T.BASIS_DEFAULT else resolved.label
+        bucket["provenances"].add(provenance)
+
+    for row in allowance._spotify_rows(conn, settings, week_start):
+        resolved = allowance.spotify_label(conn, row)
+        if resolved.label == T.TOOL:
+            continue
+        show = (row["show"] or "").strip() or "(unknown show)"
+        promoted = conn.execute(
+            "SELECT 1 FROM queue WHERE spotify_id = ? AND promoted_at IS NOT NULL "
+            "AND promoted_at <= ? LIMIT 1", (row["spotify_id"], row["polled_at"])).fetchone()
+        b = line((T.KIND_PODCAST_SHOW, show), name=show, group=T.GROUP_PODCASTS,
+                 source_id=allowance._find_source_id(conn, T.KIND_PODCAST_SHOW, show))
+        add(b, int(row["delta_ms"]) / allowance.MIN_MS, resolved, promoted is not None, T.PROV_API)
+
+    go_live = getattr(settings, "go_live", "") or ""
+    for row in allowance._measurement_rows(conn, settings, week_start):
+        if row["status"] != "ok" or T.COVERED_ELSEWHERE.get((row["kind"], row["source_key"])):
+            continue
+        if go_live and row["period_end"] < go_live:
+            continue
+        resolved = allowance.measurement_label(conn, row)
+        if resolved.label == T.TOOL:
+            continue
+        gated = bool(row["kind"] == T.KIND_YOUTUBE_CHANNEL and row["item_key"]
+                     and allowance._youtube_promoted_by(conn, settings, row["item_key"],
+                                                        row["period_start"]))
+        name = (row["display_name"] or row["source_key"] or "").strip() or "(unnamed)"
+        b = line((row["kind"], row["source_key"]), name=name,
+                 group=T.report_group(row["kind"], row["device"]), source_id=row["source_id"])
+        add(b, float(row["minutes"]), resolved, gated, row["provenance"])
+
+    out = [SourceLine(v["source_id"], v["display_name"], v["group"], v["minutes"], v["label"],
+                      v["reflex_min"], frozenset(v["provenances"]))
+           for v in acc.values() if v["minutes"] > 0]
+    # Biggest first; name breaks ties so two equal rows never swap between runs.
+    out.sort(key=lambda r: (-r.minutes, r.display_name))
+    return out if limit is None else out[:limit]
+
+
 def label_split(conn: sqlite3.Connection, clk: Clock, settings: Settings,
                 weeks: int = 8) -> list[WeekSplit]:
     """Wasteful vs worthwhile content per allowance week, oldest first, ending with the current week.
 
     Tool minutes (not content, DR5.5) are in neither figure; each week carries
-    them as `tool_min` so they stay visible.
+    them as `tool_min` so they stay visible. Sources with no label yet are in
+    neither either, and carried as `unclassified_min` (DR5.11): the bars show
+    what the user has decided, and `charged_min` is what the allowance counted.
 
     Weeks that end before the diagnostic window start are left out: they are
     not diagnostic data, and showing them as empty bars would read as zero.
@@ -498,7 +587,7 @@ def label_split(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         allowed = row["allowance_min"] if row else settings.weekly_allowance_min
         over = allowance.overage_for(db.Week(start, allowed, 0, 0, 0), pooled)
         out.append(WeekSplit(start, pooled.wasteful_min, pooled.worthwhile_min, pooled.screenshot_ocr_min,
-                             allowed, over, pooled.tool_min))
+                             allowed, over, pooled.tool_min, pooled.unclassified_min))
     return out
 
 
@@ -517,7 +606,7 @@ def allowance_status(conn: sqlite3.Connection, clk: Clock, settings: Settings) -
         week = db.Week(start, settings.weekly_allowance_min, 0, 0, 0)
 
     pooled = allowance.pooled_minutes(conn, settings, start)
-    spent = pooled.wasteful_min
+    spent = pooled.charged_min
     effective = week.effective_allowance_min
     return AllowanceStatus(
         week_start=start,
@@ -695,7 +784,7 @@ def funnels(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Funnels
 
 
 #: Standing first line of `blind_spots` (DR5.5).
-TOOL_SCOPE_LINE = ("DRBR measures content only; sources you mark as tool (shopping, email, utilities…) are "
+TOOL_SCOPE_LINE = ("Content only; sources you mark as tool (shopping, email, utilities…) are "
                    "excluded and shown separately.")
 
 
@@ -1011,7 +1100,7 @@ def _weekly_manual_state(conn: sqlite3.Connection, clk: Clock, settings: Setting
     if _covering_import(conn, settings, kind, week) is not None:
         return STATE_OK, "", f"Last week ({span}) has arrived."
     if settings.go_live and week.end < settings.go_live:
-        return STATE_OK, "", f"The week {span} ended before DRBR started measuring."
+        return STATE_OK, "", f"The week {span} ended before measuring started."
     if today < week.saturday + timedelta(days=2):
         return STATE_WAITING, "", f"Last week ({span}) can be sent from Monday."
     return STATE_MISSING, action, f"Nothing has arrived for last week ({span})."
@@ -1064,11 +1153,11 @@ def _qbserve_latest_record(conn: sqlite3.Connection) -> str | None:
 SCREENTIME_ACTION = ("Send last week's Screen Time screenshots to the bot: Settings → Screen Time → this "
                      "iPhone → Week → ‹ once (\"Last Week\"), tap Show More until it disappears, and send "
                      "the whole scroll in one go.")
-YOUTUBE_ACTION = ("Open youtube.com/feed/history in the desktop browser, click the DRBR extension and "
+YOUTUBE_ACTION = ("Open youtube.com/feed/history in the desktop browser, click the browser extension and "
                   "press Sync.")
 COLDTURKEY_EXPORT_ACTION = ("Cold Turkey Blocker → Statistics → Websites usage (time) → last week → Export, "
                             "and send the JSON file to the bot.")
-COLDTURKEY_READ_ACTION = ("DRBR reads Cold Turkey's own statistics on this Mac; check logs/jobs.log, and "
+COLDTURKEY_READ_ACTION = ("Cold Turkey's own statistics are read on this Mac; check logs/jobs.log, and "
                           "export last week by hand meanwhile.")
 QBSERVE_ACTION = "Open Qbserve and set it to open at login, so desktop app time keeps being recorded."
 QBSERVE_UNCONFIGURED_ACTION = ("Desktop app time is not measured: set DRBR_QBSERVE_DB in .env and let the "
@@ -1192,7 +1281,7 @@ def provenance_map(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> 
         ProvenanceRow(
             T.GROUP_YOUTUBE, GROUP_TEXT[T.GROUP_YOUTUBE],
             "Minutes watched per channel, across every device signed into the account.",
-            "DRBR browser extension (watch history) × YouTube Data API duration",
+            "Browser extension (watch history) × YouTube Data API duration",
             T.PROV_PAGE, T.PROVENANCE_TEXT[T.PROV_PAGE], MODE_MANUAL, SCHEDULE_MANUAL_WEEKLY,
             GROUP_BLIND_SPOTS[T.GROUP_YOUTUBE]),
         ProvenanceRow(

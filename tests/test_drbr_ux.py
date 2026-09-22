@@ -326,7 +326,7 @@ def test_correct_measurement_records_the_persons_figure_and_moves_the_totals(con
     screentime_with_a_conflict(conn, clk, settings)
     (eye,) = [r for r in report.needs_your_eye(conn, clk, settings) if r.source == "Lionfish"]
     week_start = T.allowance_week_start_for_day(date(2026, 9, 7), settings.tz)
-    before = allowance.pooled_minutes(conn, settings, week_start).wasteful_min
+    before = allowance.pooled_minutes(conn, settings, week_start).charged_min
 
     screentime.correct_measurement(conn, clk, settings, eye.measurement_id, 149.0)
 
@@ -339,7 +339,7 @@ def test_correct_measurement_records_the_persons_figure_and_moves_the_totals(con
     assert detail["raw"], "the original OCR reading is kept"
     assert row["provenance"] == T.PROV_SCREENSHOT, "a human arbitration does not upgrade provenance"
 
-    after = allowance.pooled_minutes(conn, settings, week_start).wasteful_min
+    after = allowance.pooled_minutes(conn, settings, week_start).charged_min
     assert after == pytest.approx(before + 149.0)
     assert [r.source for r in report.needs_your_eye(conn, clk, settings) if r.source == "Lionfish"] == []
 

@@ -105,6 +105,11 @@ def two_weeks(conn, clk, settings):
           minutes={"iphone": 100.0, "web": 40.0, "youtube": 20.0, "desktop_apps": 30.0})
     label_source(conn, clk, T.KIND_YOUTUBE_CHANNEL, SECRET_NAMES["channel_key"], T.WORTHWHILE)
     label_source(conn, clk, T.KIND_DESKTOP_APP, SECRET_NAMES["mac_app"], T.TOOL)
+    # The iPhone app and the web domain are what these tests mean by wasteful,
+    # so they are labelled. An unlabelled source is undecided, not wasteful
+    # (DR5.11), and would leave every trend sentence describing nothing.
+    label_source(conn, clk, T.KIND_IPHONE_APP, SECRET_NAMES["app"], T.WASTEFUL)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, SECRET_NAMES["domain"], T.WASTEFUL)
     return conn
 
 

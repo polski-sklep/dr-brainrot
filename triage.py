@@ -258,14 +258,14 @@ def render_week_header(week: Week, *, spent_wasteful_min: float | None = None,
     if last_week_wasteful_min is not None:
         lines.append(
             f"Last week spent {allowance.whole_minutes(last_week_wasteful_min)} "
-            "wasteful content minutes across sources"
+            "counted content minutes across sources"
         )
     if last_week_overage_min:
         lines.append(f"Last week went {last_week_overage_min} min over (recorded, not carried)")
     if spent_wasteful_min is not None:
         lines.append(
             f"Spent so far {allowance.whole_minutes(spent_wasteful_min)} "
-            "wasteful content minutes across sources"
+            "counted content minutes across sources"
         )
     return "\n".join(lines)
 
@@ -384,8 +384,8 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
     current = db.current_week(conn, clk, settings)
     send(bot, settings, render_week_header(
         current,
-        spent_wasteful_min=allowance.pooled_minutes(conn, settings, current.week_start).wasteful_min,
-        last_week_wasteful_min=allowance.pooled_minutes(conn, settings, closed.week_start).wasteful_min,
+        spent_wasteful_min=allowance.pooled_minutes(conn, settings, current.week_start).charged_min,
+        last_week_wasteful_min=allowance.pooled_minutes(conn, settings, closed.week_start).charged_min,
         last_week_overage_min=closed.overage_min,
         tz=settings.tz,
     ))

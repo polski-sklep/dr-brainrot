@@ -173,7 +173,7 @@ def test_x_from_two_domains_on_one_day_is_summed_not_collapsed(conn, clk, settin
     evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-06", period_end="2026-09-08")
 
     pooled = allowance.pooled_minutes(conn, settings, WEEK)
-    assert pooled.by_group[T.GROUP_X].wasteful_min == pytest.approx(20)
+    assert pooled.by_group[T.GROUP_X].charged_min == pytest.approx(20)
     x_rows = [r for r in report.weekly_totals(conn, clk, settings, WEEK) if r.group == T.GROUP_X]
     assert x_rows[0].minutes == pytest.approx(20) and x_rows[0].import_status == "partial"
     assert len(report.records(conn, clk, settings, group=T.GROUP_X)) == 2
@@ -186,7 +186,7 @@ def test_unknown_youtube_channel_counts_as_unlabelled_even_if_labelled(conn, clk
             minutes=30.0, item_key="unknownvid1")
     rows = report.records(conn, clk, settings, group=T.GROUP_YOUTUBE)
     assert (rows[0].label, rows[0].label_basis) == (T.WASTEFUL, T.BASIS_DEFAULT)
-    assert allowance.pooled_minutes(conn, settings, WEEK).wasteful_min == pytest.approx(30)
+    assert allowance.pooled_minutes(conn, settings, WEEK).charged_min == pytest.approx(30)
 
     # An explicit per-video override at capture still wins.
     labels.set_item_override(conn, clk, "youtube:unknownvid1", T.WORTHWHILE)
@@ -255,6 +255,73 @@ def test_a_week_that_ended_before_go_live_is_never_due(conn, clk, settings):
     assert report.week_is_due(clk, live, T.measurement_week(T.parse_date("2026-09-06"))) is True
 
 
+
+# ==========================================================================
+# top_sources: the week by name
+# ==========================================================================
+
+def test_top_sources_names_the_things_consumed_biggest_first(conn, clk, settings):
+    seed_week(conn, clk, settings)
+    label_source(conn, clk, T.KIND_IPHONE_APP, "Instagram", T.WASTEFUL)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", T.TOOL, "amazon.pl")
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="amazon.pl", day="2026-09-09",
+            minutes=300.0)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="kwargle.example", day="2026-09-09",
+            minutes=5.0)                                  # nobody has labelled this one
+
+    rows = report.top_sources(conn, clk, settings, WEEK, limit=None)
+    by_name = {r.display_name: r for r in rows}
+
+    # Names, not groups or provenances.
+    assert [r.display_name for r in rows][:3] == ["Instagram", "Good", "Pod"]
+    assert by_name["Instagram"].minutes == pytest.approx(90) and by_name["Instagram"].group == T.GROUP_IPHONE
+
+    # A tool source is not content and never appears, however large.
+    assert "amazon.pl" not in by_name
+
+    # The label is carried, and never invented: x.com has none.
+    assert by_name["Good"].label == T.WORTHWHILE
+    assert by_name["kwargle.example"].label is None       # never guessed
+    assert by_name["Instagram"].label == T.WASTEFUL
+
+    # An unmeasured row contributes no minutes, so it is not a line at all.
+    assert all(r.minutes > 0 for r in rows)
+    assert "UCbad" not in by_name
+
+    # Nothing here went through the queue.
+    assert all(r.all_reflex for r in rows)
+    assert by_name["Good"].provenances == frozenset({T.PROV_PAGE})
+
+
+def test_top_sources_marks_the_promoted_part_as_not_reflex(conn, clk, settings):
+    """A YouTube video promoted before it was watched is a choice, not a reflex."""
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCmix", day="2026-09-08",
+            minutes=20.0, item_key="planned0001", display="Mixed")
+    measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCmix", day="2026-09-09",
+            minutes=30.0, item_key="reflexvid01", display="Mixed")
+    clk.set("2026-09-07T08:00:00+00:00")
+    youtube_item(conn, clk, settings, "planned0001", channel="UCmix", channel_title="Mixed")
+    conn.execute("UPDATE queue SET state = 'promoted', promoted_at = ? WHERE spotify_id = ?",
+                 ("2026-09-07T08:00:00+00:00", T.queue_key_for_youtube("planned0001")))
+    conn.commit()
+    clk.set(WED)
+
+    (row,) = [r for r in report.top_sources(conn, clk, settings, WEEK, limit=None)
+              if r.display_name == "Mixed"]
+    assert row.minutes == pytest.approx(50)
+    assert row.reflex_min == pytest.approx(30)      # only the unpromoted video
+    assert row.all_reflex is False
+
+
+def test_top_sources_agrees_with_the_weeks_content_total(conn, clk, settings):
+    """The list and the totals are the same minutes, so they cannot drift apart."""
+    seed_week(conn, clk, settings)
+    pooled = allowance.pooled_minutes(conn, settings, WEEK)
+    listed = sum(r.minutes for r in report.top_sources(conn, clk, settings, WEEK, limit=None))
+    assert listed == pytest.approx(pooled.charged_min + pooled.worthwhile_min)
+
 # ==========================================================================
 # label_split and allowance_status
 # ==========================================================================
@@ -266,7 +333,7 @@ def test_label_split_is_weekly_oldest_first(conn, clk, settings):
     splits = report.label_split(conn, clk, settings, weeks=4)
     # The week of 23 Aug ends before the diagnostic start and is left out.
     assert [s.week_start for s in splits] == ["2026-08-30T16:00:00+00:00", WEEK, NEXT_WEEK]
-    assert splits[1].wasteful_min == pytest.approx(30 + 90 + 12)
+    assert splits[1].charged_min == pytest.approx(30 + 90 + 12)
     assert splits[1].worthwhile_min == pytest.approx(40)
     assert (splits[2].wasteful_min, splits[2].worthwhile_min) == (0, 0)
 
@@ -602,7 +669,7 @@ def test_weekly_totals_show_tool_minutes_apart_from_content(conn, clk, settings)
 def test_label_split_and_allowance_status_exclude_tool_but_carry_it(conn, clk, settings):
     seed_tool_week(conn, clk, settings)
     (split,) = [s for s in report.label_split(conn, clk, settings) if s.week_start == WEEK]
-    assert split.wasteful_min == pytest.approx(60)                        # reddit 40 + x 20
+    assert split.charged_min == pytest.approx(60)                        # reddit 40 + x 20
     assert split.worthwhile_min == 0
     assert split.tool_min == pytest.approx(175)                           # amazon 150 + tool show 25
     assert split.overage_min == 0
@@ -643,5 +710,5 @@ def test_records_filter_accepts_tool(conn, clk, settings):
 def test_blind_spots_state_the_content_only_scope(conn, clk, settings):
     clk.set(WED)
     spots = report.blind_spots(conn, clk, settings)
-    assert spots[0] == ("DRBR measures content only; sources you mark as tool (shopping, email, utilities…) "
+    assert spots[0] == ("Content only; sources you mark as tool (shopping, email, utilities…) "
                         "are excluded and shown separately.")

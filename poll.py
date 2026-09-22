@@ -313,7 +313,7 @@ def check_alerts(conn, clk: Clock, settings: Settings, bot) -> None:
     week = db.current_week(conn, clk, settings)
     effective = week.effective_allowance_min
     used = allowance.whole_minutes(
-        allowance.pooled_minutes(conn, settings, week.week_start).wasteful_min
+        allowance.pooled_minutes(conn, settings, week.week_start).charged_min
     )
 
     # A zero allowance would make "80% of nothing" trip at zero minutes used.
@@ -333,7 +333,7 @@ def check_alerts(conn, clk: Clock, settings: Settings, bot) -> None:
 def _approaching_text(week, used: int) -> str:
     left = max(0, week.effective_allowance_min - used)
     return (
-        f"{used} of {week.effective_allowance_min} wasteful content minutes used this week "
+        f"{used} of {week.effective_allowance_min} counted content minutes used this week "
         f"across sources. {left} min left."
     )
 
@@ -341,7 +341,7 @@ def _approaching_text(week, used: int) -> str:
 def _exceeded_text(week, used: int) -> str:
     over = used - week.effective_allowance_min
     return (
-        f"Over the allowance: {used} wasteful content minutes used across sources "
+        f"Over the allowance: {used} counted content minutes used across sources "
         f"against {week.effective_allowance_min} min. {over} min over. That is "
         "recorded for this week; next week still starts with the full allowance."
     )

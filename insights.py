@@ -86,7 +86,7 @@ STATUS_FAILED = "failed"
 #: Why a summary is DRBR's own sentences rather than a model's, in the words
 #: the dashboard prints. A failed import shows its real error everywhere else
 #: on this dashboard; this panel is not the one place that shows a code.
-REASON_NO_KEY = ("No ANTHROPIC_API_KEY is set, so DRBR wrote these sentences from its own "
+REASON_NO_KEY = ("No ANTHROPIC_API_KEY is set, so these sentences were written from the stored "
                  "figures.")
 REASON_TOO_LITTLE = ("Too little data: no complete week of figures yet, so there was nothing "
                      "to summarise.")
@@ -98,11 +98,11 @@ REASON_CALL_FAILED = "API call failed: {error}"
 #: error is still stored in `insights.error` either way.
 KNOWN_FAILURES = (
     ("credit balance is too low",
-     "The summary needs Anthropic credit and the balance is too low, so DRBR wrote these "
+     "The summary needs Anthropic credit and the balance is too low, so these sentences were written "
      "sentences from its own figures."),
-    ("rate_limit", "The API was rate-limited, so DRBR wrote these sentences from its own figures. "
+    ("rate_limit", "The API was rate-limited, so these sentences were written from the stored figures. "
                    "The next weekly run will try again."),
-    ("authentication_error", "The Anthropic API key was rejected, so DRBR wrote these sentences "
+    ("authentication_error", "The Anthropic API key was rejected, so these sentences were written "
                              "from its own figures."),
 )
 
@@ -117,14 +117,14 @@ def explain_failure(error: str) -> str:
 REASON_UNKNOWN = "The summary was not written by a model; the reason was not recorded."
 
 SYSTEM_PROMPT = """\
-You write one short summary panel for DRBR, a personal diagnostic that measures how much \
+You write one short summary panel for a personal diagnostic that measures how much \
 brain-rot content one person consumes each week.
 
 Every number you use must come from the JSON payload in the user's message. Do not invent a \
 figure, do not estimate one, and do not state any number that is not in the payload. You may \
 compare two numbers that are both in the payload; you may not derive anything else.
 
-DRBR's standing rule is that the system counts and the person labels. Describe the measured \
+The standing rule is that the system counts and the person labels. Describe the measured \
 pattern and stop there. Do not say whether any of this content was worth the time. Do not \
 suggest that anything should be labelled differently. Give no advice, no recommendations, no \
 encouragement, no praise, no criticism and no moralising, and do not tell the person what to do \
@@ -132,6 +132,14 @@ next.
 
 Where the payload's coverage_gaps say a week's evidence never arrived, say that the week is \
 incomplete rather than treating the gap as zero.
+
+wasteful_min counts only sources the person has actually labelled wasteful. unclassified_min is \
+time on sources they have not labelled at all: it is not a judgement that the time was wasted, \
+and it must never be described as wasteful, brain rot or a problem. charged_min is the two \
+together, which is what the allowance counted. Where unclassified_min is a large share of \
+charged_min, say plainly that much of the week is undecided and that the wasteful figure \
+therefore describes only the part that has been labelled — state it as a limit on what can be \
+read from the figures, not as something the person should go and fix.
 
 The payload names report groups only: podcasts, YouTube, X, iPhone apps, desktop web, desktop \
 apps. You are not told the name of any show, channel, app, site, video or note, and must not \
@@ -264,6 +272,7 @@ def _week_facts(conn: sqlite3.Connection, clk: Clock, settings: Settings,
             "group": group,
             "wasteful_min": _round_min(gm.wasteful_min),
             "worthwhile_min": _round_min(gm.worthwhile_min),
+            "unclassified_min": _round_min(gm.unclassified_min),
             "tool_min": _round_min(gm.tool_min),
             "gated_min": _round_min(gr.gated_min) if gr else 0.0,
             "ungated_min": _round_min(gr.ungated_min) if gr else 0.0,
@@ -278,6 +287,8 @@ def _week_facts(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         "days": {"from": mweek.start, "to": mweek.end},
         "wasteful_min": _round_min(wasteful),
         "worthwhile_min": _round_min(pooled.worthwhile_min),
+        "unclassified_min": _round_min(pooled.unclassified_min),
+        "charged_min": _round_min(pooled.charged_min),
         "tool_min": _round_min(pooled.tool_min),
         "screenshot_ocr_min": _round_min(pooled.screenshot_ocr_min),
         "allowance_min": (split.allowance_min if split else settings.weekly_allowance_min),
@@ -420,6 +431,13 @@ def fallback_summary(payload: dict) -> str:
                              f"{_min(prev_w)} to {_min(now_w)}.")
         sentences.append(f"Across {len(weeks)} complete weeks the wasteful weekly average is "
                          f"{_min(sum(w['wasteful_min'] for w in weeks) / len(weeks))}.")
+
+    undecided = last.get("unclassified_min") or 0
+    charged = last.get("charged_min") or 0
+    if undecided > 0 and charged > 0:
+        sentences.append(
+            f"{_min(undecided)} of that week's {_min(charged)} counted minutes are on sources "
+            f"with no label yet, so the wasteful figure covers only the labelled part.")
 
     share = last.get("reflex_share_of_wasteful")
     if share is not None:

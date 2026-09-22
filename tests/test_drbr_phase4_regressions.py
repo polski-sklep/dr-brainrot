@@ -85,7 +85,7 @@ def test_pre_go_live_evidence_is_shown_but_never_charged(conn, clk, settings):
 
     # From go-live on, the same source charges as before.
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-13", minutes=50.0)
-    assert allowance.pooled_minutes(conn, settings, GO_LIVE_WEEK).wasteful_min == pytest.approx(50)
+    assert allowance.pooled_minutes(conn, settings, GO_LIVE_WEEK).charged_min == pytest.approx(50)
 
 
 # --------------------------------------------------------------------------
@@ -178,6 +178,8 @@ def test_split_and_allowance_carry_their_screenshot_share(conn, clk, settings):
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-09-13",
             period_end="2026-09-19", minutes=70.0)
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-14", minutes=20.0)
+    label_source(conn, clk, T.KIND_IPHONE_APP, "Instagram", T.WASTEFUL)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", T.WASTEFUL)
     split = [w for w in report.label_split(conn, clk, settings) if w.week_start == GO_LIVE_WEEK][0]
     assert (split.wasteful_min, split.screenshot_ocr_min) == (pytest.approx(90), pytest.approx(70))
     status = report.allowance_status(conn, clk, settings)

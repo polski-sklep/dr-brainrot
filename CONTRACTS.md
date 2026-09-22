@@ -796,6 +796,13 @@ weekly_totals(..., week_start: str) -> list[SourceTotal(group, provenance: str, 
   The last four are two pairs: nothing arrived ('not_due' before the week is asked
   for, 'missing' after) and partial coverage ('so_far' before, 'incomplete' after).
   Slugs, not prose: the template maps them to words and to a CSS class (DR5.10).
+top_sources(..., week_start, limit=8) -> list[SourceLine(source_id, display_name, group,
+                                       minutes, label, reflex_min, provenances)]
+  The week's content BY NAME, biggest first. label is None when undecided — never guessed.
+  Tool sources never appear. Same exclusions as pooled_minutes, so list and totals agree.
+PooledMinutes/GroupMinutes/WeekSplit gain unclassified_min and .charged_min
+  (= wasteful + unclassified). Reported headline reads wasteful_min; the allowance,
+  overage and alerts read charged_min (DR5.11).
 week_is_due(clk, settings, mweek) -> bool   # the Monday after the week has come
 due_on(mweek) -> date                       # that Monday
 everything_in(totals) -> bool               # every expected source covers the week

@@ -5,7 +5,7 @@ source module, a source labelled tool from the Telegram button, the allowance
 alert from poll, Sunday's rollover, then the report and the dashboard HTML.
 
 The promise under test is the user's: DRBR is for brain-rot content, not for
-time spent on Amazon. 300 wasteful content minutes against a 360-minute
+time spent on Amazon. 300 counted content minutes against a 360-minute
 allowance is not over, however long the shopping took, and the 200 tool
 minutes are still shown rather than silently dropped.
 """
@@ -58,11 +58,14 @@ def test_300_wasteful_content_minutes_and_200_tool_minutes_is_not_over_360(tmp_p
     assert [r.display_name for r in queue] == ["reddit.com", "amazon.pl"]      # biggest decision first
     assert labels.bulk_set_label(conn, clk, [amazon.id], T.TOOL, settings=settings) == 1
     assert labels.get_source(conn, amazon.id).label == T.TOOL
+    reddit = next(s for s in labels.list_sources(conn, kind=T.KIND_WEB_DOMAIN)
+                  if s.source_key == "reddit.com")
+    assert labels.bulk_set_label(conn, clk, [reddit.id], T.WASTEFUL, settings=settings) == 1
 
     # Alerts read wasteful content only: 300 of 360 is approaching, never exceeded.
     bot = FakeBot()
     poll.check_alerts(conn, clk, settings, bot)
-    assert bot.texts == ["300 of 360 wasteful content minutes used this week across sources. 60 min left."]
+    assert bot.texts == ["300 of 360 counted content minutes used this week across sources. 60 min left."]
 
     # Sunday: the week closes with no overage recorded.
     clk.set("2026-09-20T16:30:00+00:00")

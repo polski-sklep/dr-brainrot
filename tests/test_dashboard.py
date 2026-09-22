@@ -589,6 +589,7 @@ def test_overview_states_scope_and_shows_tool_minutes_outside_the_bars(client, c
     label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", T.TOOL)
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="amazon.pl", day="2026-09-08", minutes=200.0)
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-08", minutes=30.0)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", T.WASTEFUL)
     clk.set("2026-09-16T10:00:00+00:00")
 
     # The page now opens on the current week (DR5.7), so ask for the week the
