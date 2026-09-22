@@ -14,9 +14,7 @@
 <section id="week-summary">
   <h2>Week of Sun {{ week.sunday }} – Sat {{ week.saturday }}{% if week.is_current %} (in progress){% elif everything_in %} (complete){% endif %}</h2>
   <p class="weeknav">
-    <strong>Week Sun {{ week.sunday }} – Sat {{ week.saturday }}</strong>
-    {% if week.is_current %}<em>(current week, in progress)</em>
-    {% elif everything_in %}<em class="all-in">(complete — every source is in)</em>{% endif %}
+    {% if everything_in and not week.is_current %}<em class="all-in">every source is in</em>{% endif %}
     {% if week.prev_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.prev_sunday) }}">← previous</a>{% endif %}
     {% if week.next_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.next_sunday) }}">next →</a>{% endif %}
     {% if not week.is_current %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.current_sunday) }}">current week</a>{% endif %}
@@ -30,10 +28,10 @@
       <span class="headline-value">{% if week_split %}{{ week_split.charged_min|min }}{% else %}<span class="absent">outside the window</span>{% endif %}</span>
       {% if week_split and prev %}
       <span class="headline-delta">
-        {%- if week_split.charged_min > prev.charged_min %}<span class="dir-up">up</span> {{ (week_split.charged_min - prev.charged_min)|min }} on last week
-        {%- elif week_split.charged_min < prev.charged_min %}<span class="dir-down">down</span> {{ (prev.charged_min - week_split.charged_min)|min }} on last week
+        {%- if week.is_current %}last week was {{ prev.charged_min|min }} <span class="muted">— this week is still running, so it is not a comparison yet</span>
+        {%- elif week_split.charged_min > prev.charged_min %}<span class="dir-up">up</span> {{ (week_split.charged_min - prev.charged_min)|min }} on last week <span class="muted">({{ prev.charged_min|min }})</span>
+        {%- elif week_split.charged_min < prev.charged_min %}<span class="dir-down">down</span> {{ (prev.charged_min - week_split.charged_min)|min }} on last week <span class="muted">({{ prev.charged_min|min }})</span>
         {%- else %}the same as last week{% endif %}
-        <span class="muted">({{ prev.charged_min|min }})</span>
       </span>
       {% elif week_split %}<span class="headline-delta muted">no earlier week to compare with</span>{% endif %}
     </div>

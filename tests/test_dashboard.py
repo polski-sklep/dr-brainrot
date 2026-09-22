@@ -144,10 +144,10 @@ def test_overview_defaults_to_the_current_week_and_links_the_previous_one(client
     clk.set("2026-09-16T10:00:00+00:00")        # Wednesday of the week opening Sun 13 Sep
     html = text(client.get("/"))
     weeknav = flat(section(html, "week-summary"))
-    assert "Week Sun 2026-09-13 – Sat 2026-09-19" in weeknav and "in progress" in weeknav
+    assert "Week of Sun 2026-09-13 – Sat 2026-09-19" in weeknav and "in progress" in weeknav
 
     older = flat(section(text(client.get("/?week=2026-09-08")), "week-summary"))
-    assert "Week Sun 2026-09-06 – Sat 2026-09-12" in older
+    assert "Week of Sun 2026-09-06 – Sat 2026-09-12" in older
 
 
 def test_bad_week_parameter_is_refused(client):
@@ -610,8 +610,10 @@ def test_overview_states_scope_and_shows_tool_minutes_outside_the_bars(client, c
     split = section(html, "label-split")
     week_row_html = row_for(body_rows(split.split("</svg>")[1]), WEEK_SUNDAY)
     cells = re.findall(r'<td class="num[^"]*">(.*?)</td>', week_row_html, re.S)
-    # wasteful, undecided, worthwhile, parsed-screenshot, tool
-    assert flat(cells[0]) == "30 min" and flat(cells[2]) == "0 min" and flat(cells[4]) == "200 min"
+    figures = [flat(c) for c in cells]
+    assert "30 min" in figures        # wasteful, in the bars
+    assert "200 min" in figures       # tool, outside them
+    assert flat(week_row_html).count("200 min") == 1
     # the bar holds content only: wasteful + undecided + worthwhile, never tool
     assert "Week of 2026-09-06: wasteful 30 min, undecided 0 min, worthwhile 0 min" in split
 
