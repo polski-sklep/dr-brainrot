@@ -229,6 +229,12 @@ fill, an underline, and the active tab carried by weight as well as colour.
 The undecided count rides the tab as an amber badge, because an unlabelled
 source is the one state in the system that asks the user to act.
 
+**Notice.** A refused or failed action, on its own page: a bordered panel
+with a red left edge, the reason in full, and a muted second line saying that
+nothing changed and why the rule exists. Red appears here and on a genuinely
+failed import, nowhere else — it is the rarest colour in the system, and the
+sentence carries the meaning with or without it.
+
 **Bulk actions.** The bar sits directly under the table it acts on rather
 than floating over it, so the selection and the action are read together. The
 running count of selected rows is stated in words; the header checkbox carries

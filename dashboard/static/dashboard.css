@@ -716,6 +716,23 @@ svg.split .axis { stroke: var(--axis); stroke-width: 1; }
 .bulkbar .segmented button { min-height: 28px; padding: 4px 10px; font-size: var(--fs-table); }
 .bulkbar .count { margin: 0; }
 
+/* A refused or failed action, on its own page. Red is reserved for this and
+   for a genuinely failed import — it is the rarest colour in the system, and
+   the words carry the meaning with or without it. */
+.notice {
+  max-width: var(--measure);
+  margin: 0 0 var(--s4);
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-panel);
+}
+.notice-danger { background: var(--danger-bg); border-color: var(--danger-border); border-left-color: var(--danger); }
+.notice-body { margin: 0; font-size: var(--fs-body); color: var(--text); }
+.notice-danger .notice-body { color: var(--danger); font-weight: 500; }
+.notice-note { margin: var(--s2) 0 0; font-size: var(--fs-meta); color: var(--text-secondary); }
+
 th.col-check, td.col-check { width: 1%; white-space: nowrap; padding-right: 0; }
 td.col-check { vertical-align: middle; }
 input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
