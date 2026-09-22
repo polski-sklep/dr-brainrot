@@ -922,8 +922,12 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     # ------------------------------------------------------------------
     # [15] the same provenance reaches the HTML
     # ------------------------------------------------------------------
-    html = web.get("/?week=2026-09-13").get_data(as_text=True)
-    assert "Diagnostic day 9 of 56" in flat(html)
+    overview = web.get("/?week=2026-09-13").get_data(as_text=True)
+    assert "Diagnostic day 9 of 56" in flat(overview)
+    # [15] is about provenance reaching the HTML, and since DR5.12 that HTML is
+    # the detail page: weekly-totals, reflex, cost-per-keeper and funnels all
+    # moved off the Overview together.
+    html = web.get("/records?week=2026-09-13").get_data(as_text=True)
     week_rows = table_rows(section(html, "weekly-totals"))
     iphone_row = one_row(week_rows, "iPhone apps", "prov-screenshot")
     assert "lower confidence" in iphone_row and "787 min" in flat(iphone_row)
@@ -941,7 +945,10 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert not re.search(r"\d\s*min\b", vault_funnel)                           # captures are never minutes
 
     records_html = web.get("/records?group=iphone_apps").get_data(as_text=True)
-    record_rows = table_rows(records_html.split('<table id="records">')[1])[1:]  # 39 minus X, which is its own group
+    # Scoped to the records table itself: the diagnostic detail below it (DR5.12)
+    # is deliberately unfiltered, so its rows are not part of this count.
+    records_table = records_html.split('<table id="records">')[1].split("</table>")[0]
+    record_rows = table_rows(records_table)[1:]              # 39 minus X, which is its own group
     assert len(record_rows) == 38 and all("prov-screenshot" in r and ("lower confidence" in r or "unmeasured" in r)
                                           for r in record_rows)
     labels_html = web.get("/labels?kind=youtube_channel").get_data(as_text=True)

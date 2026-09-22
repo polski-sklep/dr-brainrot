@@ -413,7 +413,8 @@ def test_end_to_end_through_the_daily_job(conn, clk, settings):
     app = dashboard_app.create_app(settings, clk, lambda: db.connect(settings))
     app.config["TESTING"] = True
     client = app.test_client()
-    html = client.get("/?week=2026-09-13").get_data(as_text=True)
+    # weekly-totals moved to the detail page with the rest of the instrumentation (DR5.12).
+    html = client.get("/records?week=2026-09-13").get_data(as_text=True)
     assert 'class="prov prov-apptracker"' in html and "Desktop apps" in html
     assert SECRET not in html
     records = client.get("/records?group=desktop_apps").get_data(as_text=True)

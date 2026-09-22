@@ -633,14 +633,19 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         floor = report.window_start(c, clk, settings)
         week = choose_week(clk, settings, request.args.get("week"), floor)
         totals = report.weekly_totals(c, clk, settings, week.week_start)
+        status = report.allowance_status(c, clk, settings)
+        splits = report.label_split(c, clk, settings)
+        gated = report.gated_vs_ungated(c, clk, settings, week.week_start)
         return render_template(
             "records.html", rows=rows, errors=errors, f_group=group, f_label=label, f_start=start,
             f_end=end, groups=T.REPORT_GROUPS, limit=RECORDS_LIMIT,
             window_start=floor,
             week=week,
             totals=totals,
-            allowance=report.allowance_status(c, clk, settings),
-            gated=report.gated_vs_ungated(c, clk, settings, week.week_start),
+            allowance=status,
+            chart=split_bars(splits, status.week_start, settings.tz),
+            reflex_min=reflex_total(gated),
+            gated=gated,
             keepers=report.cost_per_keeper(c, clk, settings),
             funnels=report.funnels(c, clk, settings),
             imports=report.latest_imports(c, clk, settings),

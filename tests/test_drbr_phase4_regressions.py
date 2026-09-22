@@ -103,7 +103,7 @@ def test_weekly_total_reports_the_covering_import_not_the_latest(conn, clk, sett
     assert (row.import_status, row.import_id) == ("partial", first.id)
 
     app = dashboard_app.create_app(settings, clk, lambda: db.connect(settings))
-    html = app.test_client().get("/?week=2026-09-13").get_data(as_text=True)
+    html = app.test_client().get("/records?week=2026-09-13").get_data(as_text=True)
     totals = section(html, "weekly-totals")
     assert f'href="#import-{first.id}"' in totals
     assert f'id="import-{first.id}"' in totals and "week-13 warning" in flat(totals)
@@ -124,7 +124,7 @@ def test_covered_reason_survives_a_week_straddling_the_diagnostic_start(conn, cl
     assert row.covered_reasons == (("YouTube history (account-level)", pytest.approx(25)),)
 
     app = dashboard_app.create_app(s, clk, lambda: db.connect(s))
-    html = app.test_client().get("/?week=2026-09-13").get_data(as_text=True)
+    html = app.test_client().get("/records?week=2026-09-13").get_data(as_text=True)
     assert "already measured by YouTube history (account-level)" in flat(section(html, "weekly-totals"))
 
 
@@ -149,12 +149,17 @@ def test_reflex_figure_is_exposed_and_shown_prominently(conn, clk, settings):
     assert rows[T.GROUP_X].wasteful_ungated_min == pytest.approx(15)
 
     app = dashboard_app.create_app(settings, clk, lambda: db.connect(settings))
-    html = app.test_client().get("/?week=2026-09-13").get_data(as_text=True)
-    reflex = section(html, "reflex")
-    assert html.index('<section id="reflex">') < html.index('<section id="weekly-totals">')   # first on the page
+    # The contract is that the figure is prominent, not that it has its own
+    # section: since DR5.12 the total is on the Overview and the per-group
+    # working moved to Records. Both are asserted so neither can quietly go.
+    overview = app.test_client().get("/?week=2026-09-13").get_data(as_text=True)
+    assert "85 min" in flat(section(overview, "week-summary"))
+    assert flat(overview).index("85 min") < flat(overview).index("What it was")
+
+    detail = app.test_client().get("/records?week=2026-09-13").get_data(as_text=True)
+    reflex = section(detail, "reflex")
     assert "85 min" in flat(reflex) and "prov-screenshot" in reflex and "lower confidence" in reflex
-    gated = flat(section(html, "gated"))
-    assert "70 min" in gated
+    assert "70 min" in flat(section(detail, "gated"))
 
 
 # --------------------------------------------------------------------------
