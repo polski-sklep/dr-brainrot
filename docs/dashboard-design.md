@@ -133,17 +133,33 @@ would be worse than either scheme alone.
 
 | Token | Value | Contrast | Role |
 |---|---|---|---|
-| `--series-wasteful` | `#9E4440` | 6.3:1 on white | Wasteful (includes unlabelled). |
-| `--series-worthwhile` | `#9BC6A9` | 1.9:1 fill, **stroked** | Worthwhile. |
-| `--series-edge` | `#43815B` | **4.6:1** | The worthwhile bar's stroke. |
+| `--series-wasteful` | `#C37C79` | 3.2:1 on white | Wasteful (includes unlabelled). |
+| `--series-wasteful-edge` | `#A32F2F` | **7.0:1** | Its stroke — the wasteful chip's own red. |
+| `--series-worthwhile` | `#79C399` | 2.1:1 fill, **stroked** | Worthwhile. |
+| `--series-worthwhile-edge` | `#1F7A47` | **5.3:1** | Its stroke — the worthwhile chip's green. |
 
-Red against green is the one pairing a colour-blind reader cannot separate,
-so the two bars are **38 lightness points apart** as well as different hues —
-the split survives greyscale and every common form of CVD. Every green light
-enough to hold that gap fails the 3:1 non-text threshold on white as a flat
-fill, so the light fill is **stroked**: the stroke carries the edge contrast
-and the fill carries the lightness gap. Direct value labels sit above each
-bar as a third, non-visual cue.
+**Both fills are one matched weight: HSL 38% saturation, 62% lightness, hue
+apart.** That matters more than it sounds. The first attempt paired a dark,
+saturated `#9E4440` with a pastel `#9BC6A9` — 25 lightness points and 15
+saturation points apart — chosen to maximise the greyscale gap. It won the
+contrast argument and lost the page: the red read as a solid block in a
+document made of light tints, and the green beside it looked like a different
+system. Matching saturation and lightness is what stops one series shouting
+over the other.
+
+Each fill is **stroked in its own label's text colour**, which is the same
+tint-plus-border shape every chip on the page uses — so the chart and the
+chips are visibly one family, and the stroke carries the edge against the
+page that a light fill cannot.
+
+Red against green is the one pairing a colour-blind reader cannot separate.
+The matched weights leave an **18-point luminance gap** rather than the 38 of
+the first attempt, and that is a deliberate trade: in a *stacked* bar the
+segments never move — wasteful is always the lower one — so position is the
+primary encoding and colour is reinforcement. The legend swatches carry the
+same fills and strokes, and direct value labels sit above each bar. In a
+grouped chart or a pie, where colour would be the only channel, this trade
+would not be available.
 
 Hue-free on purpose. The obvious research answer here was the Okabe–Ito
 colourblind-safe pair (`#0072B2` blue / `#E69F00` orange); it was rejected for

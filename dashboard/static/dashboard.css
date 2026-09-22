@@ -63,12 +63,16 @@
   /* -- Chart: a neutral lightness ramp, deliberately hue-free. The light
         series clears 3:1 against the page so the bar is perceivable, and
         3.3:1 against the dark series so the split is readable. ------------ */
-  --series-wasteful:   #9E4440;   /* 6.3:1 on the page                        */
-  --series-worthwhile: #9BC6A9;   /* light on purpose: see --series-edge       */
-  --series-edge:       #43815B;   /* 4.6:1. Carries the light bar's edge, so   */
-                                  /* the fill can stay light enough to keep a  */
-                                  /* 38-point lightness gap from wasteful —    */
-                                  /* which is what red/green readers rely on.  */
+  /* The bars are the label hues at one matched weight: identical saturation
+     and lightness (HSL 38%/62%), so neither shouts over the other and both
+     sit in the same family as the chips. Hue separates them; an 18-point
+     luminance gap and the fixed stacking order back it up. Each fill carries
+     its label's text colour as a stroke, which is what holds the edge against
+     the page — the same tint-plus-border shape every chip on the page uses. */
+  --series-wasteful:        #C37C79;   /* 3.2:1 on the page                   */
+  --series-wasteful-edge:   #A32F2F;   /* 7.0:1 — the wasteful chip's own red */
+  --series-worthwhile:      #79C399;   /* 2.1:1 fill, edge below carries it   */
+  --series-worthwhile-edge: #1F7A47;   /* 5.3:1 — the worthwhile chip's green */
   --axis:              #C6CBD2;
 
   /* -- Type ------------------------------------------------------------ */
@@ -651,14 +655,20 @@ svg.split text { font-size: 11px; fill: var(--text-muted); font-family: var(--fo
 svg.split .bar-total { fill: var(--text); font-weight: 600; font-size: 11px; font-variant-numeric: tabular-nums; }
 svg.split .axis { stroke: var(--axis); stroke-width: 1; }
 
-.bar-wasteful { fill: var(--series-wasteful); background: var(--series-wasteful); }
+.bar-wasteful {
+  fill: var(--series-wasteful);
+  background: var(--series-wasteful);
+  stroke: var(--series-wasteful-edge);
+  stroke-width: 1;
+}
 .bar-worthwhile {
   fill: var(--series-worthwhile);
   background: var(--series-worthwhile);
-  stroke: var(--series-edge);
+  stroke: var(--series-worthwhile-edge);
   stroke-width: 1;
 }
-.swatch.bar-worthwhile { border: 1px solid var(--series-edge); }
+.swatch.bar-wasteful { border: 1px solid var(--series-wasteful-edge); }
+.swatch.bar-worthwhile { border: 1px solid var(--series-worthwhile-edge); }
 
 /* The frame stops where the bars do: an eight-week chart fills it, a
    two-week chart does not pretend to. */
