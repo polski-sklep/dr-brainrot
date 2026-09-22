@@ -10,7 +10,7 @@
 
 {# ---------------------------------------------------------------- strip #}
 <section id="week-summary">
-  <h2>Week of Sun {{ week.sunday }} – Sat {{ week.saturday }}{% if week.is_current %} (in progress){% endif %}</h2>
+  <h2>Week of Sun {{ week.sunday }} – Sat {{ week.saturday }}{% if week.is_current %} (in progress){% elif everything_in %} (complete){% endif %}</h2>
   <div class="metrics">
     <div class="metric">
       <span class="metric-label">Wasteful content</span>
@@ -109,7 +109,8 @@
   <h2>Weekly totals by source</h2>
   <p class="weeknav">
     <strong>Week Sun {{ week.sunday }} – Sat {{ week.saturday }}</strong>
-    {% if week.is_current %}<em>(current week, in progress)</em>{% endif %}
+    {% if week.is_current %}<em>(current week, in progress)</em>
+    {% elif everything_in %}<em class="all-in">(complete — every source is in)</em>{% endif %}
     {% if week.prev_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.prev_sunday) }}#weekly-totals">← previous</a>{% endif %}
     {% if week.next_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.next_sunday) }}#weekly-totals">next →</a>{% endif %}
     {% if not week.is_current %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.current_sunday) }}#weekly-totals">current week</a>{% endif %}
@@ -146,7 +147,9 @@
         </td>
         <td class="import-{{ t.import_status or 'api' }}">
           {% if t.import_status is none %}polled via API (no import)
+          {% elif t.import_status == "not_due" %}<strong>not due yet</strong><span class="sub">asked for on Monday {{ week.due_on }}</span>
           {% elif t.import_status == "missing" %}<strong>missing</strong><span class="sub">nothing has arrived for this week yet</span>
+          {% elif t.import_status == "so_far" %}<strong>partial</strong><span class="sub">covers part of the week so far</span>
           {% elif t.import_status == "incomplete" %}<strong>incomplete</strong><span class="sub">nothing covering the whole week yet</span>
           {% elif t.import_status == "partial" %}<strong>partial</strong><span class="sub">arrived, with warnings — <a href="#import-{{ t.import_id }}">import #{{ t.import_id }}</a></span>
           {% elif t.import_status == "ok" %}<strong>received</strong><span class="sub"><a href="#import-{{ t.import_id }}">import #{{ t.import_id }}</a></span>

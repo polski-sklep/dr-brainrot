@@ -548,8 +548,13 @@ tr.covered:hover td { background: var(--surface-hover); }
 /* Import pipeline health. Green here means "the data arrived", nothing more. */
 .import-ok strong, .import-api { color: var(--ok); font-weight: 600; }
 .import-partial strong, .import-incomplete strong, .import-missing strong { color: var(--warn); font-weight: 600; }
+/* Neither of these is a problem: a week nobody has been asked for yet, and a
+   week still running that is covered as far as it has gone. Amber here is
+   what made the page look like it was owed something. */
+.import-not_due strong, .import-so_far strong { color: var(--text-secondary); font-weight: 600; }
 .import-failed strong { color: var(--danger); font-weight: 600; }
-.import-ok, .import-partial, .import-incomplete, .import-missing, .import-failed { font-size: var(--fs-meta); }
+.import-ok, .import-partial, .import-incomplete, .import-missing, .import-failed,
+.import-not_due, .import-so_far { font-size: var(--fs-meta); }
 
 /* ==========================================================================
    Controls
@@ -644,6 +649,9 @@ button:disabled { cursor: default; }
 }
 .weeknav .sep { color: var(--border-strong); }
 .weeknav em { color: var(--text-muted); font-style: normal; font-weight: 500; }
+/* The one place the page says everything arrived. --ok is exactly this:
+   a fact about the pipeline, never a verdict on the week's figures. */
+.weeknav em.all-in { color: var(--ok); font-weight: 600; }
 
 .count {
   font-size: var(--fs-meta);
