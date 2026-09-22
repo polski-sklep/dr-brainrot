@@ -406,6 +406,66 @@ td.reflex { font-variant-numeric: tabular-nums; font-weight: 600; white-space: n
 }
 thead th .hint { border-bottom-color: var(--accent-border); }
 
+/* ==========================================================================
+   The three answers
+   ========================================================================== */
+
+/* One figure, then the parts it is made of. The parts are a list, not more
+   cards: they are subordinate to the headline, not four rivals to it. */
+.headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s5) var(--s8);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--r-panel);
+  padding: var(--s4) var(--s5);
+}
+.headline-figure { flex: 0 0 auto; }
+.headline-label { display: block; font-size: var(--fs-meta); color: var(--text-secondary); }
+.headline-value {
+  display: block;
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0;
+}
+.headline-delta { display: block; font-size: var(--fs-meta); color: var(--text-secondary); }
+/* Direction is a fact about two numbers, not a verdict, so it is not amber or
+   green — it is the accent, the same weight in both directions. */
+.dir-up, .dir-down { font-weight: 650; color: var(--text); }
+
+.headline-parts {
+  flex: 1 1 320px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-table);
+  color: var(--text-secondary);
+}
+.headline-parts li { padding: 3px 0; }
+.headline-parts strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  margin-right: var(--s1);
+}
+.headline-parts .part-undecided strong { color: var(--warn); }
+td.part-undecided { color: var(--warn); }
+.headline-parts .part-quiet { color: var(--text-muted); border-top: 1px solid var(--hairline); margin-top: var(--s1); padding-top: var(--s2); }
+
+/* An undecided row is the only row on the page that asks for something. */
+tr.undecided-row td { background: var(--warn-bg); }
+tr.undecided-row:hover td { background: #FDF3BF; }
+a.decide { font-size: var(--fs-micro); font-weight: 600; margin-left: var(--s1); }
+
+.all-in { font-size: var(--fs-table); color: var(--ok); font-weight: 550; margin: 0; }
+
 .blind-list { font-size: var(--fs-table); color: var(--text-secondary); max-width: var(--measure); }
 .blind-list li { margin: var(--s1) 0; }
 

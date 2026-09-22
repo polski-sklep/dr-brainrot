@@ -605,7 +605,8 @@ def test_overview_states_scope_and_shows_tool_minutes_outside_the_bars(client, c
     split = section(html, "label-split")
     week_row_html = row_for(body_rows(split.split("</svg>")[1]), WEEK_SUNDAY)
     cells = re.findall(r'<td class="num[^"]*">(.*?)</td>', week_row_html, re.S)
-    assert flat(cells[0]) == "30 min" and flat(cells[1]) == "0 min" and flat(cells[3]) == "200 min"
+    # wasteful, undecided, worthwhile, parsed-screenshot, tool
+    assert flat(cells[0]) == "30 min" and flat(cells[2]) == "0 min" and flat(cells[4]) == "200 min"
     assert "Week of 2026-09-06: wasteful 30 min, worthwhile 0 min" in split       # the bar holds content only
 
     keepers = row_for(body_rows(section(html, "cost-per-keeper")), "<td>Desktop web</td>")

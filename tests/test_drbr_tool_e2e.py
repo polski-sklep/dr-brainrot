@@ -83,7 +83,7 @@ def test_300_wasteful_content_minutes_and_200_tool_minutes_is_not_over_360(tmp_p
                     if "2026-09-13" in r)
     cells = [" ".join(re.sub(r"<[^>]+>", " ", c).split())
              for c in re.findall(r'<td class="num[^"]*">(.*?)</td>', week_row, re.S)]
-    assert cells[0] == "300 min" and cells[3] == "200 min"
+    assert cells[0] == "300 min" and cells[4] == "200 min"   # wasteful … tool
     totals_html = re.search(r'<section id="weekly-totals">(.*?)</section>', html, re.S).group(1)
     assert re.search(r'class="num tool-min">\s*200 min', totals_html)
     allowance_html = re.search(r'<section id="allowance">(.*?)</section>', html, re.S).group(1)

@@ -8,38 +8,145 @@
 <p class="note">You decide what counts as brain rot; this page only adds it up. There is nothing to hit here, just weeks to compare.
 {% if window_start %}Figures start at {{ window_start }}.{% endif %}</p>
 
-{# ---------------------------------------------------------------- strip #}
+{# ================================================================= 1 of 3
+   Is it going down? One figure, last week beside it, and the undecided time
+   named as the thing to act on rather than folded into the headline.       #}
 <section id="week-summary">
   <h2>Week of Sun {{ week.sunday }} – Sat {{ week.saturday }}{% if week.is_current %} (in progress){% elif everything_in %} (complete){% endif %}</h2>
-  <div class="metrics">
-    <div class="metric">
-      <span class="metric-label">Wasteful content</span>
-      <span class="metric-value">{% if week_split %}{{ week_split.wasteful_min|min }}{% else %}<span class="absent">outside the window</span>{% endif %}</span>
-      <span class="metric-note">unlabelled sources count here too</span>
+
+  {%- set prev = chart.bars|selectattr("split.week_start", "lessthan", week.week_start)|map(attribute="split")|list|last if chart.bars else none %}
+  <div class="headline">
+    <div class="headline-figure">
+      <span class="headline-label">Counted against the allowance</span>
+      <span class="headline-value">{% if week_split %}{{ week_split.charged_min|min }}{% else %}<span class="absent">outside the window</span>{% endif %}</span>
+      {% if week_split and prev %}
+      <span class="headline-delta">
+        {%- if week_split.charged_min > prev.charged_min %}<span class="dir-up">up</span> {{ (week_split.charged_min - prev.charged_min)|min }} on last week
+        {%- elif week_split.charged_min < prev.charged_min %}<span class="dir-down">down</span> {{ (prev.charged_min - week_split.charged_min)|min }} on last week
+        {%- else %}the same as last week{% endif %}
+        <span class="muted">({{ prev.charged_min|min }})</span>
+      </span>
+      {% elif week_split %}<span class="headline-delta muted">no earlier week to compare with</span>{% endif %}
     </div>
-    <div class="metric">
-      <span class="metric-label">Of that, on {{ hint("reflex", "Content you opened straight away, without capturing it, waiting out the lock and promoting it first.") }}</span>
-      <span class="metric-value">{{ reflex_min|min }}</span>
-      <span class="metric-note">opened without queueing it first</span>
-    </div>
-    <div class="metric">
-      <span class="metric-label">Worthwhile content</span>
-      <span class="metric-value">{% if week_split %}{{ week_split.worthwhile_min|min }}{% else %}<span class="absent">—</span>{% endif %}</span>
-      <span class="metric-note">counted, but never held back</span>
-    </div>
-    <div class="metric">
-      <span class="metric-label">Over the allowance</span>
-      <span class="metric-value">{% if week_split %}{{ week_split.overage_min }} min{% else %}<span class="absent">—</span>{% endif %}</span>
-      <span class="metric-note">{% if week_split %}out of {{ week_split.allowance_min }} min this week{% else %}no allowance recorded{% endif %}</span>
-    </div>
-    <div class="metric metric-aside">
-      <span class="metric-label">Tool</span>
-      <span class="metric-value">{% if week_split %}{{ week_split.tool_min|min }}{% else %}<span class="absent">—</span>{% endif %}</span>
-      <span class="metric-note">not content — never counted</span>
-    </div>
+
+    <ul class="headline-parts">
+      <li><strong>{% if week_split %}{{ week_split.wasteful_min|min }}{% else %}—{% endif %}</strong>
+          you called wasteful</li>
+      <li class="part-undecided"><strong>{% if week_split %}{{ week_split.unclassified_min|min }}{% else %}—{% endif %}</strong>
+          still undecided{% if unlabelled and unlabelled.count %} —
+          <a href="{{ url_for('labels_queue') }}">decide {{ unlabelled.count }} source{{ "" if unlabelled.count == 1 else "s" }}</a>{% endif %}</li>
+      <li><strong>{{ reflex_min|min }}</strong>
+          on {{ hint("reflex", "Content you opened straight away, without capturing it, waiting out the lock and promoting it first.") }} —
+          opened without queueing it first</li>
+      <li class="part-quiet">{% if week_split %}{{ week_split.overage_min }} min over{% else %}—{% endif %} an allowance of
+          {% if week_split %}{{ week_split.allowance_min }} min{% else %}—{% endif %}</li>
+    </ul>
   </div>
-  <p class="note">All five figures are for the week above. Where data has not arrived yet, nothing is shown rather
-  than calling it zero — weekly totals, below, says what is still missing.</p>
+  <p class="note">Undecided time still counts against the allowance — it is charged as wasteful until you say
+  otherwise. It is shown separately so you can see how much of the week is a measurement you have not made yet.</p>
+</section>
+
+{# ------------------------------------------------------------------ 2 #}
+<section id="label-split">
+  <h2>Labelled content, per week</h2>
+  {% if not chart.bars %}
+  <p class="absent">No diagnostic weeks yet.</p>
+  {% else %}
+  {% if chart.empty %}<p class="absent">No measured minutes in these weeks.</p>{% endif %}
+  <div class="chart-row">
+  <div class="chart-col">
+  <div class="chart-frame">
+  <svg class="split" width="{{ chart.width }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Wasteful and worthwhile content minutes per week">
+    <line x1="0" x2="{{ chart.width }}" y1="{{ chart.base }}" y2="{{ chart.base }}" class="axis"/>
+    {% for b in chart.bars %}
+    <g>
+      <title>Week of {{ b.sunday }}: wasteful {{ b.split.wasteful_min|min }}, worthwhile {{ b.split.worthwhile_min|min }}</title>
+      {% if b.waste_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.waste_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.waste_h) }}" class="bar-wasteful"/>{% endif %}
+      {% if b.worth_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.worth_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.worth_h) }}" class="bar-worthwhile"/>{% endif %}
+      <text x="{{ b.cx }}" y="{{ '%.1f'|format(b.total_y) }}" text-anchor="middle" class="bar-total">{{ (b.split.wasteful_min + b.split.worthwhile_min)|min }}</text>
+      <text x="{{ b.cx }}" y="{{ chart.base + 16 }}" text-anchor="middle">{{ b.sunday[5:] }}</text>
+      {% if b.current %}<text x="{{ b.cx }}" y="{{ chart.base + 30 }}" text-anchor="middle" class="muted">in progress</text>{% endif %}
+    </g>
+    {% endfor %}
+  </svg>
+  </div>
+  <p class="legend"><span class="swatch bar-wasteful"></span> wasteful <span class="swatch bar-worthwhile"></span> worthwhile <span class="sep">·</span> undecided time is not in these bars <span class="sep">·</span> each week is named by its Sunday</p>
+  </div>
+  <div class="table-wrap">
+  <table class="compact">
+    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Undecided</th><th class="num">Worthwhile</th><th class="num th-wrap" title="A part of the wasteful and worthwhile minutes beside it, not a separate total">Of those, read from screenshots</th><th class="num th-wrap">Tool (not content, not in the bars)</th></tr></thead>
+    <tbody>{% for b in chart.bars %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num part-undecided">{{ b.split.unclassified_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+  </div>
+  <p class="note"><strong>The bars show only what you have labelled.</strong> Undecided time is in the table beside them but not in the bars yet, so a bar is smaller than its week whenever sources are still undecided. <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes were read by OCR from a Screen Time screenshot instead of measured directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; no claim is made about either.</p>
+  {% endif %}
+</section>
+
+{# ================================================================= 2 of 3
+   What was it? Named sources, biggest first. "Desktop web 49 min" names the
+   pipe the evidence came down; "Brave 163 min" names the thing you did.   #}
+<section id="top-sources">
+  <h2>What it was</h2>
+  {% if not top_sources %}
+  <p class="absent">Nothing measured in this week yet.</p>
+  {% else %}
+  <div class="table-wrap">
+  <table class="compact">
+    <thead><tr>
+      <th class="col-flex">Source</th><th class="num">Minutes</th><th>Label</th>
+      <th>{{ hint("Reflex", "Opened straight away, without capturing it, waiting out the lock and promoting it first.") }}</th>
+    </tr></thead>
+    <tbody>
+    {% for r in top_sources %}
+      <tr{% if r.label is none %} class="undecided-row"{% endif %}>
+        <td class="col-flex"><span class="clamp" title="{{ r.display_name }}">{{ r.display_name }}</span><span class="sub">{{ GROUP_NAMES.get(r.group, r.group) }}</span></td>
+        <td class="num">{{ r.minutes|min }}</td>
+        <td class="cell-nowrap">
+          {% if r.label is none %}<span class="state state-unlabelled">undecided</span> <a class="decide" href="{{ url_for('labels_page') }}#source-{{ r.source_id }}">decide</a>
+          {% else %}<span class="state state-{{ r.label }}">{{ r.label }}</span>{% endif %}
+        </td>
+        <td class="cell-nowrap muted">{% if r.reflex_min %}{{ r.reflex_min|min }}{% else %}—{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">The {{ top_sources|length }} largest of {{ all_sources_count }} source{{ "" if all_sources_count == 1 else "s" }} this week.
+  Sources you marked tool are not content and never appear here. An undecided source is charged as wasteful until you say otherwise.</p>
+  {% endif %}
+</section>
+
+{# ================================================================= 3 of 3
+   What isn't counted yet? Absence, stated compactly and without alarm.    #}
+<section id="coverage">
+  <h2>What isn't counted yet</h2>
+  {%- set awaiting = totals|rejectattr("import_status", "equalto", "ok")|rejectattr("import_status", "none")|list %}
+  {% if not awaiting %}
+  <p class="all-in">Everything expected for this week has arrived.</p>
+  {% else %}
+  <div class="table-wrap">
+  <table class="compact">
+    <tbody>
+    {% for t in awaiting %}
+      <tr class="import-{{ t.import_status }}">
+        <th>{{ GROUP_NAMES.get(t.group, t.group) }} <span class="muted">{{ t.device }}</span></th>
+        <td class="cell-nowrap">
+          {% if t.import_status == "not_due" %}<strong>not due yet</strong><span class="sub">asked for on Monday {{ week.due_on }}</span>
+          {% elif t.import_status == "missing" %}<strong>missing</strong><span class="sub">nothing has arrived for this week yet</span>
+          {% elif t.import_status == "so_far" %}<strong>partial</strong><span class="sub">covers part of the week so far</span>
+          {% elif t.import_status == "incomplete" %}<strong>incomplete</strong><span class="sub">nothing covering the whole week yet</span>
+          {% elif t.import_status == "partial" %}<strong>partial</strong><span class="sub">arrived, with warnings</span>
+          {% else %}{{ t.import_status }}{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">These minutes are not missing from your week — they have not been collected yet, and nothing here
+  is counted as zero.</p>
+  {% endif %}
 </section>
 
 {# ------------------------------------------------------- generated prose #}
@@ -82,6 +189,8 @@
   labels behind it are yours.</p>
 </section>
 {% endif %}
+
+{# ---- Below here moves to Records once its route carries the context. ---- #}
 
 {# ------------------------------------------------------------------ 0 #}
 <section id="reflex">
@@ -183,43 +292,6 @@
     </tbody>
   </table>
   </div>
-  {% endif %}
-</section>
-
-{# ------------------------------------------------------------------ 2 #}
-<section id="label-split">
-  <h2>Wasteful vs worthwhile content, per week</h2>
-  {% if not chart.bars %}
-  <p class="absent">No diagnostic weeks yet.</p>
-  {% else %}
-  {% if chart.empty %}<p class="absent">No measured minutes in these weeks.</p>{% endif %}
-  <div class="chart-row">
-  <div class="chart-col">
-  <div class="chart-frame">
-  <svg class="split" width="{{ chart.width }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Wasteful and worthwhile content minutes per week">
-    <line x1="0" x2="{{ chart.width }}" y1="{{ chart.base }}" y2="{{ chart.base }}" class="axis"/>
-    {% for b in chart.bars %}
-    <g>
-      <title>Week of {{ b.sunday }}: wasteful {{ b.split.wasteful_min|min }}, worthwhile {{ b.split.worthwhile_min|min }}</title>
-      {% if b.waste_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.waste_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.waste_h) }}" class="bar-wasteful"/>{% endif %}
-      {% if b.worth_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.worth_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.worth_h) }}" class="bar-worthwhile"/>{% endif %}
-      <text x="{{ b.cx }}" y="{{ '%.1f'|format(b.total_y) }}" text-anchor="middle" class="bar-total">{{ (b.split.wasteful_min + b.split.worthwhile_min)|min }}</text>
-      <text x="{{ b.cx }}" y="{{ chart.base + 16 }}" text-anchor="middle">{{ b.sunday[5:] }}</text>
-      {% if b.current %}<text x="{{ b.cx }}" y="{{ chart.base + 30 }}" text-anchor="middle" class="muted">in progress</text>{% endif %}
-    </g>
-    {% endfor %}
-  </svg>
-  </div>
-  <p class="legend"><span class="swatch bar-wasteful"></span> wasteful (unlabelled counts here) <span class="swatch bar-worthwhile"></span> worthwhile <span class="sep">·</span> each week is named by its Sunday</p>
-  </div>
-  <div class="table-wrap">
-  <table class="compact">
-    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Worthwhile</th><th class="num th-wrap" title="A part of the wasteful and worthwhile minutes beside it, not a separate total">Of those, read from screenshots</th><th class="num th-wrap">Tool (not content, not in the bars)</th></tr></thead>
-    <tbody>{% for b in chart.bars %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
-  </table>
-  </div>
-  </div>
-  <p class="note"><strong>Wasteful and worthwhile are the week.</strong> <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes were read by OCR from a Screen Time screenshot instead of measured directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; no claim is made about either.</p>
   {% endif %}
 </section>
 
