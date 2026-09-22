@@ -291,14 +291,23 @@ def insight_is_stale(insight, last_complete_sunday: str, tz: str) -> bool:
 
 
 def split_bars(splits: list[report.WeekSplit], current_week_start: str, tz: str) -> dict:
-    """Geometry for the stacked wasteful/worthwhile bars. Scale only; no judgement."""
+    """Geometry for the stacked wasteful/undecided/worthwhile bars. Scale only; no judgement.
+
+    Three bands, not two, since DR5.11. A bar drawn from `wasteful_min` alone
+    would leave undecided time out of the geometry entirely — 290 of the 567
+    minutes in the week of 13 Sep — so the chart that answers "is it going
+    down" would be drawn from half the week, and would appear to have halved
+    for a reason that is not behaviour. The undecided band keeps the bar the
+    height of its week and shows the share that is still a decision.
+    """
     height, bar_w, gap, top, label_h = 168, 44, 30, 26, 42
-    peak = max((s.wasteful_min + s.worthwhile_min for s in splits), default=0.0)
+    peak = max((s.charged_min + s.worthwhile_min for s in splits), default=0.0)
     scale = (height / peak) if peak > 0 else 0.0
     bars = []
     for i, s in enumerate(splits):
         x = gap // 2 + i * (bar_w + gap)
         waste_h = s.wasteful_min * scale
+        undec_h = s.unclassified_min * scale
         worth_h = s.worthwhile_min * scale
         base = top + height
         bars.append({
@@ -306,9 +315,11 @@ def split_bars(splits: list[report.WeekSplit], current_week_start: str, tz: str)
             "cx": x + bar_w / 2,
             "waste_y": base - waste_h,
             "waste_h": waste_h,
-            "worth_y": base - waste_h - worth_h,
+            "undec_y": base - waste_h - undec_h,
+            "undec_h": undec_h,
+            "worth_y": base - waste_h - undec_h - worth_h,
             "worth_h": worth_h,
-            "total_y": base - waste_h - worth_h - 6,
+            "total_y": base - waste_h - undec_h - worth_h - 6,
             "sunday": T.iso_date(T.measurement_week_for_allowance_week(s.week_start, tz).sunday),
             "current": s.week_start == current_week_start,
             "split": s,

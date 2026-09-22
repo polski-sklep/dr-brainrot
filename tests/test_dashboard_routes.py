@@ -22,6 +22,7 @@ import db  # noqa: E402
 import drbr_types as T  # noqa: E402
 import insights  # noqa: E402
 import labels  # noqa: E402
+import report  # noqa: E402
 from dashboard import app as dashboard_app  # noqa: E402
 from tests.test_allowance import label_source, make_settings, measure, open_db  # noqa: E402
 
@@ -396,3 +397,48 @@ def test_overview_passes_the_staleness_flag(client, conn, clk, settings):
     assert insights.latest(conn, clk, settings) is not None
     html = client.get("/").get_data(as_text=True)
     assert html.count("<!doctype") == 1        # renders; the panel itself is the design session's
+
+
+# ==========================================================================
+# split_bars: the chart has to carry the whole week
+# ==========================================================================
+
+def _split(**kw):
+    base = dict(week_start="2026-09-13T16:00:00+00:00", wasteful_min=0.0, worthwhile_min=0.0)
+    return report.WeekSplit(**{**base, **kw})
+
+
+def test_bars_reproduce_the_week_including_undecided_time():
+    """A bar drawn from labelled minutes alone would omit most of the week.
+
+    The regression this guards: `wasteful_min` became labelled-only in DR5.11,
+    and geometry built from `wasteful + worthwhile` then left undecided time
+    out of the picture entirely — the chart answering "is it going down" would
+    have halved for a reason that was not behaviour.
+    """
+    heavy = _split(wasteful_min=205.0, unclassified_min=290.0, worthwhile_min=72.0)
+    light = _split(week_start="2026-09-20T16:00:00+00:00", wasteful_min=18.0,
+                   unclassified_min=50.0, worthwhile_min=1.2)
+    chart = dashboard_app.split_bars([heavy, light], light.week_start, "Europe/Warsaw")
+
+    tallest, shorter = chart["bars"]
+    # The tallest bar fills the plot, and each bar's three bands sum to its week.
+    for bar, s in ((tallest, heavy), (shorter, light)):
+        drawn = bar["waste_h"] + bar["undec_h"] + bar["worth_h"]
+        week = s.charged_min + s.worthwhile_min
+        assert drawn == pytest.approx(week * tallest_scale(chart, heavy))
+        assert bar["undec_h"] > 0                        # undecided is visible, not dropped
+    # Stacked bottom-up in a fixed order, with no gap between the bands.
+    assert tallest["undec_y"] == pytest.approx(tallest["waste_y"] - tallest["undec_h"])
+    assert tallest["worth_y"] == pytest.approx(tallest["undec_y"] - tallest["worth_h"])
+
+
+def tallest_scale(chart, heavy) -> float:
+    """Pixels per minute, read back from the bar that sets the peak."""
+    return chart["bars"][0]["waste_h"] / heavy.wasteful_min
+
+
+def test_bars_are_empty_rather_than_infinite_when_a_week_has_nothing():
+    chart = dashboard_app.split_bars([_split()], "2026-09-13T16:00:00+00:00", "Europe/Warsaw")
+    assert chart["empty"] is True
+    assert chart["bars"][0]["undec_h"] == 0.0
