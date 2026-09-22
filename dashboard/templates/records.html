@@ -5,8 +5,8 @@
 {% block title %}Records{% endblock %}
 {% block content %}
 <h1>Raw records</h1>
-<p class="lede">Every minute DRBR has stored, newest first.</p>
-<p class="note">Rows DRBR could not measure say why, instead of showing zero. Vault captures are counts, so they appear in the funnels on Overview rather than here.{% if window_start %} Records start at {{ window_start }}.{% endif %}</p>
+<p class="lede">Every minute stored, newest first.</p>
+<p class="note">Rows that could not be measured say why, instead of showing zero. Vault captures are counts, so they appear in the funnels on Overview rather than here.{% if window_start %} Records start at {{ window_start }}.{% endif %}</p>
 
 {% for e in errors %}<p class="error">{{ e }}</p>{% endfor %}
 
@@ -35,7 +35,7 @@
 <div class="table-wrap">
 <table id="records">
   <thead><tr>
-    <th>Day</th><th>Group</th><th>Source</th><th class="col-flex">Item</th><th class="num">Minutes</th><th>{{ hint("Status", "What DRBR knows about this row. Rows it could not measure say so rather than showing zero.") }}</th>
+    <th>Day</th><th>Group</th><th>Source</th><th class="col-flex">Item</th><th class="num">Minutes</th><th>{{ hint("Status", "What is known about this row. Rows that could not be measured say so rather than showing zero.") }}</th>
     <th>{{ hint("Label", "Why this row got its label: your label on the source, an override on the item, or nothing yet.") }}</th><th>{{ hint("Provenance", "Where the figure came from, and how directly. An API reported it; a screenshot was read by OCR and is less reliable.") }}</th><th>Device</th><th>{{ hint("Import", "The file or feed this week's figures came from, and whether it arrived cleanly.") }}</th>
   </tr></thead>
   <tbody>

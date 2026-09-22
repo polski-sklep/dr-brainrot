@@ -5,10 +5,10 @@
 {% include "_label_tabs.html" %}
 
 <div class="rule" id="label-rule">
-<p>DRBR only measures <strong>content</strong> — things you watch, read or listen to. For each source, ask:
+<p>Only <strong>content</strong> is measured here — things you watch, read or listen to. For each source, ask:
 is this content? If it is, is it brain rot (<strong>wasteful</strong>) or worth your time (<strong>worthwhile</strong>)?
 If you only go there to get something done — buy, pay, book, log in, check the weather — it's a
-<strong>tool</strong>, and DRBR ignores it.</p>
+<strong>tool</strong>, and it isn't counted.</p>
 </div>
 
 {% set n_unlabelled = sources|rejectattr("label")|list|length %}
@@ -34,10 +34,10 @@ If you only go there to get something done — buy, pay, book, log in, check the
   <div class="metric metric-aside">
     <span class="metric-label">Tool</span>
     <span class="metric-value" data-count="tool">{{ n_tool }}</span>
-    <span class="metric-note">not content — DRBR ignores it</span>
+    <span class="metric-note">not content — never counted</span>
   </div>
 </div>
-<p class="note">{% if f_kind or f_label %}Counts cover the {{ sources|length }} source{{ "" if sources|length == 1 else "s" }} this filter shows, not the whole list. {% endif %}You decide what each source is; DRBR never guesses. Until you label one it counts as wasteful.
+<p class="note">{% if f_kind or f_label %}Counts cover the {{ sources|length }} source{{ "" if sources|length == 1 else "s" }} this filter shows, not the whole list. {% endif %}You decide what each source is; nothing here is guessed. Until you label one it counts as wasteful.
 Tool minutes stay out of every wasteful and worthwhile figure and are shown on their own.
 Changing a label re-records each week's overage straight away.</p>
 

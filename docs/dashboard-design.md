@@ -194,6 +194,15 @@ against the page.
 Plain and direct, in the second person. The rule is that a sentence should
 survive being read once.
 
+**The product never names itself.** No screen says "DRBR" or "Dr. Brainrot" in
+its copy. A tool that refers to itself in the third person is describing
+itself to a stranger, and the only reader here already knows what he is
+looking at. The name belongs in the wordmark and the page title and nowhere
+else. So: "not content — never counted", not "DRBR ignores it"; "Every minute
+stored", not "every minute DRBR has stored"; "Blind spots: what isn't
+measured", not "what DRBR cannot see". Where a subject is genuinely needed,
+it is *this page*, not the product.
+
 **Three absences, three verbs.** A figure can be missing for three different
 reasons and the copy must never blur them, because keeping them apart is the
 whole point of the diagnostic. A *tool* is something you decided is not

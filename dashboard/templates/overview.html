@@ -5,7 +5,7 @@
 
 <h1>Overview</h1>
 <p class="scope" id="scope-line"><strong>Brain-rot content only: tools are excluded.</strong></p>
-<p class="note">You decide what counts as brain rot. DRBR only adds it up — there is nothing to hit here, just weeks to compare.
+<p class="note">You decide what counts as brain rot; this page only adds it up. There is nothing to hit here, just weeks to compare.
 {% if window_start %}Figures start at {{ window_start }}.{% endif %}</p>
 
 {# ---------------------------------------------------------------- strip #}
@@ -35,10 +35,10 @@
     <div class="metric metric-aside">
       <span class="metric-label">Tool</span>
       <span class="metric-value">{% if week_split %}{{ week_split.tool_min|min }}{% else %}<span class="absent">—</span>{% endif %}</span>
-      <span class="metric-note">not content — DRBR ignores it</span>
+      <span class="metric-note">not content — never counted</span>
     </div>
   </div>
-  <p class="note">All five figures are for the week above. Where data has not arrived yet DRBR shows nothing rather
+  <p class="note">All five figures are for the week above. Where data has not arrived yet, nothing is shown rather
   than calling it zero — weekly totals, below, says what is still missing.</p>
 </section>
 
@@ -78,7 +78,7 @@
       Nothing left this Mac.{% endif %}
     </p>
   </div>
-  <p class="note">DRBR counted the figures; this paragraph only describes them. It decides nothing, and the
+  <p class="note">The figures above are counted; this paragraph only describes them. It decides nothing, and the
   labels behind it are yours.</p>
 </section>
 {% endif %}
@@ -119,7 +119,7 @@
   <div class="table-wrap">
   <table>
     <thead><tr>
-      <th>Group</th><th>Device</th><th>{{ hint("Provenance", "Where the figure came from, and how directly. An API reported it; a screenshot was read by OCR and is less reliable.") }}</th><th class="num">{{ hint("Measured", "Minutes DRBR actually has a figure for. A source with no data is left out, never counted as zero.") }}</th>
+      <th>Group</th><th>Device</th><th>{{ hint("Provenance", "Where the figure came from, and how directly. An API reported it; a screenshot was read by OCR and is less reliable.") }}</th><th class="num">{{ hint("Measured", "Minutes there is actually a figure for. A source with no data is left out, never counted as zero.") }}</th>
       <th class="num th-wrap">Tool (not content, excluded)</th>
       <th>Unmeasured</th><th class="col-flex">{{ hint("Covered elsewhere (excluded)", "Minutes another source already counted. They are excluded here so nothing is double-counted.") }}</th><th>{{ hint("Import", "The file or feed this week's figures came from, and whether it arrived cleanly.") }}</th>
     </tr></thead>
@@ -219,7 +219,7 @@
   </table>
   </div>
   </div>
-  <p class="note"><strong>Wasteful and worthwhile are the week.</strong> <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes DRBR read by OCR from a Screen Time screenshot instead of measuring directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; DRBR makes no claim of its own.</p>
+  <p class="note"><strong>Wasteful and worthwhile are the week.</strong> <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes were read by OCR from a Screen Time screenshot instead of measured directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; no claim is made about either.</p>
   {% endif %}
 </section>
 
@@ -372,7 +372,7 @@
 </section>
 
 <section id="blind-spots">
-  <h2>Blind spots: what DRBR cannot see</h2>
+  <h2>Blind spots: what isn't measured</h2>
   <ul class="tight blind-list">{% for s in blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>
 </section>
 

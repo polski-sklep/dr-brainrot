@@ -4,8 +4,8 @@
 <h1>Change refused</h1>
 <div class="notice notice-danger" role="alert">
   <p class="notice-body">{{ detail }}</p>
-  <p class="notice-note">Nothing was changed. DRBR only accepts changes it can trace back to this
-  dashboard, since there is no token to check instead.</p>
+  <p class="notice-note">Nothing was changed. Only a change that can be traced back to this dashboard
+  is accepted, since there is no token to check instead.</p>
 </div>
 <p><a href="{{ url_for('overview') }}">← Back to the overview</a></p>
 {% endblock %}
