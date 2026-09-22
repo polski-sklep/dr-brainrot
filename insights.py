@@ -91,6 +91,29 @@ REASON_NO_KEY = ("No ANTHROPIC_API_KEY is set, so DRBR wrote these sentences fro
 REASON_TOO_LITTLE = ("Too little data: no complete week of figures yet, so there was nothing "
                      "to summarise.")
 REASON_CALL_FAILED = "API call failed: {error}"
+
+#: Failures a person can act on, recognised from the provider's own message.
+#: The panel prints the reason verbatim, so a raw 400 body with a request id
+#: reads as noise where one sentence would tell the user what to do. The full
+#: error is still stored in `insights.error` either way.
+KNOWN_FAILURES = (
+    ("credit balance is too low",
+     "The summary needs Anthropic credit and the balance is too low, so DRBR wrote these "
+     "sentences from its own figures."),
+    ("rate_limit", "The API was rate-limited, so DRBR wrote these sentences from its own figures. "
+                   "The next weekly run will try again."),
+    ("authentication_error", "The Anthropic API key was rejected, so DRBR wrote these sentences "
+                             "from its own figures."),
+)
+
+
+def explain_failure(error: str) -> str:
+    """A sentence a person can act on, or the raw error when it is not one we know."""
+    low = error.lower()
+    for needle, sentence in KNOWN_FAILURES:
+        if needle in low:
+            return sentence
+    return REASON_CALL_FAILED.format(error=error if len(error) <= 200 else error[:197] + "…")
 REASON_UNKNOWN = "The summary was not written by a model; the reason was not recorded."
 
 SYSTEM_PROMPT = """\
@@ -545,7 +568,9 @@ def write_summary(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
 
     def store_fallback(reason: str) -> Insight:
         # A fallback never keeps a model: `model is None` is what the view
-        # branches on, and `error` holds the reason it prints.
+        # branches on, and `error` holds the reason it prints. The provider's
+        # raw message is logged rather than stored: the panel shows this text
+        # to a person, and a 400 body with a request id is not a sentence.
         return _store(conn, clk, settings, week_start=week_start, payload=payload,
                       summary=fallback, status=STATUS_FAILED, model=None, error=reason,
                       input_tokens=None, output_tokens=None)
@@ -564,16 +589,16 @@ def write_summary(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
             import anthropic  # noqa: PLC0415 — optional dependency, only needed here
             client = anthropic.Anthropic(api_key=key)
         except Exception as exc:  # noqa: BLE001 — a missing package must not break the run
-            reason = REASON_CALL_FAILED.format(error=_scrub(f"{type(exc).__name__}: {exc}", settings))
-            log.warning("insights: %s", reason)
-            return store_fallback(reason)
+            detail = _scrub(f"{type(exc).__name__}: {exc}", settings)
+            log.warning("insights: %s", detail)
+            return store_fallback(explain_failure(detail))
 
     try:
         text, input_tokens, output_tokens = _call(client, payload)
     except Exception as exc:  # noqa: BLE001 — a failed summary must never fail the caller
-        reason = REASON_CALL_FAILED.format(error=_scrub(f"{type(exc).__name__}: {exc}", settings))
-        log.warning("insights: %s", reason)
-        return store_fallback(reason)
+        detail = _scrub(f"{type(exc).__name__}: {exc}", settings)
+        log.warning("insights: %s", detail)
+        return store_fallback(explain_failure(detail))
 
     return _store(conn, clk, settings, week_start=week_start, payload=payload, summary=text,
                   status=STATUS_OK, model=MODEL, error=None, input_tokens=input_tokens,

@@ -716,3 +716,20 @@ def test_based_on_through_is_a_local_date_comparable_to_a_measurement_week(
     assert result.based_on_through < T.iso_date(T.local_date(clk.now(), settings.tz))
     # ...and is not the week it was generated in.
     assert not result.week_start.startswith(result.based_on_through)
+
+
+def test_a_known_api_failure_reads_as_a_sentence_not_a_400_body():
+    """The panel prints this to a person; the raw body goes to the log instead."""
+    raw = ("BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': "
+           "'invalid_request_error', 'message': 'Your credit balance is too low to access the "
+           "Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, "
+           "'request_id': 'req_011CfJJqRgp7xSYfqp6xy9rX'}")
+    said = insights.explain_failure(raw)
+    assert "credit" in said and "request_id" not in said and "{" not in said
+    assert said.endswith("from its own figures.")
+
+
+def test_an_unknown_api_failure_keeps_the_real_error_but_bounded():
+    assert insights.explain_failure("Boom: something new") == "API call failed: Boom: something new"
+    long = "X" * 400
+    assert len(insights.explain_failure(long)) < 220 and insights.explain_failure(long).endswith("…")
