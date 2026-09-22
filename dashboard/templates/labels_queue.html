@@ -5,9 +5,9 @@
 {% include "_label_tabs.html" %}
 
 <div class="rule">
-<p>DRBR measures <strong>brain-rot content only</strong>. Is this content you consume? If yes:
-wasteful or worthwhile. If you only go there to get something done, it is a <strong>tool</strong>
-and is not counted.</p>
+<p>DRBR only measures <strong>content</strong>. Is this something you watch, read or listen to? If so,
+is it brain rot (<strong>wasteful</strong>) or worth your time (<strong>worthwhile</strong>)? If you only go
+there to get something done, it is a <strong>tool</strong> and DRBR leaves it out.</p>
 </div>
 
 {% if unlabelled.count %}
@@ -20,16 +20,16 @@ and is not counted.</p>
   <div class="metric">
     <span class="metric-label">Minutes riding on them</span>
     <span class="metric-value">{{ unlabelled.minutes|min }}</span>
-    <span class="metric-note">measured inside the diagnostic window</span>
+    <span class="metric-note">measured so far in the diagnostic</span>
   </div>
   <div class="metric">
     <span class="metric-label">Mostly</span>
     <span class="metric-value">{% if unlabelled.top_group %}{{ GROUP_NAMES.get(unlabelled.top_group, unlabelled.top_group) }}{% else %}<span class="absent">—</span>{% endif %}</span>
-    <span class="metric-note">the group holding the most undecided minutes</span>
+    <span class="metric-note">where most of the undecided time is</span>
   </div>
 </div>
-<p class="note">Biggest first — the top rows move the figures most. Deciding a source at the top
-is worth more than clearing ten at the bottom.</p>
+<p class="note">Biggest first: the rows at the top move your figures most. One decision up here beats
+ten at the bottom.</p>
 
 <form method="post" action="{{ url_for('labels_bulk') }}" id="queue-form">
   <div class="bulkbar">
@@ -46,17 +46,17 @@ is worth more than clearing ten at the bottom.</p>
   <table>
     <thead><tr>
       <th class="col-check"><input type="checkbox" id="queue-all" aria-label="Select every source in the queue"></th>
-      <th>Source</th><th>Kind</th><th class="num">Minutes</th><th class="col-flex">Seen in</th>
+      <th class="col-flex">Source</th><th>Kind</th><th class="num">Minutes</th><th>Seen in</th>
     </tr></thead>
     <tbody>
       {% for r in rows %}
       <tr id="queue-{{ r.source_id }}">
         <td class="col-check"><input type="checkbox" name="source_id" value="{{ r.source_id }}"
                    aria-label="select {{ r.display_name }}"></td>
-        <td class="cell-source" title="{{ r.display_name }}">{{ r.display_name }}</td>
+        <td class="cell-source col-flex" title="{{ r.display_name }}">{{ r.display_name }}</td>
         <td class="cell-nowrap muted">{{ KIND_NAMES.get(r.kind, r.kind) }}</td>
         <td class="num">{{ r.minutes|min }}</td>
-        <td class="cell-nowrap muted col-flex">{{ r.seen_in|join(', ') }}</td>
+        <td class="cell-nowrap muted">{{ r.seen_in|join(', ') }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -64,7 +64,7 @@ is worth more than clearing ten at the bottom.</p>
   </div>
 </form>
 {% else %}
-<p class="absent">Nothing to decide: every source with measured minutes is labelled.</p>
+<p class="absent">Nothing to decide — every source with measured minutes is labelled.</p>
 {% endif %}
 
 <script>

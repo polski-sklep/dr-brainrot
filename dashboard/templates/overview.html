@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% from "_macros.html" import badge, lowconf %}
+{% from "_macros.html" import badge, lowconf, hint %}
 {% block title %}Overview{% endblock %}
 {% block content %}
 
 <h1>Overview</h1>
 <p class="scope" id="scope-line"><strong>Brain-rot content only: tools are excluded.</strong></p>
-<p class="note">This is a diagnostic. You label, the system counts. There are no targets here: compare and watch the trend.
+<p class="note">You decide what counts as brain rot. DRBR only adds it up — there is nothing to hit here, just weeks to compare.
 {% if window_start %}Figures start at {{ window_start }}.{% endif %}</p>
 
 {# ---------------------------------------------------------------- strip #}
@@ -15,41 +15,41 @@
     <div class="metric">
       <span class="metric-label">Wasteful content</span>
       <span class="metric-value">{% if week_split %}{{ week_split.wasteful_min|min }}{% else %}<span class="absent">outside the window</span>{% endif %}</span>
-      <span class="metric-note">includes unlabelled sources</span>
+      <span class="metric-note">unlabelled sources count here too</span>
     </div>
     <div class="metric">
-      <span class="metric-label">Of that, reflex</span>
+      <span class="metric-label">Of that, on {{ hint("reflex", "Content you opened straight away, without capturing it, waiting out the lock and promoting it first.") }}</span>
       <span class="metric-value">{{ reflex_min|min }}</span>
-      <span class="metric-note">never passed through the queue</span>
+      <span class="metric-note">opened without queueing it first</span>
     </div>
     <div class="metric">
       <span class="metric-label">Worthwhile content</span>
       <span class="metric-value">{% if week_split %}{{ week_split.worthwhile_min|min }}{% else %}<span class="absent">—</span>{% endif %}</span>
-      <span class="metric-note">counted, never gated</span>
+      <span class="metric-note">counted, but never held back</span>
     </div>
     <div class="metric">
       <span class="metric-label">Over the allowance</span>
       <span class="metric-value">{% if week_split %}{{ week_split.overage_min }} min{% else %}<span class="absent">—</span>{% endif %}</span>
-      <span class="metric-note">{% if week_split %}against {{ week_split.allowance_min }} min this week{% else %}no allowance recorded{% endif %}</span>
+      <span class="metric-note">{% if week_split %}out of {{ week_split.allowance_min }} min this week{% else %}no allowance recorded{% endif %}</span>
     </div>
     <div class="metric metric-aside">
       <span class="metric-label">Tool</span>
       <span class="metric-value">{% if week_split %}{{ week_split.tool_min|min }}{% else %}<span class="absent">—</span>{% endif %}</span>
-      <span class="metric-note">not content, counted nowhere</span>
+      <span class="metric-note">not content — left out of everything</span>
     </div>
   </div>
-  <p class="note">Every figure here is the week named above, except where a section says otherwise. Weeks whose evidence
-  has not arrived are not counted as zero — see weekly totals for what is still missing.</p>
+  <p class="note">All five figures are for the week above. If a week's data has not arrived yet, DRBR leaves it out rather
+  than calling it zero — weekly totals, below, shows what is still missing.</p>
 </section>
 
 {# ------------------------------------------------------------------ 0 #}
 <section id="reflex">
-  <h2>Reflex: wasteful content that bypassed the queue</h2>
-  <p class="note">Wasteful (including unlabelled) content minutes that never passed through capture, lock and triage.
+  <h2>Reflex: what you opened without deciding first</h2>
+  <p class="note">Minutes of wasteful content that never went through capture, the lock and triage — you just opened it.
   This is the honest measure of how much was reflex rather than choice. Measured minutes only.</p>
   <div class="table-wrap">
   <table class="compact">
-    <thead><tr><th>Group</th><th class="num">Reflex minutes</th><th>Provenance</th></tr></thead>
+    <thead><tr><th>Group</th><th class="num">Reflex minutes</th><th>{{ hint("Provenance", "Where the figure came from, and how directly. An API reported it; a screenshot was read by OCR and is less reliable.") }}</th></tr></thead>
     <tbody>
     {% for r in gated %}{% if r.wasteful_ungated_min %}
       <tr><th>{{ GROUP_NAMES.get(r.group, r.group) }}</th><td class="num">{{ r.wasteful_ungated_min|min }}</td>
@@ -77,9 +77,9 @@
   <div class="table-wrap">
   <table>
     <thead><tr>
-      <th>Group</th><th>Device</th><th>Provenance</th><th class="num">Measured</th>
+      <th>Group</th><th>Device</th><th>{{ hint("Provenance", "Where the figure came from, and how directly. An API reported it; a screenshot was read by OCR and is less reliable.") }}</th><th class="num">{{ hint("Measured", "Minutes DRBR actually has a figure for. A source with no data is left out, never counted as zero.") }}</th>
       <th class="num th-wrap">Tool (not content, excluded)</th>
-      <th>Unmeasured</th><th class="col-flex">Covered elsewhere (excluded)</th><th>Import</th>
+      <th>Unmeasured</th><th class="col-flex">{{ hint("Covered elsewhere (excluded)", "Minutes another source already counted. They are excluded here so nothing is double-counted.") }}</th><th>{{ hint("Import", "The file or feed this week's figures came from, and whether it arrived cleanly.") }}</th>
     </tr></thead>
     <tbody>
     {% for t in totals %}
@@ -105,9 +105,9 @@
         </td>
         <td class="import-{{ t.import_status or 'api' }}">
           {% if t.import_status is none %}polled via API (no import)
-          {% elif t.import_status == "missing" %}<strong>missing</strong><span class="sub">no import covers this week</span>
-          {% elif t.import_status == "incomplete" %}<strong>incomplete</strong><span class="sub">no import covers the whole week yet</span>
-          {% elif t.import_status == "partial" %}<strong>partial</strong><span class="sub">with warnings — <a href="#import-{{ t.import_id }}">import #{{ t.import_id }}</a></span>
+          {% elif t.import_status == "missing" %}<strong>missing</strong><span class="sub">nothing has arrived for this week yet</span>
+          {% elif t.import_status == "incomplete" %}<strong>incomplete</strong><span class="sub">nothing covering the whole week yet</span>
+          {% elif t.import_status == "partial" %}<strong>partial</strong><span class="sub">arrived, with warnings — <a href="#import-{{ t.import_id }}">import #{{ t.import_id }}</a></span>
           {% elif t.import_status == "ok" %}<strong>received</strong><span class="sub"><a href="#import-{{ t.import_id }}">import #{{ t.import_id }}</a></span>
           {% else %}{{ t.import_status }}{% endif %}
         </td>
@@ -116,7 +116,7 @@
     </tbody>
   </table>
   </div>
-  <p class="note">Measured minutes are content: wasteful and worthwhile (including unlabelled). Minutes on sources you labelled tool are not content; they are shown in their own column and counted nowhere else. Parsed-screenshot figures are OCR readings and carry lower confidence than API figures.</p>
+  <p class="note">Measured means content — wasteful plus worthwhile, with unlabelled counted as wasteful. Sources you called a tool are not content, so they sit in their own column and count nowhere else. Figures read from screenshots come from OCR, so they are less reliable than ones an API reported.</p>
   {% if week_imports %}
   <h3>Imports covering this week</h3>
   <div class="table-wrap">
@@ -164,7 +164,7 @@
     {% endfor %}
   </svg>
   </div>
-  <p class="legend"><span class="swatch bar-wasteful"></span> wasteful (includes unlabelled) <span class="swatch bar-worthwhile"></span> worthwhile <span class="sep">·</span> weeks labelled by their Sunday</p>
+  <p class="legend"><span class="swatch bar-wasteful"></span> wasteful (unlabelled counts here) <span class="swatch bar-worthwhile"></span> worthwhile <span class="sep">·</span> each week is named by its Sunday</p>
   <div class="table-wrap">
   <table class="compact">
     <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Worthwhile</th><th class="num th-wrap" title="A part of the wasteful and worthwhile minutes beside it, not a separate total">Of those, read from screenshots</th><th class="num th-wrap">Tool (not content, not in the bars)</th></tr></thead>
@@ -183,16 +183,16 @@
   <div class="table-wrap">
   <table class="compact">
     <tbody>
-      <tr><th>Spent (wasteful content, pooled across sources)</th><td class="num">{{ allowance.spent_wasteful_min|min }}</td></tr>
-      <tr><th>… of which from parsed screenshots</th><td class="num">{{ allowance.spent_screenshot_ocr_min|min }}{% if allowance.spent_screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
+      <tr><th>Spent (all wasteful content, pooled)</th><td class="num">{{ allowance.spent_wasteful_min|min }}</td></tr>
+      <tr><th>… of that, read from screenshots</th><td class="num">{{ allowance.spent_screenshot_ocr_min|min }}{% if allowance.spent_screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
       <tr><th>Remaining</th><td class="num">{{ allowance.remaining_min }} min</td></tr>
       <tr><th>Over the allowance so far</th><td class="num">{{ allowance.overage_min }} min</td></tr>
-      <tr><th>Allowance</th><td class="num">{{ allowance.allowance_min }} min</td></tr>
-      <tr><th>Promoted in the POP queue (a commitment, reported separately)</th><td class="num">{{ allowance.promoted_min }} min</td></tr>
+      <tr><th>{{ hint("Allowance", "The weekly pool of wasteful minutes you set for yourself. It never carries over.") }}</th><td class="num">{{ allowance.allowance_min }} min</td></tr>
+      <tr><th>Promoted in the queue (a commitment, counted separately)</th><td class="num">{{ allowance.promoted_min }} min</td></tr>
     </tbody>
   </table>
   </div>
-  <p class="note">Week opening {{ allowance.week_start|local_dt }}. Weekly evidence (Screen Time, Cold Turkey, YouTube) arrives late, so spent can rise after the week is over. Going over is recorded per week and never carried: every week starts with the full allowance.</p>
+  <p class="note">Week opens {{ allowance.week_start|local_dt }}. Screen Time, Cold Turkey and YouTube data arrives late, so spent can still rise after the week ends. Going over is recorded against that week alone and never carried forward — every week starts with the full allowance.</p>
   </div>
   {% set over_weeks = chart.bars|selectattr("split.overage_min")|list %}
   <div>
@@ -216,7 +216,7 @@
   <h2>Gated vs ungated (week of {{ week.sunday }})</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Group</th><th class="th-wrap">Ungated (reflex) share</th><th class="num th-wrap">Wasteful, bypassed the queue</th><th class="num th-wrap">Bypassed the queue (all content)</th><th class="num th-wrap">Through the queue</th><th>Provenance</th></tr></thead>
+    <thead><tr><th>Group</th><th class="th-wrap">{{ hint("Ungated (reflex) share", "You opened it without queueing it first.") }}</th><th class="num th-wrap">Wasteful, bypassed the queue</th><th class="num th-wrap">Bypassed the queue (all content)</th><th class="num th-wrap">{{ hint("Through the queue", "You captured it, waited out the lock and promoted it before opening it.") }}</th><th>Provenance</th></tr></thead>
     <tbody>
     {% for r in gated %}
       <tr>
@@ -231,15 +231,15 @@
     </tbody>
   </table>
   </div>
-  <p class="note">Gated means promoted through the queue before it was consumed. Every Screen Time and Cold Turkey minute is ungated. Covered-elsewhere rows, unmeasured rows and tool minutes contribute nothing.</p>
+  <p class="note">Gated means you queued it, waited out the lock and promoted it before opening it. Screen Time and Cold Turkey minutes are always ungated — they cannot tell either way. Rows measured elsewhere, unmeasured rows and tool minutes add nothing here.</p>
 </section>
 
 {# ------------------------------------------------------------------ 5 #}
 <section id="cost-per-keeper">
-  <h2>Cost per keeper (whole diagnostic, ranked)</h2>
+  <h2>Cost per keeper: what each thing you kept cost you</h2>
   <div class="table-wrap">
   <table>
-    <thead><tr><th class="num">#</th><th>Group</th><th class="num">Price</th><th class="num">Minutes</th><th class="num">Keepers</th><th>Provenance</th><th class="col-flex">Blind spots</th></tr></thead>
+    <thead><tr><th class="num">#</th><th>Group</th><th class="num">{{ hint("Price", "Minutes spent in this group for each thing you kept. A high price means a lot of time for one keeper.") }}</th><th class="num">Minutes</th><th class="num">{{ hint("Keepers", "Something you captured and still kept after processing it in your vault.") }}</th><th>Provenance</th><th class="col-flex">Blind spots</th></tr></thead>
     <tbody>
     {% for k in keepers %}
       <tr>
@@ -255,30 +255,30 @@
     </tbody>
   </table>
   </div>
-  <p class="note">Content minutes of every label (tool excluded), divided by vault captures from the group whose latest scan says kept. Groups with no price are listed last.</p>
+  <p class="note">Content minutes of any label (tools excluded), divided by the notes you actually kept in the vault. Ranked across the whole diagnostic. Groups with nothing kept yet have no price and are listed last.</p>
 </section>
 
 {# ------------------------------------------------------------------ 6 #}
 <section id="funnels">
-  <h2>Funnels</h2>
+  <h2>Funnels: what happens to what you capture</h2>
   {% set p = funnels.pop %}
   <div class="cols">
   <div id="pop-funnel">
-    <h3>POP queue (counts)</h3>
+    <h3>Queue (counts, never time)</h3>
     <div class="table-wrap">
     <table class="compact">
       <tbody>
-        <tr><th>Captured (lock window over)</th><td class="num">{{ p.captured }}</td><td class="muted"></td></tr>
-        <tr><th>Survived the lock</th><td class="num">{{ p.survived_lock }}</td><td class="muted">{{ p.survived_rate|pct }} of captured</td></tr>
-        <tr><th>Promoted</th><td class="num">{{ p.promoted }}</td><td class="muted">{{ p.promoted_rate|pct }} of survived</td></tr>
+        <tr><th>Captured (past the lock window)</th><td class="num">{{ p.captured }}</td><td class="muted"></td></tr>
+        <tr><th>{{ hint("Survived the lock", "The 48-hour wait between capturing something and being allowed to play it.") }}</th><td class="num">{{ p.survived_lock }}</td><td class="muted">{{ p.survived_rate|pct }} of captured</td></tr>
+        <tr><th>{{ hint("Promoted", "You decided, after the lock, that it was still worth your time.") }}</th><td class="num">{{ p.promoted }}</td><td class="muted">{{ p.promoted_rate|pct }} of survived</td></tr>
         <tr><th>Played</th><td class="num">{{ p.played }}</td><td class="muted">{{ p.played_rate|pct }} of promoted</td></tr>
         <tr><th>Fully played</th><td class="num">{{ p.fully_played }}</td><td class="muted">{{ p.fully_played_rate|pct }} of promoted</td></tr>
         <tr><th>Median days to drop</th><td class="num">{% if p.median_days_to_drop is none %}—{% else %}{{ '%.1f'|format(p.median_days_to_drop) }} days{% endif %}</td><td class="muted"></td></tr>
-        <tr><th>"Still holds" answered yes</th><td class="num">{{ p.still_holds_yes_rate|pct }}</td><td class="muted">of {{ p.still_holds_answered }} answered</td></tr>
+        <tr><th>{{ hint('"Still holds" answered yes', "At triage, whether you said the reason you captured it still held.") }}</th><td class="num">{{ p.still_holds_yes_rate|pct }}</td><td class="muted">of {{ p.still_holds_answered }} answered</td></tr>
       </tbody>
     </table>
     </div>
-    <p class="note">Captures still inside their lock window are not counted anywhere yet.</p>
+    <p class="note">Anything still inside its lock window is not counted here yet.</p>
   </div>
   {% set v = funnels.vault %}
   <div id="vault-funnel">
@@ -287,7 +287,7 @@
     <table class="compact">
       <tbody>
         <tr><th>Captured (unprocessed + kept)</th><td class="num">{{ v.captured }}</td><td class="muted"></td></tr>
-        <tr><th>Still unprocessed in the inbox</th><td class="num">{{ v.unprocessed }}</td><td class="muted"></td></tr>
+        <tr><th>{{ hint("Still unprocessed in the inbox", "Captured into the vault but not yet processed in Obsidian.") }}</th><td class="num">{{ v.unprocessed }}</td><td class="muted"></td></tr>
         <tr><th>Kept</th><td class="num">{{ v.kept }}</td><td class="muted">{% if v.captured %}{{ (v.kept / v.captured)|pct }} of captured{% endif %}</td></tr>
         <tr><th>Kept and edited after capture</th><td class="num">{{ v.edited_kept }}</td><td class="muted">of the kept</td></tr>
       </tbody>
@@ -300,12 +300,12 @@
 
 {# ------------------------------------------------------------------ 7 #}
 <section id="blind-spots">
-  <h2>Blind spots</h2>
+  <h2>Blind spots: what DRBR cannot see</h2>
   <ul class="tight blind-list">{% for s in blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>
 </section>
 
 <section id="imports">
-  <h2>Latest import per kind</h2>
+  <h2>Latest data from each source</h2>
   <div class="table-wrap">
   <table>
     <thead><tr><th>Kind</th><th>Status</th><th>Received</th><th>Period</th><th>Import id</th><th class="col-flex">Error / warnings</th></tr></thead>

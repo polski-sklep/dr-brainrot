@@ -35,17 +35,17 @@ Every colour has one job. A colour used for a second job is a bug.
 
 | Token | Value | Role | Not for |
 |---|---|---|---|
-| `--bg` | `#F6F7F9` | Page ground, so white panels read as raised without a shadow. | Any panel or table. |
+| `--bg` | `#F5F7FA` | Page ground, so white panels read as raised without a shadow. | Any panel or table. |
 | `--surface` | `#FFFFFF` | Panels, tables, header. The plane data sits on. | The page itself. |
-| `--surface-sunk` | `#F1F3F5` | Table headers, toolbars, totals rows, excluded rows. Signals "not the data". | Ordinary rows. |
-| `--surface-hover` | `#F6F8FA` | Row hover only — a transient response to the pointer. | Any resting state. |
+| `--surface-sunk` | `#EFF3F8` | Table headers, toolbars, totals rows, excluded rows. Signals "not the data". | Ordinary rows. |
+| `--surface-hover` | `#F2F6FC` | Row hover only — a transient response to the pointer. | Any resting state. |
 
 ### Lines
 
 | Token | Value | Role |
 |---|---|---|
-| `--hairline` | `#E6E8EB` | Row separators. Decorative weight: enough to guide the eye across a row, not enough to stripe the table. |
-| `--border` | `#D6DAE0` | Panel and control edges. Structural. |
+| `--hairline` | `#E4E8EE` | Row separators. Decorative weight: enough to guide the eye across a row, not enough to stripe the table. |
+| `--border` | `#D3D9E2` | Panel and control edges. Structural. |
 | `--border-strong` | `#B4BAC3` | The line under a table head, and the total row's top rule. Marks a real boundary. |
 
 Zebra striping is deliberately absent. Rows already carry chips and badges;
@@ -69,6 +69,14 @@ it (the `tool` chip, excluded rows, the aside metric). All three pass now.
 |---|---|---|---|
 | `--accent` | `#1D5FD1` | 5.8:1 on white; white on it 5.8:1 | Links, the active nav item, the focus ring, the selected segment, the one primary button per toolbar. |
 | `--accent-weak` | `#EAF0FC` | accent on it 5.1:1 | Ground for the active nav item and the selected label segment. |
+| `--info-bg` / `--info-border` | `#EFF5FE` / `#C6DAF6` | body text 15:1 | Explainer panels. Says "read me", never "act". |
+
+The neutrals carry a trace of blue rather than being pure grey, so a table or
+a toolbar reads as a surface instead of as an absence of colour. Beyond that,
+accent appears in exactly three non-interactive places: a 3px mark beside each
+section heading, so you can find your way down a long page; a 2px edge along
+the top of the summary strip, marking it as the page's headline; and the
+dotted underline under an explainable term. None of them colours a figure.
 
 Blue because it reads as *functional* rather than emotional: a reader does not
 mistake it for a status. It never appears on a figure, a row, or a chart.
@@ -111,6 +119,17 @@ and stays silent about which is better. The light series was darkened from
 against the page.
 
 ---
+
+### Copy
+
+Plain and direct, in the second person. The rule is that a sentence should
+survive being read once. "Wasteful (including unlabelled) content minutes that
+never passed through capture, lock and triage" became "Minutes of wasteful
+content that never went through capture, the lock and triage — you just opened
+it." The terminology the diagnostic depends on — wasteful, worthwhile, tool,
+reflex, gated, keeper — is kept exactly, because renaming it would break the
+link to `report.py` and to the brief. Everything around it is ordinary English,
+and anything that stays jargon gets a hint.
 
 ## 3. Typography
 
@@ -252,6 +271,13 @@ the primary nav stays at three. Tabs are deliberately weaker than nav: no
 fill, an underline, and the active tab carried by weight as well as colour.
 The undecided count rides the tab as an amber badge, because an unlabelled
 source is the one state in the system that asks the user to act.
+
+**Hints.** A jargon term — *reflex*, *gated*, *provenance*, *keeper*, *the
+lock* — carries its plain-English meaning in a `title`, marked by a dotted
+underline so the explanation is visibly available rather than a secret. Native
+`title` only: no library, no JavaScript, and it degrades to plain text. Hints
+sit on column headers and on the few terms in body copy that the diagnostic
+cannot do without.
 
 **Notice.** A refused or failed action, on its own page: a bordered panel
 with a red left edge, the reason in full, and a muted second line saying that

@@ -537,9 +537,10 @@ def test_labels_page_states_the_content_rule_and_offers_tool(client, conn, clk):
     src = label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", None, "amazon.pl")
     html = text(client.get("/labels"))
     page = " ".join(re.sub(r"<[^>]+>", "", html).split())                 # inline emphasis removed in place
-    assert ("DRBR measures brain-rot content only. Label each source by asking: is this content I consume? "
-            "If yes, is it brain rot (wasteful) or not (worthwhile)? If I only go there to get a task done — "
-            "buy, pay, book, log in, organise, check the weather — it's a tool and isn't counted.") in page
+    assert ("DRBR only measures content — things you watch, read or listen to. For each source, ask: "
+            "is this content? If it is, is it brain rot (wasteful) or worth your time (worthwhile)? "
+            "If you only go there to get something done — buy, pay, book, log in, check the weather "
+            "— it's a tool, and DRBR leaves it out.") in page
     assert '<option value="tool"' in html                                   # filter option
     row = row_for(body_rows(html), "amazon.pl")
     assert 'name="label" value="tool"' in row and 'hx-post' in row

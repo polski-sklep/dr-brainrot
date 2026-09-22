@@ -16,3 +16,9 @@
 {% macro label_chip(label) -%}
 <span class="state state-{{ label }}">{{ label }}</span>
 {%- endmacro %}
+
+{#- A jargon term with its plain-English meaning on hover. Marked with a
+    dotted underline so it is visibly explainable rather than silently so. -#}
+{% macro hint(text, tip) -%}
+<span class="hint" title="{{ tip }}">{{ text }}</span>
+{%- endmacro %}

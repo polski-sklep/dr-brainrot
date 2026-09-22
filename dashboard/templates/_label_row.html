@@ -9,7 +9,7 @@
     {% elif s.label == TOOL %}<span class="state state-tool">{{ TOOL_TEXT }}</span>
     {% else %}<span class="state state-{{ s.label }}"><strong>{{ s.label }}</strong></span>{% endif %}
     {% set why = covered(s) %}
-    {% if why %}<span class="note-inline">Covered elsewhere: minutes already measured by {{ why }}, so this label changes no totals.</span>{% endif %}
+    {% if why %}<span class="note-inline">Already measured by {{ why }}, so labelling this changes no totals.</span>{% endif %}
   </td>
   <td>
     {% if toggleable(s) %}

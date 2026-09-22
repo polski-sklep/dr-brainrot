@@ -19,14 +19,14 @@
 
 :root {
   /* -- Surfaces -------------------------------------------------------- */
-  --bg:            #F6F7F9;   /* page. Lets white panels read as raised.   */
+  --bg:            #F5F7FA;   /* page. Lets white panels read as raised.   */
   --surface:       #FFFFFF;   /* panels, tables, header.                   */
-  --surface-sunk:  #F1F3F5;   /* table headers, toolbars, inset blocks.    */
-  --surface-hover: #F6F8FA;   /* row hover only. Never a resting state.    */
+  --surface-sunk:  #EFF3F8;   /* table headers, toolbars, inset blocks.    */
+  --surface-hover: #F2F6FC;   /* row hover only. Never a resting state.    */
 
   /* -- Lines ----------------------------------------------------------- */
-  --hairline:      #E6E8EB;   /* row separators. Decorative weight only.   */
-  --border:        #D6DAE0;   /* panel + control edges. Structural.        */
+  --hairline:      #E4E8EE;   /* row separators. Decorative weight only.   */
+  --border:        #D3D9E2;   /* panel + control edges. Structural.        */
   --border-strong: #B4BAC3;   /* table head underline, focused controls.   */
 
   /* -- Text (all AA or better on --surface) ---------------------------- */
@@ -38,6 +38,8 @@
   --accent:        #1D5FD1;   /*  5.6:1 on white.                          */
   --accent-weak:   #EAF0FC;   /* active nav / selected segment ground.     */
   --accent-border: #A9C4F0;
+  --info-bg:       #EFF5FE;   /* explainer panels. Says "read me", not "act". */
+  --info-border:   #C6DAF6;
 
   /* -- Semantic. Reserved; see the header note. ------------------------ */
   --warn:          #8F5F00;   /* 5.1:1 on --warn-bg, 5.5:1 on white.       */
@@ -201,8 +203,17 @@ h2 {
   font-weight: 650;
   letter-spacing: -.005em;
   margin: 0 0 var(--s3);
-  padding-bottom: var(--s2);
+  padding: 0 0 var(--s2) var(--s3);
   border-bottom: 1px solid var(--border);
+  position: relative;
+}
+h2::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 2px;
+  width: 3px; height: 1em;
+  border-radius: 2px;
+  background: var(--accent);
 }
 
 h3 {
@@ -237,9 +248,9 @@ section:first-of-type { margin-top: var(--s5); }
 .scope strong { font-weight: 600; }
 
 .rule {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border-strong);
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-left: 3px solid var(--accent);
   border-radius: var(--r-panel);
   padding: var(--s3) var(--s4);
   margin: 0 0 var(--s3);
@@ -263,6 +274,7 @@ ul.tight li { margin: 1px 0; }
   flex-wrap: wrap;
   background: var(--surface);
   border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
   border-radius: var(--r-panel);
   overflow: hidden;
 }
@@ -350,6 +362,14 @@ td.tool-min { color: var(--text-muted); font-weight: 450; }
 
 /* The ungated share: a ratio, not a headline. */
 td.reflex { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+
+/* A term with a plain-English explanation on hover. The dotted underline is
+   the affordance: without it the tooltip is a secret. */
+.hint {
+  border-bottom: 1px dotted var(--border-strong);
+  cursor: help;
+}
+thead th .hint { border-bottom-color: var(--accent-border); }
 
 .blind-list { font-size: var(--fs-table); color: var(--text-secondary); max-width: var(--measure); }
 .blind-list li { margin: var(--s1) 0; }
