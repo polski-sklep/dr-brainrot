@@ -325,3 +325,187 @@ def list_sources(conn: sqlite3.Connection, *, kind: str | None = None,
         f"SELECT * FROM sources {where} ORDER BY kind, display_name COLLATE NOCASE, id", params
     ).fetchall()
     return [_to_source(r) for r in rows]
+
+
+# --- the labelling queue (DR5.6) --------------------------------------------
+#
+# Labelling moved out of Telegram and into the dashboard, and with it the
+# order changed. The bot asked oldest-first, deliberately, because a *prompt*
+# ordered by minutes would have told the user which sources it considered
+# important. A queue the user opens himself is a different act: he is choosing
+# what to spend his attention on, and the honest help is "these are the
+# biggest decisions". The system still never suggests a label — only an order.
+
+#: Where a source was seen, in words. Provenance stays the machine fact;
+#: this is the phrase the dashboard puts on the row.
+PROVENANCE_SEEN = {
+    T.PROV_API: "Spotify polling",
+    T.PROV_PAGE: "YouTube history",
+    T.PROV_SCREENSHOT: "Screen Time screenshots",
+    T.PROV_EXPORT: "Cold Turkey (desktop web)",
+    T.PROV_APP_TRACKER: "Qbserve (Mac apps)",
+}
+
+
+@dataclass(frozen=True)
+class QueueRow:
+    """One unlabelled source, as the dashboard's Labels page lists it.
+
+    `minutes` is measured consumption inside the diagnostic window: what the
+    decision is worth, not an opinion about it. `seen_in` is the same fact as
+    `provenances`, in words, so the page needs no lookup table of its own.
+    """
+
+    source_id: int
+    kind: str
+    group: str
+    display_name: str
+    minutes: float
+    provenances: tuple[str, ...]
+    seen_in: tuple[str, ...]
+    first_seen_at: str
+
+
+@dataclass(frozen=True)
+class Summary:
+    """The unlabelled backlog in one line: the Telegram digest and the dashboard badge."""
+
+    count: int
+    minutes: float
+    top_group: str | None      # the report group holding the most unlabelled minutes
+
+
+def _window_start(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> str | None:
+    import report  # noqa: PLC0415 — report imports allowance imports labels; lazy breaks the cycle
+
+    return report.window_start(conn, clk, settings)
+
+
+def _measured_minutes(conn: sqlite3.Connection, floor: str | None) -> dict[int, float]:
+    """source id -> measured minutes in the window, from every kind of evidence.
+
+    Measurements carry their own period; Spotify listening does not, so its
+    deltas are attributed to the show's source through `episodes`, matched in
+    Python because `normalise_key` casefolds and SQL cannot reproduce that.
+    Rows a better source already measures are left out, exactly as every other
+    total leaves them out (DR1.9): a covered source is never offered anyway.
+    """
+    out: dict[int, float] = {}
+    sql = ("SELECT m.source_id AS source_id, SUM(m.minutes) AS mins FROM measurements m "
+           "WHERE m.status = 'ok'")
+    params: list = []
+    if floor is not None:
+        sql += " AND m.period_end >= ?"
+        params.append(floor)
+    for row in conn.execute(sql + " GROUP BY m.source_id", params):
+        out[row["source_id"]] = float(row["mins"] or 0.0)
+
+    by_key: dict[tuple[str, str], float] = {}
+    for row in conn.execute(
+        "SELECT e.platform, e.show, e.source_key, SUM(l.delta_ms) AS ms FROM listening l "
+        "JOIN episodes e ON e.spotify_id = l.spotify_id WHERE l.delta_ms > 0 "
+        "GROUP BY e.platform, e.show, e.source_key"
+    ):
+        try:
+            if row["platform"] == "youtube":
+                if not row["source_key"]:
+                    continue
+                key = normalise_key(T.KIND_YOUTUBE_CHANNEL, row["source_key"])
+            elif row["show"]:
+                key = normalise_key(T.KIND_PODCAST_SHOW, row["show"])
+            else:
+                continue
+        except LabelError:
+            continue
+        by_key[key] = by_key.get(key, 0.0) + int(row["ms"] or 0) / 60000
+    if by_key:
+        for row in conn.execute("SELECT id, kind, source_key FROM sources"):
+            extra = by_key.get((row["kind"], row["source_key"]))
+            if extra:
+                out[row["id"]] = out.get(row["id"], 0.0) + extra
+    return out
+
+
+def _provenances(conn: sqlite3.Connection, source_id: int) -> tuple[str, ...]:
+    return tuple(r["provenance"] for r in conn.execute(
+        "SELECT DISTINCT provenance FROM measurements WHERE source_id = ? ORDER BY provenance", (source_id,)))
+
+
+def label_queue(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
+                limit: int | None = None) -> list[QueueRow]:
+    """Every unlabelled source with evidence, biggest measured decision first.
+
+    The same exclusions as `sources_needing_label` — covered elsewhere, the
+    unknown-YouTube-channel bucket, anything never observed — because they are
+    exclusions of fact, not of prompting policy. Unlike the prompt list, there
+    is no per-source cooldown: the user asked for this page, so everything
+    still undecided belongs on it.
+    """
+    floor = _window_start(conn, clk, settings)
+    minutes = _measured_minutes(conn, floor)
+    evidenced = _sources_with_evidence(conn)
+    rows: list[QueueRow] = []
+    for row in conn.execute("SELECT * FROM sources WHERE label IS NULL ORDER BY id"):
+        source = _to_source(row)
+        if source.id not in evidenced or is_covered_elsewhere(source):
+            continue
+        if source.kind == T.KIND_YOUTUBE_CHANNEL and source.source_key == T.UNKNOWN_YOUTUBE_CHANNEL_KEY:
+            continue
+        provs = _provenances(conn, source.id)
+        seen = tuple(dict.fromkeys(PROVENANCE_SEEN.get(p, p) for p in provs))
+        if not seen and source.kind in (T.KIND_PODCAST_SHOW, T.KIND_YOUTUBE_CHANNEL):
+            seen = (PROVENANCE_SEEN[T.PROV_API] if source.kind == T.KIND_PODCAST_SHOW
+                    else PROVENANCE_SEEN[T.PROV_PAGE],)
+        rows.append(QueueRow(
+            source_id=source.id, kind=source.kind, group=T.report_group(source.kind),
+            display_name=source.display_name, minutes=round(minutes.get(source.id, 0.0), 4),
+            provenances=provs, seen_in=seen, first_seen_at=source.first_seen_at,
+        ))
+    rows.sort(key=lambda r: (-r.minutes, r.first_seen_at, r.source_id))
+    return rows if limit is None else rows[:max(0, limit)]
+
+
+def bulk_set_label(conn: sqlite3.Connection, clk: Clock, source_ids, label: str, *,
+                   settings: Settings) -> int:
+    """Label many sources at once. Commits once. -> how many rows changed.
+
+    The dashboard's whole point is deciding twenty sources in one sitting, so
+    this is one transaction and one recompute rather than twenty of each.
+    Ids that no longer exist are skipped rather than raised: a page listing a
+    source that a reparse has since removed must not fail the other twenty.
+    Debt is computed from labels as they are now, so every week's overage is
+    re-recorded here (DR2.7) instead of waiting for the next import — which is
+    why `settings` is required, keyword-only so it cannot be mistaken for one
+    of the positional arguments.
+    """
+    _check_source_label(label)
+    ids = [int(i) for i in source_ids]
+    if not ids:
+        return 0
+    now = clock.iso(clk.now())
+    changed = 0
+    for source_id in ids:
+        changed += conn.execute("UPDATE sources SET label = ?, labelled_at = ? WHERE id = ?",
+                                (label, now, source_id)).rowcount
+    conn.commit()
+    import allowance  # noqa: PLC0415 — allowance imports labels; lazy import breaks the cycle
+
+    allowance.on_measurements_changed(conn, clk, settings)
+    return changed
+
+
+def unlabelled_summary(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Summary:
+    """How much is undecided: count, measured minutes, and the biggest group.
+
+    What the Telegram digest says in one sentence and the dashboard shows as a
+    badge. `top_group` is the report group holding the most unlabelled minutes,
+    or None when nothing is unlabelled (never a group with no minutes).
+    """
+    rows = label_queue(conn, clk, settings)
+    per_group: dict[str, float] = {}
+    for row in rows:
+        per_group[row.group] = per_group.get(row.group, 0.0) + row.minutes
+    top = max(per_group.items(), key=lambda kv: (kv[1], kv[0]))[0] if per_group else None
+    if top is not None and per_group[top] <= 0:
+        top = None
+    return Summary(len(rows), round(sum(r.minutes for r in rows), 4), top)

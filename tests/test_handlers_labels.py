@@ -1,7 +1,13 @@
-"""handlers_labels.py: label buttons, /labels, and the daily batch (CONTRACTS Part II §8)."""
+"""handlers_labels.py: the 3-day label digest and /labels (CONTRACTS Part II §8, §19).
+
+Since DR5.6 nothing here labels anything. What is tested is the cadence (at
+most one message every three days), the content of that one message, and that
+no button or callback survived the move to the dashboard.
+"""
 from __future__ import annotations
 
 import asyncio
+import pathlib
 
 import pytest
 from telegram.ext import CallbackQueryHandler, CommandHandler
@@ -69,6 +75,9 @@ class SyncBot:
     def send_message(self, **kwargs):
         self.sent.append(kwargs)
 
+    def texts(self) -> list[str]:
+        return [m["text"] for m in self.sent]
+
 
 class FakeContext:
     def __init__(self, bot_data, bot=None):
@@ -102,18 +111,23 @@ def ctx(conn, clk, settings):
     return FakeContext({"conn": conn, "clk": clk, "settings": settings})
 
 
-def _observed(conn, clk, settings, name, day="2026-09-06"):
+def _observed(conn, clk, settings, name, day="2026-09-06", minutes=3.0):
     s = labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, name)
     rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="t")
     evidence.upsert_measurement(conn, rec, source_id=s.id, device="iphone", provenance=T.PROV_SCREENSHOT,
-                                period_start=day, period_end=day, minutes=3.0)
+                                period_start=day, period_end=day, minutes=minutes)
     evidence.finish_import(conn, clk, settings, rec, period_start=day, period_end=day)
     return s
 
 
+def _started(conn, clk, settings, *names):
+    """Diagnostic starts 2026-09-06 via the first measurement; sources observed."""
+    return [_observed(conn, clk, settings, n) for n in names]
+
+
 # --- registration -----------------------------------------------------------
 
-def test_register_adds_callback_and_command():
+def test_register_adds_the_command_and_no_callback_handler():
     class App:
         def __init__(self):
             self.handlers = []
@@ -123,186 +137,114 @@ def test_register_adds_callback_and_command():
 
     app = App()
     H.register(app)
-    cb = [h for h in app.handlers if isinstance(h, CallbackQueryHandler)]
+    assert [h for h in app.handlers if isinstance(h, CallbackQueryHandler)] == []
     cmd = [h for h in app.handlers if isinstance(h, CommandHandler)]
-    assert len(cb) == 1 and cb[0].pattern.pattern == "^d:lbl:"
     assert len(cmd) == 1 and "labels" in cmd[0].commands
 
 
-def test_callback_data_fits_telegram_limit():
-    data = H.callback_data(T.WORTHWHILE, 10**17)
-    assert data.startswith("d:lbl:v:") and len(data.encode()) <= 64
+def test_no_label_callback_survives_the_move_to_the_dashboard():
+    """The `d:lbl:` namespace is gone: no handler, no data builder, no prompt."""
+    for name in ("on_label_callback", "callback_data", "render_prompt", "send_label_batch", "CALLBACK_PREFIX"):
+        assert not hasattr(H, name), f"{name} should have been removed with in-Telegram labelling"
+    source = pathlib.Path(H.__file__).read_text()
+    assert "d:lbl:" not in source
+    assert "InlineKeyboard" not in source
 
 
-# --- callback ---------------------------------------------------------------
+# --- the digest -------------------------------------------------------------
 
-@pytest.mark.parametrize("code,label", [("w", T.WASTEFUL), ("v", T.WORTHWHILE)])
-def test_callback_sets_label_and_edits_message(conn, clk, settings, ctx, code, label):
-    s = _observed(conn, clk, settings, "Notes")
-    q = FakeQuery(f"d:lbl:{code}:{s.id}")
-    asyncio.run(H.on_label_callback(FakeUpdate(query=q), ctx))
-    assert labels.get_source(conn, s.id).label == label
-    assert q.answers == [f"Labelled {label}."]
-    assert q.edits == [f"Notes (iPhone app): labelled {label}."]
-    assert labels.resolve(conn, source_id=s.id).basis == T.BASIS_SOURCE_LABEL
-
-
-def test_callback_can_change_a_label(conn, clk, settings, ctx):
-    s = _observed(conn, clk, settings, "Notes")
-    for code in ("w", "v"):
-        asyncio.run(H.on_label_callback(FakeUpdate(query=FakeQuery(f"d:lbl:{code}:{s.id}")), ctx))
-    assert labels.get_source(conn, s.id).label == T.WORTHWHILE
-
-
-def test_stale_source_id_is_answered_not_raised(ctx, conn):
-    q = FakeQuery("d:lbl:w:424242")
-    asyncio.run(H.on_label_callback(FakeUpdate(query=q), ctx))
-    assert q.answers == [H.STALE] and q.edits == []
-
-
-def test_tool_callback_labels_tool_and_says_not_counted(conn, clk, settings, ctx):
-    s = _observed(conn, clk, settings, "Allegro")
-    q = FakeQuery(f"d:lbl:t:{s.id}")
-    asyncio.run(H.on_label_callback(FakeUpdate(query=q), ctx))
-    assert labels.get_source(conn, s.id).label == T.TOOL
-    assert q.answers == ["Labelled tool — not counted."]
-    assert q.edits == ["Allegro (iPhone app): labelled tool — not counted."]
-    assert labels.resolve(conn, source_id=s.id) == labels.ResolvedLabel(T.TOOL, T.BASIS_SOURCE_LABEL)
-    assert H.callback_data(T.TOOL, s.id) == f"d:lbl:t:{s.id}"
-
-
-def test_tool_callback_re_records_overage(conn, clk, settings, ctx):
-    s = _observed(conn, clk, settings, "Allegro")            # 3 min on 2026-09-06, unlabelled -> wasteful
-    week_start = T.allowance_week_start_for_day(T.parse_date("2026-09-06"), settings.tz)
-    conn.execute("INSERT INTO weeks (week_start, allowance_min, debt_min, promoted_min, listened_min) "
-                 "VALUES (?, 1, 0, 0, 0)", (week_start,))
-    conn.commit()
-    import allowance
-    allowance.on_measurements_changed(conn, clk, settings)
-    assert conn.execute("SELECT overage_min FROM weeks").fetchone()[0] == 2
-    asyncio.run(H.on_label_callback(FakeUpdate(query=FakeQuery(f"d:lbl:t:{s.id}")), ctx))
-    assert conn.execute("SELECT overage_min FROM weeks").fetchone()[0] == 0
-
-
-@pytest.mark.parametrize("data", ["d:lbl:x:1", "d:lbl:tool:1", "d:lbl:T:1", "d:lbl:w:", "d:lbl:w:abc", "d:lbl:", "d:lbl:w:1:extra"])
-def test_malformed_callback_is_answered(ctx, data):
-    q = FakeQuery(data)
-    asyncio.run(H.on_label_callback(FakeUpdate(query=q), ctx))
-    assert q.answers == [H.UNRECOGNISED]
-
-
-def test_unauthorised_callback_is_silently_dropped(conn, clk, settings, ctx):
-    s = _observed(conn, clk, settings, "Notes")
-    q = FakeQuery(f"d:lbl:v:{s.id}", uid=STRANGER)
-    asyncio.run(H.on_label_callback(FakeUpdate(uid=STRANGER, query=q), ctx))
-    assert q.answers == [] and q.edits == []
-    assert labels.get_source(conn, s.id).label is None
-
-
-def test_edit_failure_does_not_lose_the_label(conn, clk, settings, ctx):
-    s = _observed(conn, clk, settings, "Notes")
-
-    class BrokenEdit(FakeQuery):
-        async def edit_message_text(self, text, **kwargs):
-            raise RuntimeError("message is too old")
-
-    q = BrokenEdit(f"d:lbl:v:{s.id}")
-    asyncio.run(H.on_label_callback(FakeUpdate(query=q), ctx))
-    assert labels.get_source(conn, s.id).label == T.WORTHWHILE
-
-
-# --- send_label_batch gating ------------------------------------------------
-
-def _started(conn, clk, settings, *names):
-    """Diagnostic starts 2026-09-06 via the first measurement; sources observed."""
-    return [_observed(conn, clk, settings, n) for n in names]
-
-
-def test_batch_nothing_before_diagnostic_started(conn, clk, settings):
+def test_digest_nothing_before_the_diagnostic_started(conn, clk, settings):
     labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, "Notes")
     bot = SyncBot()
-    assert H.send_label_batch(conn, clk, settings, bot) == [] and bot.sent == []
+    assert H.send_label_digest(conn, clk, settings, bot) == [] and bot.sent == []
 
 
-def test_batch_waits_seven_days(conn, clk, settings):
+def test_digest_waits_seven_days(conn, clk, settings):
     _started(conn, clk, settings, "Notes")
     clk.set("2026-09-12T20:00:00+00:00")      # local 2026-09-12: day 6 after 09-06
     bot = SyncBot()
-    assert H.send_label_batch(conn, clk, settings, bot) == []
+    assert H.send_label_digest(conn, clk, settings, bot) == []
     clk.set("2026-09-12T22:30:00+00:00")      # local 2026-09-13 00:30 Warsaw: 7 days
-    assert len(H.send_label_batch(conn, clk, settings, bot)) == 1
+    assert len(H.send_label_digest(conn, clk, settings, bot)) == 1
 
 
-def test_batch_one_message_per_source_with_three_buttons(conn, clk, settings):
-    a, b = _started(conn, clk, settings, "Notes", "Maps")
+def test_digest_names_the_count_the_minutes_the_group_and_the_link(conn, clk, settings):
+    _observed(conn, clk, settings, "Notes", minutes=200.0)
+    _observed(conn, clk, settings, "Maps", minutes=140.0)
     bot = SyncBot()
-    sent = H.send_label_batch(conn, clk, settings, bot)
-    assert len(sent) == 2 and len(bot.sent) == 2
-    first = bot.sent[0]
-    assert first["chat_id"] == OWNER
-    assert "Notes" in first["text"] and "iPhone app" in first["text"] and "Screen Time screenshots" in first["text"]
-    buttons = first["reply_markup"].inline_keyboard[0]
-    assert [(x.text, x.callback_data) for x in buttons] == \
-        [("Wasteful", f"d:lbl:w:{a.id}"), ("Worthwhile", f"d:lbl:v:{a.id}"),
-         ("Tool (not content)", f"d:lbl:t:{a.id}")]
-    # The prompt asks the content question, in the same words as the dashboard rule (DR5.5).
-    assert H.CONTENT_QUESTION in first["text"]
-    assert "Is this content you consume?" in first["text"] and "it's a tool and isn't counted" in first["text"]
-    assert labels.get_source(conn, a.id).prompted_at == "2026-09-16T10:00:00+00:00"
-    assert labels.get_source(conn, b.id).prompted_at == "2026-09-16T10:00:00+00:00"
+    assert H.send_label_digest(conn, clk, settings, bot) == \
+        ["label digest: 2 unlabelled source(s), 340 min"]
+    (text,) = bot.texts()
+    assert "2 sources (340 min) are unlabelled, mostly iphone apps." in text
+    assert f"http://127.0.0.1:{settings.dashboard_port}/labels" in text
+    assert bot.sent[0].get("reply_markup") is None
     assert [tuple(r) for r in conn.execute("SELECT kind, period_start, sent_on FROM prompts_sent")] == \
         [("labels", "2026-09-13", "2026-09-16")]
 
 
-def test_batch_dedupes_within_a_day(conn, clk, settings):
+def test_digest_is_silent_for_three_days_then_speaks_again(conn, clk, settings):
     _started(conn, clk, settings, "Notes")
     bot = SyncBot()
-    assert len(H.send_label_batch(conn, clk, settings, bot)) == 1
-    _observed(conn, clk, settings, "Maps")        # new source the same day
-    assert H.send_label_batch(conn, clk, settings, bot) == []
-    clk.advance(days=1)
-    assert [m.split()[-1] for m in H.send_label_batch(conn, clk, settings, bot)] == ["Maps"]
+    assert len(H.send_label_digest(conn, clk, settings, bot)) == 1
+    _observed(conn, clk, settings, "Maps")          # a new source the same day changes nothing
+    for _ in range(2):                              # 17th, 18th: silent
+        clk.advance(days=1)
+        assert H.send_label_digest(conn, clk, settings, bot) == []
+    clk.advance(days=1)                             # the 19th: three days after the 16th
+    assert len(H.send_label_digest(conn, clk, settings, bot)) == 1
+    clk.advance(days=1)                             # and silent again straight away
+    assert H.send_label_digest(conn, clk, settings, bot) == []
+    assert len(bot.sent) == 2
 
 
-def test_batch_nothing_after_diagnostic_ended(conn, clk, settings):
-    _started(conn, clk, settings, "Notes")
-    clk.set("2026-11-01T10:00:00+00:00")         # 8 weeks from 09-06 end 10-31
-    bot = SyncBot()
-    assert H.send_label_batch(conn, clk, settings, bot) == [] and bot.sent == []
-
-
-def test_batch_with_nothing_to_ask_records_no_prompt(conn, clk, settings):
+def test_digest_says_nothing_when_everything_is_labelled(conn, clk, settings):
     (s,) = _started(conn, clk, settings, "Notes")
     labels.set_source_label(conn, clk, s.id, T.WASTEFUL)
-    assert H.send_label_batch(conn, clk, settings, SyncBot()) == []
+    assert H.send_label_digest(conn, clk, settings, SyncBot()) == []
     assert conn.execute("SELECT COUNT(*) FROM prompts_sent").fetchone()[0] == 0
 
 
-def test_seen_in_lists_vault_and_queue(conn, clk, settings):
-    show = labels.ensure_source(conn, clk, T.KIND_PODCAST_SHOW, "Synthetic Show")
-    conn.execute("INSERT INTO episodes (spotify_id, title, show, description, release_date, duration_ms) "
-                 "VALUES ('ep', 't', 'synthetic show', '', '2026-09-01', 1)")
-    dom = labels.ensure_source(conn, clk, T.KIND_WEB_DOMAIN, "example.org")
-    for cid in ("a" * 32, "b" * 32):
-        conn.execute("INSERT INTO vault_captures VALUES (?, '2026-09-15T08:00:00+00:00', 'article', 'web', ?, "
-                     "NULL, 't', 'x.md', ?, '2026-09-15T08:00:00+00:00')", (cid, dom.id, "0" * 64))
-    assert H._seen_in(conn, show) == "your POP queue"
-    assert H._seen_in(conn, dom) == "2 vault captures"
+def test_digest_nothing_after_the_diagnostic_ended(conn, clk, settings):
+    _started(conn, clk, settings, "Notes")
+    clk.set("2026-11-01T10:00:00+00:00")         # 8 weeks from 09-06 end 10-31
+    bot = SyncBot()
+    assert H.send_label_digest(conn, clk, settings, bot) == [] and bot.sent == []
+
+
+def test_digest_counts_only_sources_with_evidence(conn, clk, settings):
+    _started(conn, clk, settings, "Notes")
+    labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, "NeverSeen")     # identity only
+    conn.commit()
+    bot = SyncBot()
+    assert H.send_label_digest(conn, clk, settings, bot) == ["label digest: 1 unlabelled source(s), 3 min"]
 
 
 # --- /labels ----------------------------------------------------------------
 
-def test_labels_command_sends_next_batch_even_after_the_daily_one(conn, clk, settings, ctx):
-    _started(conn, clk, settings, "Notes")
-    assert len(H.send_label_batch(conn, clk, settings, SyncBot())) == 1
-    _observed(conn, clk, settings, "Maps")
+def test_labels_command_replies_with_the_count_and_a_link_and_no_buttons(conn, clk, settings, ctx):
+    _observed(conn, clk, settings, "Notes", minutes=12.0)
     update = FakeUpdate()
     asyncio.run(H.cmd_labels(update, ctx))
-    assert [m["text"].splitlines()[1] for m in ctx.bot.sent] == ["Maps"]
-    assert update.message.replies == []
-    # Already prompted: nothing further now.
+    (reply,) = update.message.replies
+    assert "1 source (12 min) is unlabelled" in reply
+    assert f"http://127.0.0.1:{settings.dashboard_port}/labels" in reply
+    assert ctx.bot.sent == []
+
+
+def test_labels_command_does_not_consume_the_three_day_slot(conn, clk, settings, ctx):
+    """Asking is not being told: /labels must not silence the next digest."""
+    _started(conn, clk, settings, "Notes")
+    asyncio.run(H.cmd_labels(FakeUpdate(), ctx))
+    assert conn.execute("SELECT COUNT(*) FROM prompts_sent").fetchone()[0] == 0
+    assert len(H.send_label_digest(conn, clk, settings, SyncBot())) == 1
+
+
+def test_labels_command_when_nothing_waits(conn, clk, settings, ctx):
+    (s,) = _started(conn, clk, settings, "Notes")
+    labels.set_source_label(conn, clk, s.id, T.TOOL)
+    update = FakeUpdate()
     asyncio.run(H.cmd_labels(update, ctx))
-    assert update.message.replies == ["No sources are waiting for a label."]
+    assert update.message.replies == [H.NOTHING_WAITING]
 
 
 def test_labels_command_explains_the_gate(conn, clk, settings, ctx):
@@ -317,4 +259,4 @@ def test_labels_command_unauthorised_is_silent(conn, clk, settings, ctx):
     update = FakeUpdate(uid=STRANGER)
     asyncio.run(H.cmd_labels(update, ctx))
     assert update.message.replies == [] and ctx.bot.sent == []
-    assert labels.list_sources(conn, label="unlabelled")[0].prompted_at is None
+

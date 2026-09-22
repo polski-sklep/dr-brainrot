@@ -444,11 +444,10 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
         run(bot.on_callback(Update(query=q), ctx))
         return q.answers
 
-    def label_in_telegram(kind: str, key: str, code: str) -> Query:
+    def label_in_dashboard(kind: str, key: str, label: str) -> int:
+        """The only way to label since DR5.6: the dashboard's bulk write."""
         source_id = conn.execute("SELECT id FROM sources WHERE kind = ? AND source_key = ?", (kind, key)).fetchone()[0]
-        q = Query(f"d:lbl:{code}:{source_id}")
-        run(handlers_labels.on_label_callback(Update(query=q), ctx))
-        return q
+        return labels.bulk_set_label(conn, clk, [source_id], label, settings=settings)
 
     def overage(week_start: str) -> int | None:
         return conn.execute("SELECT overage_min FROM weeks WHERE week_start = ?", (week_start,)).fetchone()[0]
@@ -501,8 +500,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
         ("youtube_channel", CHANNEL_B, None)}          # identity only: capturing never labels
 
     # [2] the user labels the show; the item inherits it
-    q = label_in_telegram("podcast_show", "deep science", "v")
-    assert q.answers == [("Labelled worthwhile.", False)]
+    assert label_in_dashboard("podcast_show", "deep science", T.WORTHWHILE) == 1
     g_item = db.get_item(conn, queue_row(G)["id"])
     assert allowance.item_label(conn, g_item) == labels.ResolvedLabel("worthwhile", T.BASIS_SOURCE_LABEL)
     w_item = db.get_item(conn, queue_row(W)["id"])
@@ -721,9 +719,9 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert overage(GO_LIVE_WEEK) == 81
     assert debt(NEXT_WEEK) == 0
 
-    # A label from the Telegram batch buttons re-records the overage at once.
+    # A label set in the dashboard re-records the overage at once.
     clk.set("2026-09-21T07:40:00+00:00")
-    label_in_telegram("iphone_app", "chatterbox", "v")
+    label_in_dashboard("iphone_app", "chatterbox", T.WORTHWHILE)
     assert overage(GO_LIVE_WEEK) == 43               # 38 minutes moved to worthwhile
     assert debt(NEXT_WEEK) == 0
 
@@ -767,14 +765,12 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert count(conn, "vault_observations") == 0                    # never "everything was deleted"
     assert count(conn, "vault_captures") == 5                        # the outbox was still read; the bad line skipped
 
-    label_prompts = [m for m in tg.sent if str(m.get("reply_markup", "")) and m["text"].startswith("Label this source?")]
-    assert label_prompts, "the first week of data is over, so the label batch must go out"
-    offered = {b.callback_data for m in label_prompts for row in m["reply_markup"].inline_keyboard for b in row}
-    assert all(d.startswith("d:lbl:") for d in offered)
-    labelled_ids = {r[0] for r in conn.execute("SELECT id FROM sources WHERE label IS NOT NULL")}
-    covered_ids = {r[0] for r in conn.execute(
-        "SELECT id FROM sources WHERE kind = 'web_domain' AND source_key = 'youtube.com'")}
-    assert not {int(d.rsplit(":", 1)[1]) for d in offered} & (labelled_ids | covered_ids)
+    # The first week of data is over, so Telegram says *once* that labels are
+    # waiting — with a link, no buttons, and nothing to do in the chat (DR5.6).
+    digests = [t for t in tg.texts() if "are unlabelled" in t]
+    assert len(digests) == 1
+    assert "/labels" in digests[0] and "d:lbl:" not in digests[0]
+    assert not any(m.get("reply_markup") for m in tg.sent if "are unlabelled" in m["text"])
     assert not any("hasn't arrived" in t or "hasn't been synced" in t for t in tg.texts())   # every source covered
 
     prompts_before = len(tg.sent)

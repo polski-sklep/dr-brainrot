@@ -116,29 +116,9 @@ def test_relabelling_a_source_re_records_overage_immediately(conn, clk, settings
     assert _closed.overage_min == 140            # 500 wasteful - 360, recorded on the closed week
     assert opened.debt_min == 0                  # never carried (DR5.2)
 
-    app_data = {"settings": settings, "conn": conn, "clk": clk}
-
-    class Query:
-        data = f"d:lbl:v:{src.id}"
-        answers: list = []
-
-        async def answer(self, *a, **k):
-            self.answers.append(a)
-
-        async def edit_message_text(self, *a, **k):
-            return None
-
-    class User:
-        id = settings.telegram_user_id
-
-    class Update:
-        callback_query = Query()
-        effective_user = User()
-
-    class Ctx:
-        bot_data = app_data
-
-    asyncio.run(handlers_labels.on_label_callback(Update(), Ctx()))
+    # The relabel happens in the dashboard now (DR5.6); `bulk_set_label` is the
+    # one write behind it, and it recomputes every week's overage itself.
+    assert labels.bulk_set_label(conn, clk, [src.id], T.WORTHWHILE, settings=settings) == 1
     was = conn.execute("SELECT overage_min, debt_min FROM weeks WHERE week_start = ?",
                        (closed.week_start,)).fetchone()
     assert (was["overage_min"], was["debt_min"]) == (0, 0)       # now worthwhile: never over

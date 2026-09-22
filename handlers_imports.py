@@ -260,28 +260,75 @@ def register(app) -> None:
 
 PROMPT_KINDS = ("screentime", "coldturkey", "youtube")
 
+#: Said at the end of every reminder, because the user's complaint was not that
+#: one prompt was unclear but that he could not tell what he owed at all:
+#: "I don't know how and when I'm supposed to be submitting sources like X
+#: desktop data, desktop web, any of it" (DR5.6). Naming what is automatic is
+#: what makes the two manual asks legible as the whole of the list.
+AUTOMATIC_TRAILER = (
+    "Everything else collects itself every morning at 09:30: desktop websites (Cold Turkey), "
+    "Mac apps (Qbserve), podcasts (Spotify) and your vault. These are the only sources DRBR "
+    "cannot fetch on its own.\n"
+    "Labelling is not done here any more — it's in the dashboard."
+)
+
+#: The two mistakes that actually happened with real captures: the Most Used
+#: list left ending in "Show More" (so the apps below it were silently missing),
+#: and screenshots sent in two goes minutes apart (read as two captures, one of
+#: them an incomplete week). Both are called out as steps, not as warnings
+#: after the fact.
+SCREENTIME_STEPS = (
+    "On the iPhone:\n"
+    "1. Settings → Screen Time → tap this iPhone (the per-device view, not All Devices).\n"
+    "2. Choose Week, then tap ‹ once so the header reads \"Last Week\".\n"
+    "3. Under Most Used, tap Show More until it disappears. If it's still there, every app below "
+    "it is missing from the week.\n"
+    "4. Screenshot the whole page from the top, scrolling down.\n"
+    "5. Send all the screenshots here in one go — one burst, as photos or as files. Sending some "
+    "now and the rest later makes two separate captures, and neither is a whole week."
+)
+
+YOUTUBE_STEPS = (
+    "On the desktop browser:\n"
+    "1. Open youtube.com/feed/history, signed in.\n"
+    "2. Click the DRBR extension and press Sync. It scrolls back to the last sync by itself, so "
+    "there is nothing to scroll or select."
+)
+
+COLDTURKEY_STEPS = (
+    "On the desktop:\n"
+    "1. Cold Turkey Blocker → Statistics → the Websites usage (time) view, not \"Websites Blocked\".\n"
+    "2. Show the week {span}, then Export, and send the JSON file here.\n"
+    "3. Export after Saturday has ended: days not yet over are not recorded. Each machine only "
+    "knows its own usage, so export from every desktop you use."
+)
+
+MANUAL_LINE = "This is one of the two sources you have to send by hand."
+
 
 def prompt_text(kind: str, week: T.MeasurementWeek, *, automated_coldturkey: bool = False) -> str:
+    """The Monday reminder for one missing manual source.
+
+    Since DR5.6 this is the *only* import reminder DRBR sends, so each message
+    has to carry the whole picture on its own: what is missing, that this
+    source is manual, the exact steps, and that nothing else needs the user.
+    """
     span = f"Sun {week.sunday:%d %b} – Sat {week.saturday:%d %b}"
     if kind == "screentime":
-        return (f"Screen Time for last week ({span}) hasn't arrived.\n"
-                "On the iPhone: Settings → Screen Time → tap this iPhone (the per-device view, not All Devices) → "
-                "Week → tap ‹ once so the header reads \"Last Week\". Screenshot the whole page from the top, "
-                "scrolling down, and tap Show More under Most Used until it disappears. Send all the screenshots "
-                "here together (as photos or as files).")
+        return (f"Screen Time for last week ({span}) hasn't arrived.\n{MANUAL_LINE}\n\n"
+                f"{SCREENTIME_STEPS}\n\n{AUTOMATIC_TRAILER}")
     if kind == "coldturkey":
-        return (f"Cold Turkey for last week ({span}) hasn't arrived.\n"
-                "On the desktop: Cold Turkey Blocker → Statistics → the Websites usage (time) view, not "
-                f"\"Websites Blocked\" → show the week {span} → Export → send the JSON file here. "
-                "Export after Saturday has ended; days not yet over are not recorded. Each machine only knows its "
-                "own usage, so export from every desktop you use."
-                + ("\n\nDRBR normally reads Cold Turkey's statistics on this Mac by itself every day, so this "
-                   "means that automatic read failed. Check logs/jobs.log; exporting by hand covers the week "
-                   "meanwhile." if automated_coldturkey else ""))
+        head = (f"Cold Turkey for last week ({span}) hasn't arrived.\n"
+                + ("DRBR normally reads Cold Turkey's statistics on this Mac by itself every morning, so "
+                   "this means that automatic read failed. Check logs/jobs.log; exporting by hand "
+                   "covers the week meanwhile."
+                   if automated_coldturkey else
+                   "DRBR_COLDTURKEY_DB is unset, so this Mac is not read automatically and the export "
+                   "is manual."))
+        return f"{head}\n\n{COLDTURKEY_STEPS.format(span=span)}\n\n{AUTOMATIC_TRAILER}"
     if kind == "youtube":
-        return (f"YouTube history for last week ({span}) hasn't been synced.\n"
-                "On the desktop browser: open youtube.com/feed/history while signed in, click the DRBR extension "
-                "and press Sync. It scrolls back to the last sync by itself.")
+        return (f"YouTube history for last week ({span}) hasn't been synced.\n{MANUAL_LINE}\n\n"
+                f"{YOUTUBE_STEPS}\n\n{AUTOMATIC_TRAILER}")
     raise ValueError(f"no prompt for {kind!r}")
 
 
@@ -304,12 +351,32 @@ def _covered(conn: sqlite3.Connection, kind: str, week: T.MeasurementWeek, tz: s
     ).fetchone() is not None
 
 
+def _self_feeding(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> set[str]:
+    """Report groups that are currently feeding themselves, so nothing is asked for them.
+
+    Cold Turkey became automatic at DR5.1 and Qbserve is automatic by nature,
+    so asking for them by hand every Monday was asking for work DRBR was
+    already doing. The prompt now survives only as a *fallback*: unconfigured,
+    or configured and failing. `report.needs_attention` is the one place that
+    judges whether an automatic source is healthy, and this reads its verdict
+    rather than keeping a second opinion.
+    """
+    import report  # noqa: PLC0415 — report imports allowance; lazy keeps the import graph one-way
+
+    return {row.group for row in report.needs_attention(conn, clk, settings)
+            if row.mode == report.MODE_AUTOMATIC and row.state == report.STATE_OK}
+
+
 def send_due_prompts(conn: sqlite3.Connection, clk: Clock, settings: Settings, bot) -> list[str]:
-    """Nudge once per day, from the Monday after the week, for each missing import.
+    """Nudge once per day, from the Monday after the week, for each missing manual import.
 
     The week asked about is the most recent complete Sunday..Saturday. Before
     the diagnostic has started this still prompts, because the first import is
     what starts it; after it has ended nothing is sent.
+
+    Since DR5.6 this is the only import reminder there is, and it asks only for
+    what the user actually has to do: a source DRBR reads for itself, and is
+    reading successfully, is never in the rotation.
     """
     if evidence.diagnostic(conn, clk, settings).ended:
         return []
@@ -320,8 +387,11 @@ def send_due_prompts(conn: sqlite3.Connection, clk: Clock, settings: Settings, b
     if settings.go_live and week.end < settings.go_live:
         return []                                     # a week before DRBR existed is not asked for (DR2.2)
     sent: list[str] = []
+    healthy = _self_feeding(conn, clk, settings)
     for kind in PROMPT_KINDS:
         if _covered(conn, kind, week, settings.tz):
+            continue
+        if kind == "coldturkey" and T.GROUP_DESKTOP in healthy:
             continue
         already = conn.execute("SELECT 1 FROM prompts_sent WHERE kind = ? AND period_start = ? AND sent_on = ?",
                                (kind, week.start, today.isoformat())).fetchone()

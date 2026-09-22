@@ -24,14 +24,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import clock  # noqa: E402
 import db  # noqa: E402
 import drbr_types as T  # noqa: E402
-import handlers_labels  # noqa: E402
 import labels  # noqa: E402
 import poll  # noqa: E402
 import report  # noqa: E402
 from dashboard import app as dashboard_app  # noqa: E402
 from sources import coldturkey, coldturkey_local  # noqa: E402
 from tests.test_allowance import FakeBot, make_settings, open_db  # noqa: E402
-from tests.test_handlers_labels import FakeContext, FakeQuery, FakeUpdate  # noqa: E402
 
 OWNER = 1
 WEEK = "2026-09-13T16:00:00+00:00"           # allowance week opening Sun 13 Sep 18:00 Warsaw
@@ -53,16 +51,13 @@ def test_300_wasteful_content_minutes_and_200_tool_minutes_is_not_over_360(tmp_p
     outcome = coldturkey.ingest(conn, clk, settings, doc, origin=coldturkey.ORIGIN_LOCAL_DB)
     assert outcome.status == "ok"
 
-    # The user answers the label prompt for amazon.pl: Tool (not content).
+    # The user labels amazon.pl in the dashboard: Tool (not content). Telegram
+    # only ever said that something was waiting (DR5.6).
     amazon = next(s for s in labels.list_sources(conn, kind=T.KIND_WEB_DOMAIN) if s.source_key == "amazon.pl")
-    text, markup = handlers_labels.render_prompt(conn, amazon)
-    assert handlers_labels.CONTENT_QUESTION in text
-    tool_button = markup.inline_keyboard[0][2]
-    assert tool_button.text == "Tool (not content)"
-    query = FakeQuery(tool_button.callback_data, uid=OWNER)
-    ctx = FakeContext({"conn": conn, "clk": clk, "settings": settings})
-    asyncio.run(handlers_labels.on_label_callback(FakeUpdate(uid=OWNER, query=query), ctx))
-    assert query.edits == ["amazon.pl (Website (desktop)): labelled tool — not counted."]
+    queue = labels.label_queue(conn, clk, settings)
+    assert [r.display_name for r in queue] == ["reddit.com", "amazon.pl"]      # biggest decision first
+    assert labels.bulk_set_label(conn, clk, [amazon.id], T.TOOL, settings=settings) == 1
+    assert labels.get_source(conn, amazon.id).label == T.TOOL
 
     # Alerts read wasteful content only: 300 of 360 is approaching, never exceeded.
     bot = FakeBot()

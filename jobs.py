@@ -14,9 +14,13 @@ the functions each source owns:
    recorded for more than 36 hours.
 4. `handlers_imports.send_due_prompts` — Screen Time / Cold Turkey / YouTube
    for the last complete week, once per day until each arrives.
-5. `handlers_labels.send_label_batch` — newly seen sources, once the
-   diagnostic has run a week.
+5. `handlers_labels.send_label_digest` — one line about unlabelled sources,
+   at most every third day, pointing at the dashboard (DR5.6).
 6. One diagnostic-end notice, ever.
+
+Steps 1-3 are the *data-fetching* half and are also callable on their own as
+`run_sync`, so a dashboard "Sync now" button can do exactly what the morning
+run does without sending anything.
 
 Each step is isolated: a vault failure must not cost the user their Monday
 prompt, and a Telegram outage must not stop the scan. Every failure is logged
@@ -29,6 +33,7 @@ import json
 import logging
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import clock
 import db
@@ -48,26 +53,70 @@ QBSERVE_STALE_KIND = "qbserve_stale"
 QBSERVE_STALE_HOURS = 36
 
 
+@dataclass(frozen=True)
+class StepResult:
+    """What one isolated step did, or why it did nothing.
+
+    `summary` is the same sentence the log line carries, so a dashboard can
+    show the user exactly what the morning run would have written to
+    logs/jobs.log rather than a bare tick.
+    """
+
+    name: str
+    ok: bool
+    summary: str
+    error: str | None = None
+
+
+#: The data-fetching steps, in dependency order: captures are read before the
+#: scan that decides their outcome, and this Mac's own sources before anything
+#: that asks the user for a week they might already cover.
+SYNC_STEPS = ("read_outbox", "vault_scan", "coldturkey_local", "qbserve")
+
+
+def _run_step(conn, name: str, fn: Callable[[], object]) -> StepResult:
+    """Run one step in isolation: a failure is recorded, logged, never raised."""
+    try:
+        result = fn()
+        log.info("%s: %s", name, result)
+        return StepResult(name, True, str(result))
+    except Exception as exc:  # noqa: BLE001 — isolate steps; reported to the caller, never swallowed
+        conn.rollback()
+        log.exception("%s failed", name)
+        return StepResult(name, False, f"{name} failed", f"{type(exc).__name__}: {exc}")
+
+
+def run_sync(conn, clk: Clock, settings: Settings, bot=None) -> dict[str, StepResult]:
+    """Fetch everything DRBR can fetch by itself. -> one StepResult per step.
+
+    The half of the daily run that only *reads* sources: the capture outbox,
+    the vault scan, Cold Turkey's own statistics and Qbserve. It sends no
+    prompts and no digest, so it is safe to run on demand — a dashboard "Sync
+    now" button is exactly this function — and `run_daily` calls it rather than
+    keeping a second copy of the order. `bot` is optional: given one, the
+    Qbserve step may also send its once-a-day staleness warning (the warning is
+    about the tool having stopped, which a manual sync should not hide);
+    without one, nothing is sent at all.
+    """
+    return {
+        "read_outbox": _run_step(conn, "read_outbox", lambda: _outbox(conn, clk, settings)),
+        "vault_scan": _run_step(conn, "vault_scan", lambda: _scan(conn, clk, settings)),
+        "coldturkey_local": _run_step(conn, "coldturkey_local", lambda: _coldturkey(conn, clk, settings)),
+        "qbserve": _run_step(conn, "qbserve", lambda: _qbserve(conn, clk, settings, bot)),
+    }
+
+
 def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
     """Run every daily step. Returns the names of steps that failed."""
-    failed: list[str] = []
-
-    def step(name: str, fn: Callable[[], object]) -> None:
-        try:
-            result = fn()
-            log.info("%s: %s", name, result)
-        except Exception:  # noqa: BLE001 — isolate steps; reported below, never swallowed
-            conn.rollback()
-            log.exception("%s failed", name)
+    results = run_sync(conn, clk, settings, bot)
+    failed = [name for name, result in results.items() if not result.ok]
+    for name, fn in (
+        ("import_prompts", lambda: handlers_imports.send_due_prompts(conn, clk, settings, bot)),
+        ("label_digest", lambda: handlers_labels.send_label_digest(conn, clk, settings, bot)),
+        ("diagnostic_end", lambda: send_end_notice(conn, clk, settings, bot)),
+    ):
+        if not _run_step(conn, name, fn).ok:
             failed.append(name)
-
-    step("read_outbox", lambda: _outbox(conn, clk, settings))
-    step("vault_scan", lambda: _scan(conn, clk, settings))
-    step("coldturkey_local", lambda: _coldturkey(conn, clk, settings))
-    step("qbserve", lambda: _qbserve(conn, clk, settings, bot))
-    step("import_prompts", lambda: handlers_imports.send_due_prompts(conn, clk, settings, bot))
-    step("label_batch", lambda: handlers_labels.send_label_batch(conn, clk, settings, bot))
-    step("diagnostic_end", lambda: send_end_notice(conn, clk, settings, bot))
     return failed
 
 
@@ -131,6 +180,11 @@ def _qbserve(conn, clk: Clock, settings: Settings, bot) -> str:
 
 def _qbserve_stale_warning(conn, clk: Clock, settings: Settings, bot) -> str:
     """One Telegram message a day while Qbserve has not recorded for over 36 hours (DR5.3)."""
+    if bot is None:
+        # `run_sync` called without a bot (a dashboard "Sync now"). The read
+        # still happened; the warning is the daily job's to send, and skipping
+        # it here must not consume today's slot.
+        return "no bot to warn with"
     hours = qbserve.staleness_hours(conn, clk)
     if hours is None or hours <= QBSERVE_STALE_HOURS:
         return "qbserve recording is current" if hours is not None else "no qbserve record to judge staleness"

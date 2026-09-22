@@ -383,6 +383,14 @@ class AppRow:
     confidence: float | None       # lowest confidence among the readings used
     pages: tuple[int, ...]         # 1-based screenshot numbers
     recovered: bool = False        # name came from a region re-read
+    #: Every duration this row was actually read as, in minutes, ascending.
+    #: For an unreadable row this is what a person is choosing between (the
+    #: real case: Facebook read as both 2h 27m and 2h 37m), so it is stored
+    #: rather than only described in a warning — otherwise the only way back to
+    #: those two numbers is re-reading the screenshots (DR5.6).
+    readings: tuple[float, ...] = ()
+    #: Why the row is unreadable: 'conflicting_durations' | 'no_duration'. None when ok.
+    reason: str | None = None
 
 
 @dataclass
@@ -539,6 +547,7 @@ def parse_observations(pages: list[list[TextObservation]], *, received_at: str, 
     readings: dict[str, list[_Row]] = {}
     display: dict[str, str] = {}
     unnamed = 0
+    unnamed_texts: list[str] = []
     complete: bool | None = None
     saw_most_used = False
     for seg in segs:
@@ -563,6 +572,12 @@ def parse_observations(pages: list[list[TextObservation]], *, received_at: str, 
                     meta["edge_rows"] = meta.get("edge_rows", 0) + 1
                 else:
                     unnamed += 1
+                    # Kept verbatim: the minutes are real and only the name was
+                    # lost, so a person looking at the screenshots can still say
+                    # which app it was (DR5.6). There is no measurement row to
+                    # attach it to — a measurement needs a source — so it lives
+                    # in the import's meta.
+                    unnamed_texts.append(f"screenshot {r.page + 1}: {r.value.text}")
                     warnings.append(f"A Most Used row on screenshot {r.page + 1} showing {r.value.text!r} has no "
                                     "readable app name; its minutes were not recorded.")
                 continue
@@ -591,7 +606,8 @@ def parse_observations(pages: list[list[TextObservation]], *, received_at: str, 
         recovered = any(r.name.origin == "region" for r in rows)
         if not with_value:
             warnings.append(f"The app {named!r} has no readable duration; it is stored as unreadable, not zero.")
-            app_rows.append(AppRow(named, None, "unreadable", raw, None, pages_seen, recovered))
+            app_rows.append(AppRow(named, None, "unreadable", raw, None, pages_seen, recovered,
+                                   (), "no_duration"))
             continue
         values = {round(r.minutes, 4) for r in with_value}
         conf = min(min(r.name.confidence, r.value.confidence) for r in with_value)
@@ -599,13 +615,16 @@ def parse_observations(pages: list[list[TextObservation]], *, received_at: str, 
             shown = ", ".join(sorted({r.value.text for r in with_value}))
             warnings.append(f"The app {named!r} was read with different durations ({shown}); it is stored as "
                             "unreadable rather than guessed.")
-            app_rows.append(AppRow(named, None, "unreadable", raw, conf, pages_seen, recovered))
+            app_rows.append(AppRow(named, None, "unreadable", raw, conf, pages_seen, recovered,
+                                   tuple(sorted(values)), "conflicting_durations"))
             continue
-        app_rows.append(AppRow(named, with_value[0].minutes, "ok", raw, conf, pages_seen, recovered))
+        app_rows.append(AppRow(named, with_value[0].minutes, "ok", raw, conf, pages_seen, recovered,
+                               (round(with_value[0].minutes, 4),)))
 
     meta.update({
         "device_name": device_name, "week_label": week_label, "apps_read": len(app_rows),
         "apps_unreadable": sum(1 for a in app_rows if a.status != "ok"), "unnamed_rows": unnamed,
+        "unnamed_row_texts": unnamed_texts,
         "most_used_complete": complete, "total_minutes": total_minutes,
         "apps_sum_minutes": round(sum(a.minutes for a in app_rows if a.minutes is not None), 4),
         "recovered_names": sorted(a.name for a in app_rows if a.recovered),
@@ -783,7 +802,8 @@ def _run(conn, clk, settings, raw_path, raw_sha, images, received_at, images_key
                     period_start=parsed.period_start, period_end=parsed.period_end,
                     minutes=app.minutes, status=app.status, item_title=app.name,
                     detail={"raw": list(app.raw), "confidence": app.confidence, "screenshots": list(app.pages),
-                            "name_reread_from_crop": app.recovered},
+                            "name_reread_from_crop": app.recovered, "readings": list(app.readings),
+                            "unreadable_reason": app.reason},
                 )
                 written += 1
             for name, minutes in parsed.categories:
@@ -801,3 +821,76 @@ def _run(conn, clk, settings, raw_path, raw_sha, images, received_at, images_key
     except (evidence.ParseError, labels.LabelError, evidence.EvidenceError) as exc:
         evidence.fail_import(conn, rec, f"could not record the parse: {exc}")
         return evidence.Outcome(rec.id, T.IMPORT_FAILED, 0, tuple(rec.warnings), f"could not record the parse: {exc}")
+
+
+# --- human correction of an unreadable row (DR5.6) --------------------------
+
+class CorrectionError(ValueError):
+    """A correction that would invent or destroy a fact, refused."""
+
+
+#: A week has 10 080 minutes and a day 1 440; no app on one device can exceed a
+#: day's worth in a Screen Time week view without the figure being a typo.
+MAX_CORRECTION_MIN = 1440
+
+
+def correct_measurement(conn: sqlite3.Connection, clk: Clock, settings: Settings,
+                        measurement_id: int, minutes: float) -> None:
+    """A person read the screenshot and says what the row was. Commits.
+
+    The parser refuses to guess between two readings, which is right; leaving
+    ~150 minutes of Facebook out of the week because OCR saw both "2h 27m" and
+    "2h 37m" is not. The user can settle it in two seconds, and this is how
+    that answer is stored: `minutes` set, `status` back to 'ok', and `detail`
+    recording that a *person* supplied the figure, with the original reading
+    kept beside it. Nothing is overwritten silently and no provenance is
+    upgraded — the row stays `screenshot_ocr`, because it still came from a
+    screenshot; only the arbitration was human.
+
+    Refuses a negative figure or one over `MAX_CORRECTION_MIN`. Re-runs
+    `allowance.on_measurements_changed`, because the week's overage is computed
+    from measurements and this is one (DR2.7).
+    """
+    try:
+        value = float(minutes)
+    except (TypeError, ValueError) as exc:
+        raise CorrectionError(f"{minutes!r} is not a number of minutes") from exc
+    if value != value or value in (float("inf"), float("-inf")):   # NaN / inf
+        raise CorrectionError("minutes must be a real number")
+    if value < 0:
+        raise CorrectionError("minutes cannot be negative")
+    if value > MAX_CORRECTION_MIN:
+        raise CorrectionError(f"minutes cannot exceed {MAX_CORRECTION_MIN} (one day) for a single row")
+
+    row = conn.execute("SELECT * FROM measurements WHERE id = ?", (measurement_id,)).fetchone()
+    if row is None:
+        raise CorrectionError(f"no measurement with id {measurement_id}")
+    if row["provenance"] != T.PROV_SCREENSHOT:
+        raise CorrectionError("only parsed-screenshot rows are corrected by hand; "
+                              f"this one is {row['provenance']}")
+    try:
+        detail = json.loads(row["detail"] or "{}")
+    except ValueError:
+        detail = {}
+    if not isinstance(detail, dict):
+        detail = {}
+    # Append rather than replace: a second correction must not erase the first,
+    # nor the original OCR reading that both were judged against.
+    history = detail.get("corrections")
+    history = list(history) if isinstance(history, list) else []
+    history.append({
+        "at": clock.iso(clk.now()),
+        "by": "person",
+        "minutes": round(value, 4),
+        "previous_minutes": None if row["minutes"] is None else float(row["minutes"]),
+        "previous_status": row["status"],
+    })
+    detail["corrections"] = history
+    detail["corrected_by_person"] = True
+
+    conn.execute("UPDATE measurements SET minutes = ?, status = 'ok', detail = ? WHERE id = ?",
+                 (round(value, 4), json.dumps(detail, ensure_ascii=False), measurement_id))
+    conn.commit()
+    import allowance  # noqa: PLC0415 — allowance imports labels/db, not this module; lazy keeps it one-way
+
+    allowance.on_measurements_changed(conn, clk, settings)

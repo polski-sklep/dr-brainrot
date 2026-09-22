@@ -55,6 +55,10 @@ GROUP_DESKTOP = "desktop_web"
 GROUP_DESKTOP_APPS = "desktop_apps"   # native Mac apps (Qbserve, DR5.3); browsers stay in desktop_web
 GROUP_WEB = "web"          # vault keepers from articles; has no minutes source
 GROUP_OTHER = "other"      # vault keepers with no attributable source
+#: Not a minutes group: the Obsidian vault produces counts only. Named here so the
+#: "where does each number come from" and "what needs you" tables (DR5.6) can list it
+#: beside the measured groups without inventing a string per caller.
+GROUP_VAULT = "vault"
 REPORT_GROUPS = (GROUP_PODCASTS, GROUP_YOUTUBE, GROUP_X, GROUP_IPHONE, GROUP_DESKTOP, GROUP_DESKTOP_APPS)
 KEEPER_GROUPS = ("x", "youtube", "podcasts", "web", "other")
 

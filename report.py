@@ -823,3 +823,483 @@ def records(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, group: 
         out = [r for r in out if r.label == label]
     out.sort(key=lambda r: (r.day, r.provenance, r.source, r.item or ""), reverse=True)
     return out[:limit]
+
+
+# --------------------------------------------------------------------------
+# What needs the user (DR5.6)
+# --------------------------------------------------------------------------
+#
+# The user's complaint was that nothing told him how or when to put data in:
+# "I haven't been prompted in any meaningful way to put data in". Telegram now
+# keeps only captures, Sunday triage, allowance alerts and the Monday reminder
+# for the two manual sources; everything else is answered here, as data, and
+# rendered by the dashboard. These functions therefore say, per source group,
+# what the state of the current week is, whether the user owes an action, and
+# in one sentence why — never a score, never a nag.
+
+MODE_AUTOMATIC = "automatic"
+MODE_MANUAL = "manual"
+
+#: The state of one source group for the current week.
+STATE_OK = "ok"                # nothing to do; the data is arriving
+STATE_WAITING = "waiting"      # nothing to do *yet* (the week isn't over, or nothing seen yet)
+STATE_MISSING = "missing"      # evidence that is due has not arrived
+STATE_STALE = "stale"          # an automatic source stopped producing
+STATE_ATTENTION = "attention"  # the last attempt failed, or a person must resolve something
+NEEDS_STATES = (STATE_MISSING, STATE_STALE, STATE_ATTENTION)
+
+#: Human names, the same words the dashboard uses for groups.
+GROUP_TEXT = {
+    T.GROUP_PODCASTS: "Podcasts",
+    T.GROUP_YOUTUBE: "YouTube",
+    T.GROUP_X: "X",
+    T.GROUP_IPHONE: "iPhone apps",
+    T.GROUP_DESKTOP: "Desktop web",
+    T.GROUP_DESKTOP_APPS: "Desktop apps",
+    T.GROUP_VAULT: "Vault (Obsidian)",
+}
+
+#: When each source actually produces data. Plain language, no cron syntax:
+#: the daily job runs 09:30 local and POP's Spotify poll 09:17 (launchd/).
+SCHEDULE_DAILY_JOB = "every morning 09:30"
+SCHEDULE_SPOTIFY_POLL = "every morning 09:17"
+SCHEDULE_MANUAL_WEEKLY = "weekly, you run it"
+SCHEDULE_CONTINUOUS = "continuously while it runs, read every morning 09:30"
+
+#: How long an automatic source may produce nothing before it is stale. The
+#: same threshold the Qbserve warning uses, for the same reason: one missed
+#: daily run is not a failure, two is.
+STALE_HOURS = QBSERVE_STALE_HOURS
+
+#: Appended to every row once the diagnostic is over. Nothing is owed then.
+DIAGNOSTIC_ENDED_NOTE = "The diagnostic has ended, so nothing more is asked for."
+
+#: The order groups are considered in, before the "needs you first" sort.
+ATTENTION_ORDER = (T.GROUP_IPHONE, T.GROUP_YOUTUBE, T.GROUP_DESKTOP, T.GROUP_DESKTOP_APPS,
+                   T.GROUP_PODCASTS, T.GROUP_VAULT)
+
+
+@dataclass(frozen=True)
+class NeedsRow:
+    """One source group's standing, for the dashboard's "what needs you" panel.
+
+    `covered` answers only "is there evidence covering any part of the current
+    week"; `state` answers the useful question, which for a weekly manual
+    source is about the last *complete* week (the current one cannot be sent
+    yet). `action_text` is empty when the user owes nothing, so a caller can
+    sort and count by "is there an action" without interpreting `state`.
+    """
+
+    group: str
+    label: str
+    mode: str                  # MODE_AUTOMATIC | MODE_MANUAL
+    schedule_text: str
+    last_data_at: str | None   # UTC ISO instant of the newest data, or None
+    covered: bool
+    state: str
+    action_text: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class ProvenanceRow:
+    """One line of "where each number comes from".
+
+    `folds_into` is set when this path's minutes are stored under a different
+    source than its own name suggests — the two X paths (DR1.9/§5) — so the
+    table can say so instead of the user discovering it from a total.
+    """
+
+    group: str
+    label: str
+    measures: str
+    tool: str
+    provenance: str
+    provenance_text: str
+    mode: str
+    schedule_text: str
+    limits: tuple[str, ...]
+    folds_into: str | None = None
+
+
+#: Said in full on the provenance table, because "X" being one row while two
+#: different tools measure it is the single most confusing thing in DRBR.
+X_FOLD_NOTE = ("X is measured twice and counted once: desktop x.com/twitter.com through Cold Turkey, "
+               "the X iPhone app through Screen Time. Both are folded into one X source, so you label X "
+               "once and the minutes add up rather than competing.")
+
+
+def _latest_import_row(conn: sqlite3.Connection, kind: str, *, include_failed: bool = False) -> sqlite3.Row | None:
+    sql = "SELECT * FROM imports WHERE kind = ?"
+    if not include_failed:
+        sql += " AND status != 'failed'"
+    return conn.execute(sql + " ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
+
+
+def _hours_since(clk: Clock, instant: str | None) -> float | None:
+    if not instant:
+        return None
+    return (clk.now() - clock.parse(instant)).total_seconds() / 3600
+
+
+def _received_in_week(conn: sqlite3.Connection, settings: Settings, kind: str,
+                      week: T.MeasurementWeek) -> bool:
+    """Any usable import of `kind` received on or after this week's Sunday.
+
+    The coverage test for sources whose imports carry no week (a YouTube sync
+    walks back to its cursor; a vault scan is a moment, not a period).
+    """
+    since = _local_midnight(week.sunday, settings.tz)
+    return conn.execute(
+        "SELECT 1 FROM imports WHERE kind = ? AND status IN ('ok','partial') AND received_at >= ? LIMIT 1",
+        (kind, since),
+    ).fetchone() is not None
+
+
+def _weekly_manual_state(conn: sqlite3.Connection, clk: Clock, settings: Settings, kind: str, *,
+                         today: date, action: str) -> tuple[str, str, str]:
+    """-> (state, action_text, detail) for a source the user sends once a week.
+
+    The question is never about the current week — it isn't over — but about
+    the most recent complete Sunday..Saturday, and only from the Monday after
+    it, which is exactly when `handlers_imports.send_due_prompts` asks. A week
+    ending before `settings.go_live` is never owed (DR2.2).
+    """
+    week = T.measurement_week(T.week_sunday(today) - timedelta(days=7))
+    span = f"{week.start} to {week.end}"
+    if _covering_import(conn, settings, kind, week) is not None:
+        return STATE_OK, "", f"Last week ({span}) has arrived."
+    if settings.go_live and week.end < settings.go_live:
+        return STATE_OK, "", f"The week {span} ended before DRBR started measuring."
+    if today < week.saturday + timedelta(days=2):
+        return STATE_WAITING, "", f"Last week ({span}) can be sent from Monday."
+    return STATE_MISSING, action, f"Nothing has arrived for last week ({span})."
+
+
+def _automatic_state(conn: sqlite3.Connection, clk: Clock, kind: str, *, what: str, tz: str,
+                     never_action: str, stale_action: str,
+                     latest_record_at: str | None = None) -> tuple[str, str, str, str | None]:
+    """-> (state, action_text, detail, last_data_at) for a source DRBR reads itself.
+
+    `latest_record_at` is the newest fact *inside* the newest import, where the
+    tool has one (Qbserve): an import that ran fine but found nothing new means
+    the tool stopped, which the received time alone would hide.
+    """
+    latest_any = _latest_import_row(conn, kind, include_failed=True)
+    row = _latest_import_row(conn, kind)
+    if row is None:
+        error = (latest_any["error"] if latest_any is not None else None)
+        if latest_any is not None:
+            return (STATE_ATTENTION, never_action,
+                    f"Every attempt to read {what} has failed. Last error: {error or 'unknown'}.", None)
+        return STATE_MISSING, never_action, f"{what} has never been read.", None
+    last = row["received_at"]
+    if latest_any is not None and latest_any["status"] == T.IMPORT_FAILED and latest_any["id"] > row["id"]:
+        return (STATE_ATTENTION, stale_action,
+                f"The last read of {what} failed: {latest_any['error'] or 'unknown'}. "
+                f"The newest usable figures are from {clock.fmt_local(last, tz)}.", last)
+    hours = _hours_since(clk, last)
+    if hours is not None and hours > STALE_HOURS:
+        return (STATE_STALE, stale_action,
+                f"{what} was last read on {clock.fmt_local(last, tz)}; later use is unmeasured, not zero.", last)
+    record_hours = _hours_since(clk, latest_record_at)
+    if latest_record_at is not None and record_hours is not None and record_hours > STALE_HOURS:
+        return (STATE_STALE, stale_action,
+                f"The read is current but {what} has recorded nothing since "
+                f"{clock.fmt_local(latest_record_at, tz)}.", last)
+    return STATE_OK, "", f"Read on {clock.fmt_local(last, tz)}.", last
+
+
+def _qbserve_latest_record(conn: sqlite3.Connection) -> str | None:
+    row = _latest_import_row(conn, "qbserve")
+    if row is None:
+        return None
+    try:
+        return json.loads(row["meta"] or "{}").get("latest_record_at")
+    except ValueError:
+        return None
+
+
+SCREENTIME_ACTION = ("Send last week's Screen Time screenshots to the bot: Settings → Screen Time → this "
+                     "iPhone → Week → ‹ once (\"Last Week\"), tap Show More until it disappears, and send "
+                     "the whole scroll in one go.")
+YOUTUBE_ACTION = ("Open youtube.com/feed/history in the desktop browser, click the DRBR extension and "
+                  "press Sync.")
+COLDTURKEY_EXPORT_ACTION = ("Cold Turkey Blocker → Statistics → Websites usage (time) → last week → Export, "
+                            "and send the JSON file to the bot.")
+COLDTURKEY_READ_ACTION = ("DRBR reads Cold Turkey's own statistics on this Mac; check logs/jobs.log, and "
+                          "export last week by hand meanwhile.")
+QBSERVE_ACTION = "Open Qbserve and set it to open at login, so desktop app time keeps being recorded."
+QBSERVE_UNCONFIGURED_ACTION = ("Desktop app time is not measured: set DRBR_QBSERVE_DB in .env and let the "
+                               "next daily run pick it up.")
+VAULT_ACTION = "Check DRBR_VAULT_PATH and logs/jobs.log: the vault has not been scanned."
+
+
+def needs_attention(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[NeedsRow]:
+    """One row per source group for the current week, rows needing the user first.
+
+    This is the answer to "how and when am I supposed to be submitting
+    sources": every group says whether it feeds itself, when it does so, when
+    it last produced anything, and what — if anything — the user has to do.
+    Read-only, like everything else here.
+    """
+    tz = settings.tz
+    today = T.local_date(clk.now(), tz)
+    this_week = T.measurement_week(today)
+    ended = evidence.diagnostic(conn, clk, settings).ended
+    rows: list[NeedsRow] = []
+
+    # --- Podcasts: POP's Spotify poll, already running for the queue.
+    last_poll = conn.execute("SELECT MAX(polled_at) FROM listening WHERE delta_ms > 0").fetchone()[0]
+    if last_poll is None:
+        podcast_state, podcast_detail = STATE_WAITING, ("Nothing has been polled yet. Only episodes you "
+                                                        "capture are measured.")
+    else:
+        podcast_state, podcast_detail = STATE_OK, (f"Last poll {clock.fmt_local(last_poll, tz)}. Only episodes "
+                                                   "you capture are measured.")
+    rows.append(NeedsRow(T.GROUP_PODCASTS, GROUP_TEXT[T.GROUP_PODCASTS], MODE_AUTOMATIC, SCHEDULE_SPOTIFY_POLL,
+                         last_poll, last_poll is not None and T.local_date(last_poll, tz) >= this_week.sunday,
+                         podcast_state, "", podcast_detail))
+
+    # --- YouTube: the extension, run by hand.
+    yt_import = _latest_import_row(conn, "youtube_history")
+    state, action, detail = _weekly_manual_state(conn, clk, settings, "youtube_history", today=today,
+                                                 action=YOUTUBE_ACTION)
+    rows.append(NeedsRow(T.GROUP_YOUTUBE, GROUP_TEXT[T.GROUP_YOUTUBE], MODE_MANUAL, SCHEDULE_MANUAL_WEEKLY,
+                         yt_import["received_at"] if yt_import else None,
+                         _received_in_week(conn, settings, "youtube_history", this_week),
+                         state, action, detail))
+
+    # --- iPhone apps: Screen Time screenshots, sent by hand.
+    st_import = _latest_import_row(conn, "screentime")
+    state, action, detail = _weekly_manual_state(conn, clk, settings, "screentime", today=today,
+                                                 action=SCREENTIME_ACTION)
+    eye = len(needs_your_eye(conn, clk, settings))
+    if eye:
+        state = STATE_ATTENTION if state == STATE_OK else state
+        action = action or "Check the rows the screenshots could not be read for and set the right minutes."
+        detail = f"{detail} {eye} row(s) could not be read and are waiting for your eye."
+    rows.append(NeedsRow(T.GROUP_IPHONE, GROUP_TEXT[T.GROUP_IPHONE], MODE_MANUAL, SCHEDULE_MANUAL_WEEKLY,
+                         st_import["received_at"] if st_import else None,
+                         _covering_import(conn, settings, "screentime", this_week) is not None,
+                         state, action, detail))
+
+    # --- Desktop web: automatic since DR5.1 unless the database isn't configured.
+    ct_covered = _covering_import(conn, settings, "coldturkey", this_week) is not None
+    ct_import = _latest_import_row(conn, "coldturkey")
+    if getattr(settings, "coldturkey_db", None) is not None:
+        state, action, detail, last = _automatic_state(
+            conn, clk, "coldturkey", what="Cold Turkey's statistics", tz=tz,
+            never_action=COLDTURKEY_READ_ACTION, stale_action=COLDTURKEY_READ_ACTION)
+        rows.append(NeedsRow(T.GROUP_DESKTOP, GROUP_TEXT[T.GROUP_DESKTOP], MODE_AUTOMATIC, SCHEDULE_DAILY_JOB,
+                             last, ct_covered, state, action, detail))
+    else:
+        state, action, detail = _weekly_manual_state(conn, clk, settings, "coldturkey", today=today,
+                                                     action=COLDTURKEY_EXPORT_ACTION)
+        rows.append(NeedsRow(T.GROUP_DESKTOP, GROUP_TEXT[T.GROUP_DESKTOP], MODE_MANUAL, SCHEDULE_MANUAL_WEEKLY,
+                             ct_import["received_at"] if ct_import else None, ct_covered, state, action,
+                             f"{detail} DRBR_COLDTURKEY_DB is unset, so this Mac is not read automatically."))
+
+    # --- Desktop apps: Qbserve, or nothing at all.
+    qb_covered = _covering_import(conn, settings, "qbserve", this_week) is not None
+    if getattr(settings, "qbserve_db", None) is None:
+        rows.append(NeedsRow(T.GROUP_DESKTOP_APPS, GROUP_TEXT[T.GROUP_DESKTOP_APPS], MODE_AUTOMATIC,
+                             SCHEDULE_CONTINUOUS, None, qb_covered, STATE_MISSING,
+                             QBSERVE_UNCONFIGURED_ACTION,
+                             "Qbserve is not configured, so native Mac app time is unmeasured, not zero."))
+    else:
+        state, action, detail, last = _automatic_state(
+            conn, clk, "qbserve", what="Qbserve", tz=tz, never_action=QBSERVE_ACTION,
+            stale_action=QBSERVE_ACTION, latest_record_at=_qbserve_latest_record(conn))
+        rows.append(NeedsRow(T.GROUP_DESKTOP_APPS, GROUP_TEXT[T.GROUP_DESKTOP_APPS], MODE_AUTOMATIC,
+                             SCHEDULE_CONTINUOUS, last, qb_covered, state, action, detail))
+
+    # --- Vault: scanned by the same daily job; counts, never minutes.
+    state, action, detail, last = _automatic_state(
+        conn, clk, "vault_scan", what="the Obsidian vault", tz=tz,
+        never_action=VAULT_ACTION, stale_action=VAULT_ACTION)
+    rows.append(NeedsRow(T.GROUP_VAULT, GROUP_TEXT[T.GROUP_VAULT], MODE_AUTOMATIC, SCHEDULE_DAILY_JOB, last,
+                         _received_in_week(conn, settings, "vault_scan", this_week), state, action,
+                         f"{detail} Captures are counted, never turned into minutes."))
+
+    if ended:
+        rows = [NeedsRow(r.group, r.label, r.mode, r.schedule_text, r.last_data_at, r.covered, r.state, "",
+                         f"{r.detail} {DIAGNOSTIC_ENDED_NOTE}") for r in rows]
+
+    order = {g: i for i, g in enumerate(ATTENTION_ORDER)}
+    rows.sort(key=lambda r: (r.action_text == "", r.mode == MODE_AUTOMATIC, order.get(r.group, 99)))
+    return rows
+
+
+def provenance_map(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[ProvenanceRow]:
+    """Where each number on the dashboard comes from, and what it cannot see.
+
+    Static except for the two settings that change how a source is fed
+    (`coldturkey_db`, `qbserve_db`); `conn` and `clk` are part of the report
+    signature convention. Limits reuse `GROUP_BLIND_SPOTS` rather than
+    restating them, so the caveats on this table and on cost per keeper can
+    never drift apart.
+    """
+    ct_auto = getattr(settings, "coldturkey_db", None) is not None
+    qb_on = getattr(settings, "qbserve_db", None) is not None
+    rows = [
+        ProvenanceRow(
+            T.GROUP_PODCASTS, GROUP_TEXT[T.GROUP_PODCASTS],
+            "Minutes listened to episodes you captured into the queue.",
+            "Spotify (resume position, polled)", T.PROV_API, T.PROVENANCE_TEXT[T.PROV_API],
+            MODE_AUTOMATIC, SCHEDULE_SPOTIFY_POLL, GROUP_BLIND_SPOTS[T.GROUP_PODCASTS]),
+        ProvenanceRow(
+            T.GROUP_YOUTUBE, GROUP_TEXT[T.GROUP_YOUTUBE],
+            "Minutes watched per channel, across every device signed into the account.",
+            "DRBR browser extension (watch history) × YouTube Data API duration",
+            T.PROV_PAGE, T.PROVENANCE_TEXT[T.PROV_PAGE], MODE_MANUAL, SCHEDULE_MANUAL_WEEKLY,
+            GROUP_BLIND_SPOTS[T.GROUP_YOUTUBE]),
+        ProvenanceRow(
+            T.GROUP_X, "X — desktop (x.com)", "Minutes on x.com and twitter.com in this Mac's browsers.",
+            "Cold Turkey Blocker statistics", T.PROV_EXPORT, T.PROVENANCE_TEXT[T.PROV_EXPORT],
+            MODE_AUTOMATIC if ct_auto else MODE_MANUAL,
+            SCHEDULE_DAILY_JOB if ct_auto else SCHEDULE_MANUAL_WEEKLY,
+            (X_FOLD_NOTE,) + GROUP_BLIND_SPOTS[T.GROUP_X], folds_into=T.GROUP_X),
+        ProvenanceRow(
+            T.GROUP_X, "X — iPhone app", "Minutes in the X app on the iPhone.",
+            "Screen Time screenshots (Apple Vision OCR on this Mac)", T.PROV_SCREENSHOT,
+            T.PROVENANCE_TEXT[T.PROV_SCREENSHOT], MODE_MANUAL, SCHEDULE_MANUAL_WEEKLY,
+            (X_FOLD_NOTE,) + GROUP_BLIND_SPOTS[T.GROUP_X], folds_into=T.GROUP_X),
+        ProvenanceRow(
+            T.GROUP_X, "X — Mac app", "Minutes in a native X client on this Mac, when one is used.",
+            "Qbserve", T.PROV_APP_TRACKER, T.PROVENANCE_TEXT[T.PROV_APP_TRACKER],
+            MODE_AUTOMATIC, SCHEDULE_CONTINUOUS,
+            (X_FOLD_NOTE,) + GROUP_BLIND_SPOTS[T.GROUP_X]
+            + (() if qb_on else ("Qbserve is not configured, so this path measures nothing.",)),
+            folds_into=T.GROUP_X),
+        ProvenanceRow(
+            T.GROUP_IPHONE, GROUP_TEXT[T.GROUP_IPHONE], "Per-app minutes for one complete past week.",
+            "Screen Time screenshots (Apple Vision OCR on this Mac)", T.PROV_SCREENSHOT,
+            T.PROVENANCE_TEXT[T.PROV_SCREENSHOT], MODE_MANUAL, SCHEDULE_MANUAL_WEEKLY,
+            GROUP_BLIND_SPOTS[T.GROUP_IPHONE]),
+        ProvenanceRow(
+            T.GROUP_DESKTOP, GROUP_TEXT[T.GROUP_DESKTOP], "Minutes per website in this Mac's browsers.",
+            "Cold Turkey Blocker statistics" + ("" if ct_auto else " (manual export)"),
+            T.PROV_EXPORT, T.PROVENANCE_TEXT[T.PROV_EXPORT],
+            MODE_AUTOMATIC if ct_auto else MODE_MANUAL,
+            SCHEDULE_DAILY_JOB if ct_auto else SCHEDULE_MANUAL_WEEKLY,
+            GROUP_BLIND_SPOTS[T.GROUP_DESKTOP]),
+        ProvenanceRow(
+            T.GROUP_DESKTOP_APPS, GROUP_TEXT[T.GROUP_DESKTOP_APPS],
+            "Minutes per native Mac app; browsers are left to Desktop web.",
+            "Qbserve", T.PROV_APP_TRACKER, T.PROVENANCE_TEXT[T.PROV_APP_TRACKER],
+            MODE_AUTOMATIC, SCHEDULE_CONTINUOUS,
+            GROUP_BLIND_SPOTS[T.GROUP_DESKTOP_APPS]
+            + (() if qb_on else ("Qbserve is not configured, so desktop apps are unmeasured, not zero.",))),
+        ProvenanceRow(
+            T.GROUP_VAULT, GROUP_TEXT[T.GROUP_VAULT],
+            "Counts of captures kept, edited or dropped. Never minutes.",
+            "Obsidian vault scan (capture ids)", T.PROV_VAULT, T.PROVENANCE_TEXT[T.PROV_VAULT],
+            MODE_AUTOMATIC, SCHEDULE_DAILY_JOB,
+            ("Vault captures are counts, never minutes: reading time is not measured.",)),
+    ]
+    return rows
+
+
+# --------------------------------------------------------------------------
+# Rows a person has to resolve (DR5.6)
+# --------------------------------------------------------------------------
+#
+# Real case: Facebook was read as both "2h 27m" and "2h 37m" on two
+# screenshots, so ~150 minutes were stored as `unreadable` with NULL minutes
+# rather than guessed. That is the right thing for a parser to do and the
+# wrong place to leave it: the user can see which is right in two seconds.
+# Only OCR rows appear here — a YouTube video with no duration from the API
+# has no number a person could supply either, so offering it would invite an
+# invented figure.
+
+#: Provenances whose failures a person can actually resolve.
+EYE_PROVENANCES = (T.PROV_SCREENSHOT,)
+
+
+@dataclass(frozen=True)
+class EyeRow:
+    """One measurement the parser refused to guess at, with what it did read.
+
+    `options_min` holds every duration the evidence itself contains, so the
+    dashboard can offer the two conflicting readings as buttons.
+    `suggested_min` is filled only when the evidence contains exactly one
+    candidate; with two conflicting readings there is no suggestion, because
+    choosing between them is the user's job and inventing a third is nobody's.
+    """
+
+    measurement_id: int
+    group: str
+    source: str
+    day: str
+    period_end: str
+    status: str
+    provenance: str
+    what_was_read: tuple[str, ...]
+    options_min: tuple[float, ...]
+    suggested_min: float | None
+    detail: str
+
+
+def _eye_readings(raw: tuple[str, ...], stored: object) -> tuple[float, ...]:
+    """Durations present in the stored evidence, newest format first.
+
+    `detail.readings` is written by the parser from the values it actually
+    matched. Rows stored before that existed only have `detail.raw` ("Facebook
+    | 2h 27m"), so those are re-read with the parser's own duration grammar —
+    lazily imported, because `report` must stay importable without the source
+    modules' dependencies.
+    """
+    if isinstance(stored, list):
+        out = [float(v) for v in stored if isinstance(v, (int, float))]
+        if out:
+            return tuple(sorted(dict.fromkeys(out)))
+    from sources import screentime  # noqa: PLC0415 — see docstring
+
+    found: list[float] = []
+    for text in raw:
+        for part in str(text).split("|"):
+            value = screentime.parse_duration(part)
+            if value is not None:
+                found.append(round(value, 4))
+    return tuple(sorted(dict.fromkeys(found)))
+
+
+def needs_your_eye(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[EyeRow]:
+    """Measurements in the diagnostic window a person could resolve, newest first.
+
+    Read-only. `screentime.correct_measurement` is what acts on a row.
+    """
+    floor = window_start(conn, clk, settings)
+    sql = ("SELECT m.*, s.kind AS kind, s.display_name AS display_name FROM measurements m "
+           "JOIN sources s ON s.id = m.source_id WHERE m.status != 'ok' AND m.provenance IN (%s)"
+           % ",".join("?" * len(EYE_PROVENANCES)))
+    params: list = list(EYE_PROVENANCES)
+    if floor is not None:
+        sql += " AND m.period_end >= ?"
+        params.append(floor)
+    out: list[EyeRow] = []
+    for r in conn.execute(sql, params).fetchall():
+        try:
+            detail = json.loads(r["detail"] or "{}")
+        except ValueError:
+            detail = {}
+        raw = tuple(str(x) for x in detail.get("raw", []) if str(x).strip())
+        options = _eye_readings(raw, detail.get("readings"))
+        reason = detail.get("unreadable_reason")
+        if reason == "conflicting_durations" or len(options) > 1:
+            text = (f"{r['display_name']} was read with more than one duration "
+                    f"({', '.join(raw) or 'no readable text'}), so nothing was recorded rather than guessed.")
+        elif not options:
+            text = (f"{r['display_name']} has no readable duration in the screenshots, so nothing was "
+                    "recorded rather than guessed.")
+        else:
+            text = f"{r['display_name']} was read once, with low confidence."
+        out.append(EyeRow(
+            measurement_id=r["id"], group=T.report_group(r["kind"], r["device"]), source=r["display_name"],
+            day=r["period_start"], period_end=r["period_end"], status=r["status"], provenance=r["provenance"],
+            what_was_read=raw, options_min=options,
+            suggested_min=options[0] if len(options) == 1 else None, detail=text,
+        ))
+    out.sort(key=lambda e: (e.day, e.source), reverse=True)
+    return out

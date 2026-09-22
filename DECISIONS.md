@@ -1416,3 +1416,105 @@ for entertainment. A relabel re-records every week's overage at once.
 - **Wording.** User-facing text now says "wasteful content minutes" where it said
   "min used … (wasteful only)" or "min wasteful": poll alerts, Sunday triage
   header, `/start`, dashboard headings, README.
+
+### DR5.6 — The UX overhaul: Telegram stops asking, the dashboard starts telling
+User framing (2026-09-22), which governs this decision:
+
+> "I haven't been prompted in any meaningful way to put data in: I don't know
+> how and when I'm supposed to be submitting sources like X desktop data,
+> desktop web, any of it. This needs a holistic improvement. I don't want the
+> Telegram bot pinging me to tag content. It can ping me once, maximum every 3
+> days, saying there is content to be tagged in the desktop app, but I don't
+> want to be doing it in the Telegram app itself."
+
+Two separate failures, with one cause. DRBR had grown five sources with three
+different collection modes (automatic daily, automatic continuous, manual
+weekly) and never said anywhere which was which. And labelling — the one act
+the whole diagnostic depends on — was happening in the medium worst suited to
+it: one message per source, each a decision made without seeing the minutes,
+the provenance, or the other nineteen sources.
+
+**What Telegram keeps.** Captures, Sunday triage, allowance alerts, and the
+Monday reminder for the two sources DRBR genuinely cannot fetch (Screen Time,
+YouTube). That is the whole list. Everything else is a page.
+
+**The 3-day label digest.** `handlers_labels.send_label_digest` replaces
+`send_label_batch`. One message, not one per source; at most one per three
+local days (the user's own number), dedup through `prompts_sent` kind `labels`
+on `MAX(sent_on)` rather than "already today"; nothing before the diagnostic
+has run 7 days and nothing after it ends. The text names the count, the
+minutes and the biggest group, and links to the dashboard. `/labels` answers
+with the same sentence and never consumes the three-day slot — asking is not
+being told. The `d:lbl:` callback namespace, its handler, its keyboard and
+`render_prompt` are deleted, not deprecated: a handler for buttons nothing
+sends would only make `bot.build_app`'s wiring lie.
+
+**Labelling is ordered by minutes now.** The bot asked oldest-first
+deliberately: a *prompt* ordered by size would have told the user which
+sources DRBR thought mattered. A queue the user opens himself is a different
+act — he is choosing where to spend attention — so `labels.label_queue` sorts
+by measured minutes in the diagnostic window, biggest decision first. The
+exclusions are unchanged and are exclusions of *fact*, not of prompting
+policy: covered-elsewhere sources, the unknown-YouTube-channel bucket, and
+anything never actually observed. The system still never suggests a label.
+`labels.bulk_set_label` writes twenty decisions in one transaction and
+re-records every week's overage once (DR2.7).
+
+**"What needs you" and "where each number comes from".**
+`report.needs_attention` answers the user's question directly, one row per
+source group: automatic or manual, when it runs, when it last produced
+anything, whether the current week is covered, and — only when true — what he
+has to do. For a weekly manual source the honest question is about the last
+*complete* week, because the current one cannot be sent yet; `waiting` and
+`missing` are therefore different states. `report.provenance_map` is the
+standing table of what each number is, which tool made it, at which provenance
+tier, and what it cannot see (reusing `GROUP_BLIND_SPOTS`, so the caveats
+cannot drift from the ones on cost per keeper). It says in full that **X is
+measured twice and counted once**: desktop x.com through Cold Turkey, the X
+iPhone app through Screen Time, folded into one source by `normalise_key` —
+the single most confusing thing in DRBR, now stated rather than discovered.
+
+**The Monday reminder is now the only import reminder**, so each message
+carries the whole picture: what is missing, that this source is manual, the
+numbered steps, and that everything else collects itself. Screen Time's names
+the two mistakes that actually happened with real captures — the Most Used
+list left ending in "Show More" (every app below it silently missing) and
+screenshots sent in two goes (read as two captures, neither a whole week).
+Cold Turkey and Qbserve leave the rotation while they are feeding themselves:
+the prompt survives only as a fallback, when unconfigured or when the
+automatic read is failing, judged by `report.needs_attention` rather than by a
+second opinion kept in `handlers_imports`.
+
+**A person may correct an OCR row.** Real case: Facebook was read as both
+"2h 27m" and "2h 37m" on two screenshots, so ~150 minutes were stored
+`unreadable` with NULL minutes; another row's name was unreadable and 81
+minutes were dropped. Refusing to guess is right; leaving it there is not,
+because the user can settle it in two seconds by looking at the screenshot.
+`report.needs_your_eye` lists those rows with **what was actually read**, and
+`screentime.correct_measurement` stores the answer: minutes set, status back
+to `ok`, and `detail.corrections` recording that a *person* supplied it, with
+the original reading kept. Guard rails:
+
+- Only `screenshot_ocr` rows are offered. A YouTube video with no duration
+  from the API has no number a person could supply either, so offering it
+  would invite an invented figure.
+- `options_min` holds only durations the evidence itself contains (the two
+  conflicting readings). `suggested_min` is filled only when there is exactly
+  one candidate — with two, choosing is the user's job and inventing a third
+  is nobody's.
+- Negative or over 1440 minutes (one day) is refused; a second correction
+  appends rather than overwriting the first.
+- Provenance stays `screenshot_ocr`. The figure still came from a screenshot;
+  only the arbitration was human, and a human arbitration is not an API.
+- The parser now stores `detail.readings` and `detail.unreadable_reason` so
+  this needs no re-OCR, and keeps an unnamed row's raw text in the import's
+  meta (`unnamed_row_texts`) — the minutes are real and only the name was
+  lost, and there is no measurement to attach it to.
+
+**`jobs.run_sync`.** The data-fetching half of the daily run (outbox, vault
+scan, Cold Turkey, Qbserve) is now callable on its own and returns a
+`StepResult` per step, so a dashboard "Sync now" does exactly what the morning
+run does and shows exactly what the log would have said. `run_daily` calls it
+rather than keeping a second copy of the order. Without a bot it sends
+nothing, and skipping the Qbserve staleness warning does not consume that
+day's slot.

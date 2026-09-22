@@ -923,3 +923,148 @@ All additive and defaulted; every earlier call site stays valid. Reasons and tes
 - `handlers_labels`: callback `d:lbl:<w|v|t>:<id>`; third button `TOOL_BUTTON = "Tool (not content)"`; `CONTENT_QUESTION` in the prompt; the edited message reads "labelled tool — not counted".
 - `triage.label_line` appends `TOOL_COST` for tool. `bot`'s capture confirmation says a tool-source item costs 0 and how to override it.
 - Alert and header text: "wasteful content minutes" (`poll._approaching_text`, `_exceeded_text`, `triage.render_week_header`).
+
+## §19 Post-build amendment — the UX overhaul (DR5.6)
+
+Telegram keeps captures, Sunday triage, allowance alerts and the Monday import
+reminder. Everything else is the dashboard's.
+
+### `report.py` (new; all read-only, all `(conn, clk, settings)`)
+
+```python
+needs_attention(conn, clk, settings) -> list[NeedsRow]     # rows needing the user first, then automatic
+provenance_map(conn, clk, settings) -> list[ProvenanceRow] # "where each number comes from"
+needs_your_eye(conn, clk, settings) -> list[EyeRow]        # OCR rows a person can resolve, newest first
+
+@dataclass(frozen=True)
+class NeedsRow:
+    group: str            # T.GROUP_* incl. the new T.GROUP_VAULT
+    label: str            # "iPhone apps", "Desktop web", "Vault (Obsidian)" … (report.GROUP_TEXT)
+    mode: str             # report.MODE_AUTOMATIC | report.MODE_MANUAL
+    schedule_text: str    # "every morning 09:30" | "every morning 09:17" | "weekly, you run it" |
+                          # "continuously while it runs, read every morning 09:30"
+    last_data_at: str | None   # UTC ISO instant of the newest data
+    covered: bool         # is any part of the CURRENT week covered
+    state: str            # report.STATE_OK | STATE_WAITING | STATE_MISSING | STATE_STALE | STATE_ATTENTION
+    action_text: str      # "" when the user owes nothing — sort/count on this, not on state
+    detail: str           # one sentence: why
+
+@dataclass(frozen=True)
+class ProvenanceRow:
+    group: str; label: str; measures: str; tool: str
+    provenance: str            # T.PROV_*
+    provenance_text: str       # T.PROVENANCE_TEXT[provenance]
+    mode: str; schedule_text: str
+    limits: tuple[str, ...]    # reuses report.GROUP_BLIND_SPOTS
+    folds_into: str | None = None   # T.GROUP_X on both X rows
+
+@dataclass(frozen=True)
+class EyeRow:
+    measurement_id: int; group: str; source: str
+    day: str; period_end: str          # local dates
+    status: str; provenance: str       # always T.PROV_SCREENSHOT for now
+    what_was_read: tuple[str, ...]     # detail.raw, verbatim ("Facebook | 2h 27m")
+    options_min: tuple[float, ...]     # every duration the evidence contains, ascending
+    suggested_min: float | None        # only when exactly one candidate; never invented
+    detail: str
+```
+
+Constants the dashboard may render: `report.GROUP_TEXT`, `MODE_AUTOMATIC`,
+`MODE_MANUAL`, `STATE_*`, `NEEDS_STATES`, `SCHEDULE_DAILY_JOB`,
+`SCHEDULE_SPOTIFY_POLL`, `SCHEDULE_MANUAL_WEEKLY`, `SCHEDULE_CONTINUOUS`,
+`STALE_HOURS`, `DIAGNOSTIC_ENDED_NOTE`, `X_FOLD_NOTE`, `EYE_PROVENANCES`.
+`needs_attention` rows for the three groups covering X are not separate; X's
+two collection paths appear only in `provenance_map`.
+
+### `labels.py` (new)
+
+```python
+label_queue(conn, clk, settings, *, limit=None) -> list[QueueRow]   # by minutes DESC, then first_seen_at, id
+bulk_set_label(conn, clk, source_ids, label, *, settings) -> int    # commits once; runs on_measurements_changed
+unlabelled_summary(conn, clk, settings) -> Summary
+
+@dataclass(frozen=True)
+class QueueRow:
+    source_id: int; kind: str; group: str; display_name: str
+    minutes: float                    # measured minutes in the diagnostic window (0.0, never None)
+    provenances: tuple[str, ...]      # T.PROV_* seen for this source
+    seen_in: tuple[str, ...]          # the same, in words (labels.PROVENANCE_SEEN)
+    first_seen_at: str
+
+@dataclass(frozen=True)
+class Summary:
+    count: int; minutes: float; top_group: str | None
+```
+
+`bulk_set_label` takes `settings` keyword-only because it re-records every
+week's overage itself; ids that no longer exist are skipped, not raised, and
+the return value is the number of rows actually changed. `sources_needing_label`
+is unchanged and still used by the Qbserve tests; `label_queue` shares its
+exclusions (covered elsewhere, the unknown-YouTube-channel bucket, no evidence)
+but has no per-source cooldown.
+
+### `sources/screentime.py` (new)
+
+```python
+correct_measurement(conn, clk, settings, measurement_id, minutes) -> None   # commits; ValueError subclass on refusal
+class CorrectionError(ValueError)
+MAX_CORRECTION_MIN = 1440
+```
+
+Sets `minutes`, `status='ok'` and appends to `detail.corrections`
+(`{at, by: "person", minutes, previous_minutes, previous_status}`) with
+`detail.corrected_by_person = True`; `detail.raw` is untouched and provenance
+stays `screenshot_ocr`. Refuses a non-number, NaN/inf, a negative value, one
+over `MAX_CORRECTION_MIN`, an unknown id, or a non-`screenshot_ocr` row. Then
+runs `allowance.on_measurements_changed`.
+
+Measurement `detail` gains `readings: list[float]` (every duration the row was
+read as) and `unreadable_reason: 'conflicting_durations' | 'no_duration' | null`.
+Screen Time import `meta` gains `unnamed_row_texts: list[str]`.
+
+### `handlers_labels.py` (replaced)
+
+```python
+send_label_digest(conn, clk, settings, bot) -> list[str]   # one summary line, or []
+digest_text(summary: labels.Summary, settings) -> str
+labels_url(settings) -> str                                # http://127.0.0.1:<dashboard_port>/labels
+cmd_labels(update, context)                                # /labels: the same sentence, no buttons
+register(app)                                              # CommandHandler only
+DIGEST_EVERY = timedelta(days=3); LABEL_PROMPTS_AFTER = timedelta(days=7); PROMPT_KIND = "labels"
+NOTHING_WAITING; CONTENT_QUESTION
+```
+
+Removed: `send_label_batch`, `render_prompt`, `on_label_callback`,
+`callback_data`, `CALLBACK_PREFIX`, `TOOL_BUTTON`, `_keyboard`, `_seen_in`,
+and the `d:lbl:` namespace entirely. The digest's 3-day gate reads
+`MAX(sent_on) FROM prompts_sent WHERE kind='labels'`; `/labels` writes no
+`prompts_sent` row.
+
+### `handlers_imports.py`
+
+`prompt_text(kind, week, *, automated_coldturkey=False)` is unchanged in shape
+and rewritten in content: what is missing, `MANUAL_LINE`, numbered steps
+(`SCREENTIME_STEPS`, `YOUTUBE_STEPS`, `COLDTURKEY_STEPS`) and
+`AUTOMATIC_TRAILER`. `send_due_prompts` skips `coldturkey` while
+`report.needs_attention` reports `GROUP_DESKTOP` as automatic and `ok`.
+
+### `jobs.py`
+
+```python
+run_sync(conn, clk, settings, bot=None) -> dict[str, StepResult]   # SYNC_STEPS, in order
+@dataclass(frozen=True)
+class StepResult: name: str; ok: bool; summary: str; error: str | None = None
+SYNC_STEPS = ("read_outbox", "vault_scan", "coldturkey_local", "qbserve")
+```
+
+`run_daily` = `run_sync` + `import_prompts`, `label_digest` (renamed from
+`label_batch`), `diagnostic_end`; it still returns the names of failed steps.
+Without a `bot`, the Qbserve staleness warning is skipped and does not consume
+that day's slot. **The HTTP endpoint for "Sync now" is not built here** —
+`dashboard/app.py` is owned elsewhere.
+
+### `drbr_types.py`
+
+`GROUP_VAULT = "vault"`. Not in `REPORT_GROUPS`, not a `report_group()` result:
+the vault produces counts, never minutes. It exists so the attention and
+provenance tables can name it.

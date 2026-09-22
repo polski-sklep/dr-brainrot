@@ -1,147 +1,74 @@
-"""Telegram handlers for DRBR source labels (CONTRACTS.md Part II §5, §8).
+"""Telegram's one line about labelling: a digest, at most every third day.
 
-The brief bootstraps labels from data rather than a spreadsheet up front:
-after the first week of collection the bot shows each newly seen source with
-three buttons, and one tap is the whole decision. The user labels; this module
-only asks and records. It never suggests a label and never orders sources by
-how much they were used.
+CONTRACTS.md Part II §8, §19. Labelling itself lives on the dashboard now
+(DECISIONS DR5.6). The user said it plainly:
 
-Callback data: ``d:lbl:<w|v|t>:<source_id>`` (w = wasteful, v = worthwhile,
-t = tool).
+    "I don't want the Telegram bot pinging me to tag content. It can ping me
+    once, maximum every 3 days, saying there is content to be tagged in the
+    desktop app, but I don't want to be doing it in the Telegram app itself."
 
-DRBR measures brain-rot content only (DECISIONS DR5.5). The prompt asks the
-content question first; a source that is not content (shopping, email, a
-utility) is a tool, and its minutes are not counted.
+So this module no longer renders a source, a keyboard or a callback, and the
+label-callback namespace it used is gone entirely. Deciding a label happens on
+a page where the minutes, the provenance and the other nineteen sources are
+visible at once, which is a better place to make twenty decisions than a chat
+is. What survives in Telegram is the *fact* that a decision is waiting, said
+once, with a link.
+
+The gate is three days rather than a day, and it is on the digest as a whole
+rather than per source: one message every third day is a reminder, one message
+per source per day is the nagging the user objected to.
 """
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 from datetime import timedelta
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackQueryHandler, CommandHandler
+from telegram.ext import CommandHandler
 
 import bot
 import clock
 import drbr_types as T
 import evidence
 import labels
+import report
 import triage
 from clock import Clock
 from config import Settings
 
 log = logging.getLogger("drbr.labels")
 
-CALLBACK_PREFIX = "d:lbl:"
-_CALLBACK_RE = re.compile(r"^d:lbl:([wvt]):(\d{1,18})$")
-_CODE_TO_LABEL = {"w": T.WASTEFUL, "v": T.WORTHWHILE, "t": T.TOOL}
-_LABEL_TO_CODE = {v: k for k, v in _CODE_TO_LABEL.items()}
-
-#: The diagnostic must have run this long before the bot asks for labels:
+#: The diagnostic must have run this long before labels are mentioned at all:
 #: "after the first week of collection".
 LABEL_PROMPTS_AFTER = timedelta(days=7)
+#: At most one digest per this many local days (DR5.6, the user's own number).
+DIGEST_EVERY = timedelta(days=3)
 PROMPT_KIND = "labels"
 
-_KIND_TEXT = {
-    T.KIND_PODCAST_SHOW: "Podcast show",
-    T.KIND_YOUTUBE_CHANNEL: "YouTube channel",
-    T.KIND_IPHONE_APP: "iPhone app",
-    T.KIND_WEB_DOMAIN: "Website (desktop)",
-    T.KIND_X: "X",
-    T.KIND_DESKTOP_APP: "Mac app",
-}
-
-_PROVENANCE_SEEN = {
-    T.PROV_PAGE: "YouTube history",
-    T.PROV_SCREENSHOT: "Screen Time screenshots",
-    T.PROV_EXPORT: "Cold Turkey export",
-    T.PROV_APP_TRACKER: "Qbserve (Mac apps)",
-}
-
-#: The labelling rule, in the same words as the dashboard's Labels page.
+#: The labelling rule, in the same words as the dashboard's Labels page. Kept
+#: here because the digest links to that page and must not describe it
+#: differently; the page itself is where it is answered.
 CONTENT_QUESTION = (
     "DRBR measures brain-rot content only. Is this content you consume? "
     "If yes, is it brain rot (wasteful) or not (worthwhile)? "
     "If you only go there to get a task done — buy, pay, book, log in, organise, "
     "check the weather — it's a tool and isn't counted."
 )
-TOOL_BUTTON = "Tool (not content)"
-TOOL_DONE = "tool — not counted"
 
-UNRECOGNISED = "Unrecognised button."
-STALE = "That source no longer exists."
+NOTHING_WAITING = "No sources are waiting for a label."
 
 
-# --------------------------------------------------------------------------
-# Rendering
-# --------------------------------------------------------------------------
-
-def callback_data(label: str, source_id: int) -> str:
-    return f"{CALLBACK_PREFIX}{_LABEL_TO_CODE[label]}:{source_id}"
-
-
-def _keyboard(source_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Wasteful", callback_data=callback_data(T.WASTEFUL, source_id)),
-        InlineKeyboardButton("Worthwhile", callback_data=callback_data(T.WORTHWHILE, source_id)),
-        InlineKeyboardButton(TOOL_BUTTON, callback_data=callback_data(T.TOOL, source_id)),
-    ]])
-
-
-def _seen_in(conn: sqlite3.Connection, source: labels.Source) -> str:
-    """Where this source was observed, from stored rows only — never how much."""
-    places = [
-        _PROVENANCE_SEEN.get(r["provenance"], r["provenance"])
-        for r in conn.execute(
-            "SELECT DISTINCT provenance FROM measurements WHERE source_id = ? ORDER BY provenance",
-            (source.id,))
-    ]
-    n = conn.execute("SELECT COUNT(*) FROM vault_captures WHERE source_id = ?", (source.id,)).fetchone()[0]
-    if n:
-        places.append(f"{n} vault capture{'s' if n != 1 else ''}")
-    if source.kind in (T.KIND_PODCAST_SHOW, T.KIND_YOUTUBE_CHANNEL) and _in_queue(conn, source):
-        places.append("your POP queue")
-    return ", ".join(places) or "unknown"
-
-
-def _in_queue(conn: sqlite3.Connection, source: labels.Source) -> bool:
-    for row in conn.execute("SELECT DISTINCT platform, show, source_key FROM episodes"):
-        try:
-            if row["platform"] == "youtube":
-                key = labels.normalise_key(T.KIND_YOUTUBE_CHANNEL, row["source_key"] or "")
-            else:
-                key = labels.normalise_key(T.KIND_PODCAST_SHOW, row["show"] or "")
-        except labels.LabelError:
-            continue
-        if key == (source.kind, source.source_key):
-            return True
-    return False
-
-
-def render_prompt(conn: sqlite3.Connection, source: labels.Source) -> tuple[str, InlineKeyboardMarkup]:
-    text = (
-        f"Label this source?\n"
-        f"{source.display_name}\n"
-        f"{_KIND_TEXT.get(source.kind, source.kind)} · seen in {_seen_in(conn, source)}\n"
-        f"{CONTENT_QUESTION}\n"
-        f"Until you choose, it counts as wasteful."
-    )
-    return text, _keyboard(source.id)
-
-
-def _labelled_text(source: labels.Source) -> str:
-    shown = TOOL_DONE if source.label == T.TOOL else source.label
-    return f"{source.display_name} ({_KIND_TEXT.get(source.kind, source.kind)}): labelled {shown}."
+def labels_url(settings: Settings) -> str:
+    """The dashboard page the digest points at. The only place labelling happens."""
+    return f"http://127.0.0.1:{settings.dashboard_port}/labels"
 
 
 # --------------------------------------------------------------------------
-# The batch (job entry point)
+# The digest
 # --------------------------------------------------------------------------
 
 def _gate(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> str | None:
-    """Why no batch may be sent now, or None if one may."""
+    """Why nothing may be said about labels now, or None if something may."""
     diag = evidence.diagnostic(conn, clk, settings)
     if not diag.started:
         return "Labels are requested after the first 7 days of data; no data has arrived yet."
@@ -153,41 +80,54 @@ def _gate(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> str | Non
     return None
 
 
-def _send_batch(conn: sqlite3.Connection, clk: Clock, settings: Settings, bot_like, *,
-                once_per_day: bool) -> list[str]:
+def digest_text(summary: labels.Summary, settings: Settings) -> str:
+    """The whole message: how many, how much, where the weight is, and the link.
+
+    Minutes are stated because they are what makes the decision worth making,
+    and the biggest group is named for the same reason. Neither is a judgement
+    about any source: the system still never suggests a label.
+    """
+    minutes = f"{round(summary.minutes):,}".replace(",", " ")
+    where = ""
+    if summary.top_group is not None:
+        where = f", mostly {report.GROUP_TEXT.get(summary.top_group, summary.top_group).lower()}"
+    one = summary.count == 1
+    return (f"{summary.count} source{'' if one else 's'} ({minutes} min) "
+            f"{'is' if one else 'are'} unlabelled{where}.\n\n"
+            f"Label them in the dashboard: {labels_url(settings)}\n"
+            "Nothing to do here — this is the only message you'll get about it for three days.")
+
+
+def _last_digest_day(conn: sqlite3.Connection) -> str | None:
+    row = conn.execute("SELECT MAX(sent_on) FROM prompts_sent WHERE kind = ?", (PROMPT_KIND,)).fetchone()
+    return row[0] if row else None
+
+
+def send_label_digest(conn: sqlite3.Connection, clk: Clock, settings: Settings, bot_like) -> list[str]:
+    """Daily job: at most one message every three days, only when something is unlabelled.
+
+    Returns one summary line if a message was sent, otherwise nothing. Silent
+    before the diagnostic has run 7 days, after it has ended, within three
+    local days of the last digest, and whenever every source with evidence has
+    been decided.
+    """
     if _gate(conn, clk, settings) is not None:
         return []
-    today = T.local_date(clk.now(), settings.tz)
-    week = T.measurement_week(today).start
-    if once_per_day and conn.execute(
-        "SELECT 1 FROM prompts_sent WHERE kind = ? AND period_start = ? AND sent_on = ?",
-        (PROMPT_KIND, week, T.iso_date(today)),
-    ).fetchone():
+    summary = labels.unlabelled_summary(conn, clk, settings)
+    if summary.count == 0:
         return []
-    sent: list[str] = []
-    for source in labels.sources_needing_label(conn, clk, settings):
-        text, markup = render_prompt(conn, source)
-        triage.send(bot_like, settings, text, reply_markup=markup)
-        # Marked one at a time: if a later send raises, the ones already
-        # delivered are not asked about again tomorrow.
-        labels.mark_prompted(conn, clk, [source.id])
-        sent.append(f"label prompt: {source.kind} {source.display_name}")
-    if sent:
-        conn.execute(
-            "INSERT OR IGNORE INTO prompts_sent (kind, period_start, sent_on, sent_at) VALUES (?, ?, ?, ?)",
-            (PROMPT_KIND, week, T.iso_date(today), clock.iso(clk.now())),
-        )
-        conn.commit()
-    return sent
-
-
-def send_label_batch(conn: sqlite3.Connection, clk: Clock, settings: Settings, bot_like) -> list[str]:
-    """Daily job: one message per source needing a label, three buttons each.
-
-    Does nothing before the diagnostic has run 7 days, after it has ended, or
-    if a batch already went out today. Returns one summary per message sent.
-    """
-    return _send_batch(conn, clk, settings, bot_like, once_per_day=True)
+    today = T.local_date(clk.now(), settings.tz)
+    last = _last_digest_day(conn)
+    if last is not None and today - T.parse_date(last) < DIGEST_EVERY:
+        return []
+    triage.send(bot_like, settings, digest_text(summary, settings))
+    week = T.measurement_week(today).start
+    conn.execute(
+        "INSERT OR IGNORE INTO prompts_sent (kind, period_start, sent_on, sent_at) VALUES (?, ?, ?, ?)",
+        (PROMPT_KIND, week, T.iso_date(today), clock.iso(clk.now())),
+    )
+    conn.commit()
+    return [f"label digest: {summary.count} unlabelled source(s), {round(summary.minutes)} min"]
 
 
 # --------------------------------------------------------------------------
@@ -200,65 +140,25 @@ def _deps(context):
 
 
 @bot.authorised_only
-async def on_label_callback(update, context) -> None:
-    query = update.callback_query
-    m = _CALLBACK_RE.match(query.data or "")
-    if not m:
-        await query.answer(UNRECOGNISED)
-        return
-    conn, clk, settings = _deps(context)
-    source_id = int(m.group(2))
-    try:
-        source = labels.set_source_label(conn, clk, source_id, _CODE_TO_LABEL[m.group(1)])
-    except labels.LabelError:
-        await query.answer(STALE)
-        return
-    # Debt is computed from labels as they are now. A relabel changes which
-    # past minutes were wasteful, so recompute at once rather than waiting for
-    # the next import to trigger it (DECISIONS DR2.7).
-    import allowance  # noqa: PLC0415
-
-    allowance.on_measurements_changed(conn, clk, settings)
-    await query.answer(f"Labelled {TOOL_DONE if source.label == T.TOOL else source.label}.")
-    try:
-        await query.edit_message_text(_labelled_text(source))
-    except Exception:  # noqa: BLE001 — the label is stored; a stale message is cosmetic
-        log.warning("could not edit label prompt for source %s", source_id)
-
-
-class _Collector:
-    """A bot double for the sync batch code, so the async command can send for real.
-
-    `triage.send` drives a coroutine with asyncio.run, which cannot happen
-    inside the running handler loop; collecting first and awaiting after keeps
-    one batch implementation for both the job and the command.
-    """
-
-    def __init__(self) -> None:
-        self.messages: list[dict] = []
-
-    def send_message(self, **kwargs) -> None:
-        self.messages.append(kwargs)
-
-
-@bot.authorised_only
 async def cmd_labels(update, context) -> None:
-    """/labels — send the next batch now rather than waiting for the daily job."""
+    """/labels — how many are waiting, and the link. It never labels anything here."""
     conn, clk, settings = _deps(context)
     reason = _gate(conn, clk, settings)
     if reason is not None:
         await update.message.reply_text(reason)
         return
-    collector = _Collector()
-    sent = _send_batch(conn, clk, settings, collector, once_per_day=False)
-    if not sent:
-        await update.message.reply_text("No sources are waiting for a label.")
+    summary = labels.unlabelled_summary(conn, clk, settings)
+    if summary.count == 0:
+        await update.message.reply_text(NOTHING_WAITING)
         return
-    for kwargs in collector.messages:
-        await context.bot.send_message(**kwargs)
+    await update.message.reply_text(digest_text(summary, settings))
 
 
 def register(app) -> None:
-    """Add this module's handlers to the PTB Application (called by bot.build_app)."""
-    app.add_handler(CallbackQueryHandler(on_label_callback, pattern=r"^d:lbl:"))
+    """Add this module's handlers to the PTB Application (called by bot.build_app).
+
+    One command and no callback handler: with in-Telegram labelling gone,
+    nothing in this module answers a button, and registering a handler for a
+    namespace no message uses would only make the wiring lie.
+    """
     app.add_handler(CommandHandler("labels", cmd_labels))
