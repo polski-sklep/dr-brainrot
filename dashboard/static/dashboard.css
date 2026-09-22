@@ -757,42 +757,6 @@ svg.split .axis { stroke: var(--axis); stroke-width: 1; }
   .filters, .weeknav { display: none; }
 }
 
-/* Detail sections, folded. Everything past the allowance is supporting
-   evidence: present, addressable, and out of the way until asked for. */
-details.fold {
-  border-top: 1px solid var(--hairline);
-  margin-top: 0;
-}
-details.fold:first-of-type { border-top: 1px solid var(--border); margin-top: var(--s8); }
-details.fold > summary {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s3);
-  padding: var(--s3) var(--s3) var(--s3) 0;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-details.fold > summary::-webkit-details-marker { display: none; }
-details.fold > summary::before {
-  content: "";
-  flex: none;
-  width: 0; height: 0;
-  margin-right: var(--s1);
-  border-left: 5px solid var(--accent);
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  transform: translateY(-1px);
-  transition: transform .12s ease;
-}
-details.fold[open] > summary::before { transform: rotate(90deg) translateX(-1px); }
-details.fold > summary:hover .fold-title { color: var(--accent); }
-details.fold > summary:focus-visible { border-radius: var(--r-control); }
-.fold-title { font-size: var(--fs-section); font-weight: 650; letter-spacing: -.005em; }
-.fold-hint { font-size: var(--fs-meta); color: var(--text-muted); }
-details.fold > section { margin-top: 0; padding: 0 0 var(--s5) var(--s4); }
-details.fold + details.fold { margin-top: 0; }
-
 /* ==========================================================================
    Flash, tabs, and the bulk action bar
    ========================================================================== */

@@ -380,13 +380,12 @@ week has finished, the panel keeps the summary and adds a line: a summary
 written on Tuesday is still true about Tuesday. `insight is None` renders
 nothing at all, never an empty panel.
 
-**Folds.** Everything past the allowance — gated, cost per keeper, funnels,
-imports, blind spots — is supporting evidence rather than the day's reading,
-so each is a `<details>` closed by default. The summary carries the heading
-and a one-line hint of what is inside, so a closed fold still tells you
-whether to open it. Native `<details>`: keyboard-operable, findable by the
-browser's own find, and it needs no JavaScript. Blind spots sits last, because
-a list of what the tool cannot see is the right note to end a diagnostic on.
+**No folds.** Collapsing the lower sections behind `<details>` was tried and
+removed. It read as five closed drawers at the foot of the page and made the
+diagnostic look shorter than it is, which is the opposite of the point: the
+supporting evidence is not an appendix, it is the working. **Blind spots**
+stays last, because a list of what the tool cannot see is the right note to
+end on.
 
 **Notice.** A refused or failed action, on its own page: a bordered panel
 with a red left edge, the reason in full, and a muted second line saying that
