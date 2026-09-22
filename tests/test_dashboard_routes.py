@@ -335,3 +335,42 @@ def test_refresh_insight_refuses_a_write_from_anywhere_else(client, conn):
     resp = client.post("/insights/refresh", headers={"Sec-Fetch-Site": "cross-site"})
     assert resp.status_code == 403
     assert conn.execute("SELECT COUNT(*) FROM insights").fetchone()[0] == 0
+
+
+# --- insight staleness ------------------------------------------------------
+
+def _insight(week_start):
+    import insights
+
+    return insights.Insight(summary="s", created_at="2026-09-21T10:00:00+00:00", model="claude-opus-5",
+                            week_start=week_start, fallback_reason=None, based_on_through="2026-09-19")
+
+
+def test_an_insight_is_stale_only_once_a_later_week_has_completed(settings):
+    """Per week, not per import: daily re-reads must not make every summary look old."""
+    tz = settings.tz
+    this_week = "2026-09-20T16:00:00+00:00"      # the week of Sun 20 Sep
+    assert dashboard_app.insight_is_stale(_insight(this_week), "2026-09-20", tz) is False
+    assert dashboard_app.insight_is_stale(_insight(this_week), "2026-09-27", tz) is True
+    assert dashboard_app.insight_is_stale(None, "2026-09-27", tz) is False
+
+
+def test_staleness_compares_local_weeks_not_raw_strings(settings):
+    """The instant is 16:00 UTC on the Sunday; the date is local. Same week, not stale."""
+    assert dashboard_app.insight_is_stale(_insight("2026-09-20T16:00:00+00:00"), "2026-09-20",
+                                          settings.tz) is False
+
+
+def test_overview_passes_the_staleness_flag(client, conn, clk, settings):
+    import insights
+
+    week = db.current_week(conn, clk, settings).week_start
+    with client.application.test_request_context():
+        pass
+    conn.execute("INSERT INTO insights (created_at, model, week_start, summary, payload, status) "
+                 "VALUES (?, 'claude-opus-5', ?, 'text', '{}', 'ok')",
+                 ("2026-09-14T10:00:00+00:00", "2026-09-06T16:00:00+00:00"))   # an older week
+    conn.commit()
+    assert insights.latest(conn, clk, settings) is not None
+    html = client.get("/").get_data(as_text=True)
+    assert html.count("<!doctype") == 1        # renders; the panel itself is the design session's

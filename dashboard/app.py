@@ -262,6 +262,27 @@ def flash_from(args) -> list[tuple[str, str]]:
     return [FLASH_TEXT[code] for code in args.getlist("msg") if code in FLASH_TEXT]
 
 
+def insight_is_stale(insight, last_complete_sunday: str, tz: str) -> bool:
+    """Does a completed week exist that is later than the one this summarises?
+
+    Staleness is per **week**, not per import. Cold Turkey, Qbserve and the
+    vault are re-read every morning over the last 8 days, so data newer than
+    any summary exists within a day of it being written; a data-based test
+    would be true six days in seven and mean nothing. A superseded *week* is
+    the thing worth telling the reader about.
+
+    Both sides are converted to a local measurement-week Sunday before they
+    are compared: `Insight.week_start` is a UTC instant and
+    `WeekChoice.last_complete_sunday` is a local date, and comparing those as
+    strings would agree by accident all week and disagree exactly on the
+    Sunday boundary this test exists for.
+    """
+    if insight is None or not insight.week_start:
+        return False
+    summarised = T.measurement_week_for_allowance_week(insight.week_start, tz).sunday
+    return summarised < T.parse_date(last_complete_sunday)
+
+
 def split_bars(splits: list[report.WeekSplit], current_week_start: str, tz: str) -> dict:
     """Geometry for the stacked wasteful/worthwhile bars. Scale only; no judgement."""
     height, bar_w, gap, top, label_h = 168, 44, 30, 26, 42
@@ -451,7 +472,8 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             flash=flash_from(request.args),
             # Appended, never reordered: the design pass reads this call's
             # argument order. `insight` is an insights.Insight or None.
-            insight=insights.latest(c, clk, settings),
+            insight=(latest_insight := insights.latest(c, clk, settings)),
+            insight_stale=insight_is_stale(latest_insight, week.last_complete_sunday, settings.tz),
         )
 
     def _label_filters(args) -> tuple[str | None, str | None]:
