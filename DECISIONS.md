@@ -1873,8 +1873,13 @@ No harm either time — the database was backed up, `integrity_check` and
 freshly migrated one. The exposure is what matters: a migration that was wrong,
 or a source module mid-edit, would have reached real data unattended.
 
-**Working rule while two sessions share a tree:** a migration is not left
-uncommitted across 09:30. Either commit it or move it aside. The same goes for a
+**The window is wider than 09:30.** launchd runs a *missed* calendar job at the
+next wake, so a tree left dirty overnight on a sleeping Mac is exposed at
+breakfast rather than at half past nine. "Not across 09:30" is therefore the
+wrong shape of rule.
+
+**Working rule while two sessions share a tree:** a migration is never left
+uncommitted when you stop working. Either commit it or move it aside. The same goes for a
 source module wired into `jobs.SYNC_STEPS` — adding the step is what arms it,
 so the step goes in last, after the module it calls is finished and tested.
 
