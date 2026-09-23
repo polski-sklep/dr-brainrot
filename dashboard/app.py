@@ -115,6 +115,7 @@ PROVENANCE_BADGES = {
     T.PROV_SCREENSHOT: ("parsed screenshot", "screenshot"),
     T.PROV_EXPORT: ("manual export", "export"),
     T.PROV_APP_TRACKER: ("app tracker", "apptracker"),
+    T.PROV_BROWSER_SYNC: ("phone sync", "browsersync"),
     T.PROV_VAULT: ("vault scan · count", "vault"),
     T.PROV_LABEL: ("your label", "label"),
 }
@@ -426,7 +427,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
     app.jinja_env.globals.update(
         GROUP_NAMES=GROUP_NAMES, KIND_NAMES=KIND_NAMES, IMPORT_KIND_NAMES=IMPORT_KIND_NAMES,
         PROVENANCE_BADGES=PROVENANCE_BADGES, PROVENANCE_TEXT=T.PROVENANCE_TEXT, BASIS_TEXT=BASIS_TEXT,
-        PROV_SCREENSHOT=T.PROV_SCREENSHOT, HTMX_URL=HTMX_URL, HTMX_SRI=HTMX_SRI,
+        PROV_SCREENSHOT=T.PROV_SCREENSHOT, PROV_BROWSER_SYNC=T.PROV_BROWSER_SYNC, HTMX_URL=HTMX_URL, HTMX_SRI=HTMX_SRI,
         UNKNOWN_CHANNEL_REASON=UNKNOWN_CHANNEL_REASON, WASTEFUL=T.WASTEFUL, WORTHWHILE=T.WORTHWHILE,
         TOOL=T.TOOL, TOOL_TEXT=TOOL_TEXT,
     )

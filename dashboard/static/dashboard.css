@@ -569,8 +569,12 @@ tr.covered:hover td { background: var(--surface-hover); }
 .prov-export { --dot: transparent; --dot-edge: #656B75; color: #555B66; font-weight: 500; }
 .prov-apptracker { --dot: #C3C8D0; --dot-edge: #8A9099; color: #656B75; font-weight: 450; }
 .prov-screenshot { --dot: transparent; --dot-edge: #AEB4BD; color: #656B75; font-style: italic; }
+/* Phone sync: the browser's own history, measured in total but apportioned.
+   Its dot is split down the middle, which is what the figure is. */
+.prov-browsersync { --dot: #C3C8D0; --dot-edge: #6E747E; color: #555B66; font-weight: 450; font-style: normal; }
 .prov-vault { --dot: #E1E4E8; --dot-edge: #C6CBD2; color: var(--text-muted); }
 .prov-label { --dot: #E1E4E8; --dot-edge: #C6CBD2; color: var(--text-muted); }
+.prov-unknown { --dot: transparent; --dot-edge: var(--border-strong); color: var(--text-muted); }
 
 /* ==========================================================================
    Chips, tier 2: state. Filled tint + border, so they always win the page.
@@ -592,6 +596,23 @@ tr.covered:hover td { background: var(--surface-hover); }
 .state-worthwhile { background: var(--lbl-worthwhile-bg); border-color: var(--lbl-worthwhile-bd); color: var(--lbl-worthwhile-fg); }
 .state-tool { background: var(--lbl-tool-bg); border-color: var(--lbl-tool-bd); color: var(--lbl-tool-fg); font-weight: 500; }
 .state-unlabelled { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
+
+/* Two caveats, two weights. "lower confidence" doubts the number; "split
+   estimated" doubts only how a measured number was divided, which is the
+   weaker claim and gets the quieter chip. */
+.estimated {
+  display: inline-block;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface-sunk);
+  border: 1px solid var(--border);
+  border-radius: var(--r-badge);
+  padding: 0 5px;
+  margin-left: 5px;
+  white-space: nowrap;
+  cursor: help;
+}
 
 /* A caution about the number itself, not about where it came from. */
 .lowconf {

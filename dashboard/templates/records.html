@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import badge, lowconf, label_chip, hint %}
+{% from "_macros.html" import badge, caveat, label_chip, hint %}
 {#- The chip carries the label, so the basis states only the reason. -#}
 {% set BASIS_SHORT = {"item_override": "item override", "source_label": "source label", "default_unlabelled": "unlabelled"} %}
 {% block title %}Records{% endblock %}
@@ -45,7 +45,7 @@
       <td class="cell-nowrap">{{ GROUP_NAMES.get(r.group, r.group) }}</td>
       <td class="cell-source"><span class="clamp" title="{{ r.source }}">{{ r.source }}</span><span class="sub clamp">{{ KIND_NAMES.get(r.source_kind, r.source_kind) }}</span></td>
       <td class="cell-item"><span class="clamp" title="{{ r.item or '' }}">{{ r.item or "" }}</span></td>
-      <td class="num cell-minutes">{% if r.minutes is none %}<span class="absent">unmeasured</span>{% else %}{{ r.minutes|min }}{{ lowconf(r.provenance) }}{% endif %}</td>
+      <td class="num cell-minutes">{% if r.minutes is none %}<span class="absent">unmeasured</span>{% else %}{{ r.minutes|min }}{{ caveat(r.provenance) }}{% endif %}</td>
       <td class="cell-status">{{ r.status }}{% if r.covered_elsewhere %}<span class="excluded sub clamp" title="excluded: already measured by {{ r.covered_elsewhere }}">excluded: already measured by {{ r.covered_elsewhere }}</span>{% endif %}</td>
       <td class="cell-nowrap">{{ label_chip(r.label) }} <span class="muted" title="{{ BASIS_TEXT.get(r.label_basis, r.label_basis) }}">{{ BASIS_SHORT.get(r.label_basis, r.label_basis) }}</span></td>
       <td>{{ badge(r.provenance) }}</td>
@@ -78,7 +78,7 @@ apply to these — they cover the week named in each section, or the whole diagn
     <tbody>
     {% for r in gated %}{% if r.wasteful_ungated_min %}
       <tr><th>{{ GROUP_NAMES.get(r.group, r.group) }}</th><td class="num">{{ r.wasteful_ungated_min|min }}</td>
-          <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
+          <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ caveat(PROV_SCREENSHOT) }}{% endif %}</td></tr>
     {% endif %}{% endfor %}
     </tbody>
     <tfoot>
@@ -116,7 +116,7 @@ apply to these — they cover the week named in each section, or the whole diagn
         <td class="num">
           {% if t.minutes is none %}<span class="absent">not received</span>
           {% elif t.minutes == 0 and t.unmeasured_items %}<span class="absent">nothing measured</span>
-          {% else %}{{ t.minutes|min }}{{ lowconf(t.provenance) }}{% endif %}
+          {% else %}{{ t.minutes|min }}{{ caveat(t.provenance) }}{% endif %}
         </td>
         <td class="num tool-min">{% if t.tool_min %}{{ t.tool_min|min }}{% else %}none{% endif %}</td>
         <td>
@@ -179,7 +179,7 @@ apply to these — they cover the week named in each section, or the whole diagn
   <table class="compact">
     <tbody>
       <tr><th>Spent (all wasteful content, pooled)</th><td class="num">{{ allowance.spent_wasteful_min|min }}</td></tr>
-      <tr><th>… of that, read from screenshots</th><td class="num">{{ allowance.spent_screenshot_ocr_min|min }}{% if allowance.spent_screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td></tr>
+      <tr><th>… of that, read from screenshots</th><td class="num">{{ allowance.spent_screenshot_ocr_min|min }}{% if allowance.spent_screenshot_ocr_min %}{{ caveat(PROV_SCREENSHOT) }}{% endif %}</td></tr>
       <tr><th>Remaining</th><td class="num">{{ allowance.remaining_min }} min</td></tr>
       <tr><th>Over the allowance so far</th><td class="num">{{ allowance.overage_min }} min</td></tr>
       <tr><th>{{ hint("Allowance", "The weekly pool of wasteful minutes you set for yourself. It never carries over.") }}</th><td class="num">{{ allowance.allowance_min }} min</td></tr>
@@ -219,7 +219,7 @@ apply to these — they cover the week named in each section, or the whole diagn
         <td class="num"><strong>{{ r.wasteful_ungated_min|min }}</strong></td>
         <td class="num">{{ r.ungated_min|min }}</td>
         <td class="num">{{ r.gated_min|min }}</td>
-        <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
+        <td>{% for p in r.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in r.provenances %}{{ caveat(PROV_SCREENSHOT) }}{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -241,7 +241,7 @@ apply to these — they cover the week named in each section, or the whole diagn
         <td class="num">{% if k.minutes_per_keeper is none %}<span class="absent">no keepers yet</span>{% else %}{{ k.minutes_per_keeper|min }} per keeper{% endif %}</td>
         <td class="num">{% if k.minutes is none %}<span class="absent">no minutes source</span>{% else %}{{ k.minutes|min }}{% endif %}</td>
         <td class="num">{{ k.keepers }}</td>
-        <td>{% for p in k.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in k.provenances %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td>
+        <td>{% for p in k.provenances %}{{ badge(p) }} {% endfor %}{% if PROV_SCREENSHOT in k.provenances %}{{ caveat(PROV_SCREENSHOT) }}{% endif %}</td>
         <td class="col-flex">{% if k.blind_spots %}<ul class="tight">{% for s in k.blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>{% endif %}</td>
       </tr>
     {% endfor %}

@@ -420,6 +420,18 @@ fill, an underline, and the active tab carried by weight as well as colour.
 The undecided count rides the tab as an amber badge, because an unlabelled
 source is the one state in the system that asks the user to act.
 
+**Caveats come in two weights, because there are two kinds of doubt.**
+A parsed screenshot may have *misread the number*, and says "lower
+confidence" in amber. A phone-sync figure's total is Screen Time's measured
+number and only its *division across sites* is inferred from the gap between
+visits — it says "split estimated" in a neutral chip. The weaker claim gets
+the quieter chip; using one word for both would have flattened a real
+distinction into a generic shrug.
+
+An unmapped provenance renders as `.prov-unknown` — a chip with an open dot —
+rather than as unstyled text, so a new provenance that nobody has given words
+to still looks like a provenance instead of like a bug.
+
 **Hints.** A jargon term — *reflex*, *gated*, *provenance*, *keeper*, *the
 lock* — carries its plain-English meaning in a `title`, marked by a dotted
 underline so the explanation is visibly available rather than a secret. Native

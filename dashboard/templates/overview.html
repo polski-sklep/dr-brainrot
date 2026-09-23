@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import badge, lowconf, hint %}
+{% from "_macros.html" import badge, caveat, hint %}
 {% block title %}Overview{% endblock %}
 {% block content %}
 
@@ -83,7 +83,7 @@
   <div class="table-wrap">
   <table class="compact">
     <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Undecided</th><th class="num">Worthwhile</th><th class="num th-wrap" title="A part of the wasteful and worthwhile minutes beside it, not a separate total">Of those, read from screenshots</th><th class="num th-wrap">Tool (not content, not in the bars)</th></tr></thead>
-    <tbody>{% for b in chart.bars %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num part-undecided">{{ b.split.unclassified_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ lowconf(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
+    <tbody>{% for b in chart.bars %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num part-undecided">{{ b.split.unclassified_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ caveat(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
   </table>
   </div>
   </div>
