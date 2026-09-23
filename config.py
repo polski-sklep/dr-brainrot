@@ -49,6 +49,9 @@ class Settings:
     ingest_token: str = ""
     coldturkey_db: pathlib.Path | None = None   # Cold Turkey's local browser statistics; None = manual export only
     qbserve_db: pathlib.Path | None = None      # Qbserve's database (desktop app time, DR5.3); None = not measured
+    #: The desktop browser's own history, which carries the phone's synced
+    #: visits (DR5.13). None = the phone browser stays one unattributed block.
+    brave_history_db: pathlib.Path | None = None
     go_live: str = ""              # local date DRBR measurement starts; earlier data is not counted
     #: Optional. Only the weekly insights summary uses it (DR5.8); empty means the
     #: Overview shows DRBR's own computed sentences instead. Never logged, never stored.
@@ -103,6 +106,7 @@ def load(env_path: pathlib.Path | None = None, **overrides) -> Settings:
         coldturkey_db=_path_or_none(get("DRBR_COLDTURKEY_DB")),
         anthropic_api_key=get("ANTHROPIC_API_KEY"),
         qbserve_db=_path_or_none(get("DRBR_QBSERVE_DB")),
+        brave_history_db=_path_or_none(get("DRBR_BRAVE_HISTORY_DB")),
     )
 
 
@@ -125,7 +129,8 @@ _KEYS = {
     "POP_TZ", "LOCK_HOURS", "LIFESPAN_CYCLES", "POP_DB_PATH",
     "YOUTUBE_API_KEY", "DRBR_VAULT_PATH", "DRBR_VAULT_INBOX", "DRBR_CAPTURE_OUTBOX",
     "DRBR_RAW_DIR", "DRBR_DIAGNOSTIC_WEEKS", "DRBR_DASHBOARD_PORT", "DRBR_INGEST_TOKEN",
-    "DRBR_GO_LIVE", "DRBR_COLDTURKEY_DB", "DRBR_QBSERVE_DB", "ANTHROPIC_API_KEY",
+    "DRBR_GO_LIVE", "DRBR_COLDTURKEY_DB", "DRBR_QBSERVE_DB", "DRBR_BRAVE_HISTORY_DB",
+    "ANTHROPIC_API_KEY",
 }
 
 

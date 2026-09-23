@@ -631,9 +631,9 @@ def test_run_sync_never_writes_a_summary(two_weeks, conn, clk, settings, monkeyp
 # Migration 0006
 # --------------------------------------------------------------------------
 
-def test_schema_version_is_six_and_the_table_exists(conn):
-    assert db.SCHEMA_VERSION == 6
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
+def test_schema_version_is_seven_and_the_insights_table_exists(conn):
+    assert db.SCHEMA_VERSION == 7
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "7"
     cols = {r[1]: r[2] for r in conn.execute("PRAGMA table_info(insights)")}
     assert set(cols) == {"id", "created_at", "model", "week_start", "summary", "payload",
                          "status", "error", "input_tokens", "output_tokens"}

@@ -71,9 +71,11 @@ PROV_PAGE = "page_extraction"            # YouTube history page data x Data API 
 PROV_SCREENSHOT = "screenshot_ocr"       # Screen Time via on-device Apple Vision OCR
 PROV_EXPORT = "manual_export"            # Cold Turkey statistics (local database read or JSON export)
 PROV_APP_TRACKER = "app_tracker"         # Qbserve's per-app time on this Mac (DR5.3)
+PROV_BROWSER_SYNC = "browser_sync"        # the phone browser's own synced history, minutes apportioned (DR5.13)
 PROV_VAULT = "vault_scan"                # Obsidian capture-ID scan (counts, never minutes)
 PROV_LABEL = "user_label"                # explicit user labels
-PROVENANCES = (PROV_API, PROV_PAGE, PROV_SCREENSHOT, PROV_EXPORT, PROV_APP_TRACKER, PROV_VAULT, PROV_LABEL)
+PROVENANCES = (PROV_API, PROV_PAGE, PROV_SCREENSHOT, PROV_EXPORT, PROV_APP_TRACKER,
+               PROV_BROWSER_SYNC, PROV_VAULT, PROV_LABEL)
 
 PROVENANCE_TEXT = {
     PROV_API: "API (Spotify resume position)",
@@ -91,7 +93,7 @@ DEVICE_ACCOUNT = "account"   # account-level: YouTube history spans every device
 
 MEASUREMENT_STATUSES = ("ok", "progress_missing", "duration_missing", "unreadable")
 
-IMPORT_KINDS = ("youtube_history", "screentime", "coldturkey", "vault_scan", "qbserve")
+IMPORT_KINDS = ("youtube_history", "screentime", "coldturkey", "vault_scan", "qbserve", "brave_sync")
 IMPORT_OK, IMPORT_PARTIAL, IMPORT_FAILED = "ok", "partial", "failed"
 
 # --- double counting --------------------------------------------------------
@@ -106,6 +108,10 @@ COVERED_ELSEWHERE: dict[tuple[str, str], str] = {
     (KIND_IPHONE_APP, "spotify"): "Spotify polling (podcasts only; music is out of scope)",
     (KIND_WEB_DOMAIN, "open.spotify.com"): "Spotify polling (podcasts only; music is out of scope)",
     (KIND_DESKTOP_APP, "com.spotify.client"): "Spotify polling (podcasts only; music is out of scope)",
+    # The phone browser is measured by the sites inside it, not as one block
+    # (DR5.13). Like the entries above, the minutes stay visible in the
+    # "covered elsewhere" column, so an exclusion can never hide them.
+    (KIND_IPHONE_APP, "brave"): "phone browser history (per site)",
 }
 
 
@@ -120,7 +126,9 @@ def report_group(kind: str, device: str | None = None) -> str:
     if kind == KIND_IPHONE_APP:
         return GROUP_IPHONE
     if kind == KIND_WEB_DOMAIN:
-        return GROUP_DESKTOP
+        # A hostname read from the phone's own browser history is phone time,
+        # and belongs where the block it replaces was (DR5.13).
+        return GROUP_IPHONE if device == DEVICE_IPHONE else GROUP_DESKTOP
     if kind == KIND_DESKTOP_APP:
         return GROUP_DESKTOP_APPS
     raise ValueError(f"unknown source kind {kind!r}")

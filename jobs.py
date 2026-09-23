@@ -46,7 +46,7 @@ import handlers_labels
 import insights
 from clock import Clock
 from config import Settings
-from sources import coldturkey_local, qbserve, vault
+from sources import brave_history, coldturkey_local, qbserve, vault
 from triage import SyncBot, send
 
 log = logging.getLogger("drbr.jobs")
@@ -74,7 +74,7 @@ class StepResult:
 #: The data-fetching steps, in dependency order: captures are read before the
 #: scan that decides their outcome, and this Mac's own sources before anything
 #: that asks the user for a week they might already cover.
-SYNC_STEPS = ("read_outbox", "vault_scan", "coldturkey_local", "qbserve")
+SYNC_STEPS = ("read_outbox", "vault_scan", "coldturkey_local", "qbserve", "phone_browser")
 
 
 def _run_step(conn, name: str, fn: Callable[[], object]) -> StepResult:
@@ -106,6 +106,7 @@ def run_sync(conn, clk: Clock, settings: Settings, bot=None) -> dict[str, StepRe
         "vault_scan": _run_step(conn, "vault_scan", lambda: _scan(conn, clk, settings)),
         "coldturkey_local": _run_step(conn, "coldturkey_local", lambda: _coldturkey(conn, clk, settings)),
         "qbserve": _run_step(conn, "qbserve", lambda: _qbserve(conn, clk, settings, bot)),
+        "phone_browser": _run_step(conn, "phone_browser", lambda: _phone_browser(conn, clk, settings)),
     }
 
 
@@ -142,6 +143,20 @@ def _insights(conn, clk: Clock, settings: Settings) -> str:
     if insight.model is None:
         return f"week {insight.week_start}: DRBR's own sentences — {insight.fallback_reason}"
     return f"week {insight.week_start}: written by {insight.model}"
+
+
+def _phone_browser(conn, clk: Clock, settings: Settings) -> str:
+    """Attribute the phone browser's block to the sites inside it (DR5.13).
+
+    Runs after the Screen Time import it depends on, and is a no-op until both
+    a browser block and a configured history database exist.
+    """
+    outcome = brave_history.sync(conn, clk, settings)
+    if outcome is None:
+        return "no phone browser figures to attribute"
+    for warning in outcome.warnings:
+        log.warning("phone browser: %s", warning)
+    return f"import {outcome.import_id} {outcome.status}: {outcome.measurements_written} site figure(s)"
 
 
 def _outbox(conn, clk: Clock, settings: Settings) -> str:

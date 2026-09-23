@@ -788,6 +788,36 @@ TOOL_SCOPE_LINE = ("Content only; sources you mark as tool (shopping, email, uti
                    "excluded and shown separately.")
 
 
+def _unattributed_phone_browsing(conn: sqlite3.Connection) -> list[str]:
+    """Phone-browser blocks whose minutes are excluded but never attributed (DR5.13).
+
+    The browser is excluded from the week because the sites inside it are
+    measured instead. When no synced history covers that period, nothing takes
+    its place, and those minutes would leave the week without a word. They are
+    still shown in the "covered elsewhere" column; this says why they are not
+    anywhere else.
+    """
+    rows = conn.execute(
+        """
+        SELECT b.period_start AS period_start, b.period_end AS period_end, b.minutes AS minutes
+          FROM measurements b JOIN sources s ON s.id = b.source_id
+         WHERE s.kind = ? AND s.source_key = ? AND b.status = 'ok' AND b.minutes IS NOT NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM measurements m
+                WHERE m.provenance = ? AND m.period_start = b.period_start
+                  AND m.period_end = b.period_end)
+         ORDER BY b.period_start
+        """,
+        (T.KIND_IPHONE_APP, "brave", T.PROV_BROWSER_SYNC),
+    ).fetchall()
+    return [
+        f"The phone browser's {round(float(r['minutes'])):,} min for {r['period_start']} to "
+        f"{r['period_end']} are not attributed to any site: no synced browser history covers that "
+        "week, so they are excluded from the week's totals rather than counted blind."
+        for r in rows
+    ]
+
+
 def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[str]:
     """What this diagnostic cannot see, stated rather than silently absorbed."""
     out = [
@@ -800,6 +830,8 @@ def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> lis
         "elsewhere; Spotify music is not measured at all.",
         "Vault captures are counts, never minutes: reading time is not measured.",
     ]
+
+    out.extend(_unattributed_phone_browsing(conn))
 
     missing = conn.execute(
         "SELECT m.status AS status, COUNT(*) AS n FROM measurements m JOIN sources s ON s.id = m.source_id "

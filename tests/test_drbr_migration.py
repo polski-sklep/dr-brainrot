@@ -92,7 +92,7 @@ def test_upgrade_sets_version_and_creates_drbr_tables(v1):
     db.init_db(v1)
     db.migrate(v1)
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
-    assert db.SCHEMA_VERSION == 6
+    assert db.SCHEMA_VERSION == 7
     assert "overage_min" in [r[1] for r in v1.execute("PRAGMA table_info(weeks)")]
     names = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"sources", "item_labels", "imports", "measurements", "category_measurements",

@@ -1789,3 +1789,62 @@ Overview does (DR5.7).
 Sequencing matters and was agreed with the UI session: the context lands first,
 the sections are added to Records and removed from the Overview in one commit
 after. There is never a window in which a figure exists nowhere.
+
+### DR5.13 — The phone browser is measured by the sites inside it
+
+**23 September 2026.** Screen Time reports a phone browser as one opaque block.
+Brave was 163 minutes in the week of 13 September — the single largest source
+that week, larger than YouTube, X and every desktop site — and nothing could say
+whether it was Reddit or a bank. Counting it as brain rot asserted something
+nobody knew; excluding it would have hidden the biggest thing on the page.
+
+Brave Sync carries the phone's visits to this Mac, where they can be read
+locally. Jacob enabled History sync on both devices on 23 September and the
+first four visits arrived within minutes, carrying a non-empty
+`visits.originator_cache_guid` — the originating device — so a phone visit is
+cleanly separable from one made here. That also settles a documentation
+contradiction: Brave's Sync v2 wiki lists history as an iOS type and its 2021
+iOS announcement says bookmarks only. The wiki is right.
+
+**Synced visits carry no duration.** Every arriving row has
+`visit_duration = 0`: sync says *that* a page was opened, never for how long.
+So the minutes still come from Screen Time, and the sites come from history.
+
+**The minutes are apportioned by dwell, and that is an estimate.** Each visit is
+credited with the gap to the next, capped at `IDLE_CAP_MIN` (10 minutes) so a
+phone left unlocked on a page cannot swallow a week; the last visit takes the
+median of the others rather than the cap, which would make whatever was opened
+last the largest thing in the week. The shares are then scaled so they sum to
+Screen Time's figure exactly: **the total is measured, only its division is
+estimated.** `browser_sync` exists as its own provenance so the page can say
+which of the two a number is, rather than passing an estimate off as a reading.
+
+Jacob chose this over composition-without-minutes. The alternative was strictly
+more honest and practically useless: minutes are the currency of every other
+surface, so an unattributed block can never be labelled, never charged, and
+never compared.
+
+**Double counting is prevented by the mechanism already there.**
+`(iphone_app, "brave")` joins `COVERED_ELSEWHERE`, exactly as the iPhone YouTube
+app does. Its minutes stay visible in the "covered elsewhere" column, so an
+exclusion still cannot hide them, and `report.blind_spots` names any period
+whose block was excluded while no synced history covered it — the one case
+where minutes would otherwise leave the week without a word.
+
+**Privacy.** The `urls` table holds full URLs with paths and query strings.
+Every row is reduced to its hostname in memory while reading, exactly as Cold
+Turkey is (DR5.1); nothing finer reaches the database, the stored evidence, a
+log or an exception message, and a test seeds distinctive paths and asserts
+none survives. Brave's own file is copied before reading and never written to.
+The cost, stated to Jacob before he enabled it: history now leaves the phone,
+end-to-end encrypted, through Brave's servers. It is the first thing in this
+system that leaves the device at all. Everything after that stays local.
+
+**Mechanics:** migration `0007_phone_browser.sql` (schema_version 7) widens
+`measurements.provenance` with `browser_sync` and `imports.kind` with
+`brave_sync`. `sources/brave_history.py` holds the read, the dwell weighting,
+the apportionment and the import. `report_group(web_domain, iphone)` is the
+phone group, not desktop web, so the sites land where the block they replace
+was. `jobs.run_sync` gains a `phone_browser` step, configured by
+`DRBR_BRAVE_HISTORY_DB`; unset, the phone browser stays one block and nothing
+changes.

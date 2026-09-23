@@ -186,7 +186,11 @@ def test_x_surfaces_share_one_seeded_wasteful_source(conn, clk):
 def test_covered_elsewhere(conn, clk):
     yt = labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, "YouTube")
     assert labels.is_covered_elsewhere(yt)
-    assert labels.is_covered_elsewhere(labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, "Brave")) is None
+    # Brave is covered too since DR5.13 (the sites inside it are measured
+    # instead), so the counterexample is an app nothing else sees.
+    assert labels.is_covered_elsewhere(labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, "Brave"))
+    assert labels.is_covered_elsewhere(
+        labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, "Instagram")) is None
 
 
 @pytest.mark.parametrize("text,expected", [
