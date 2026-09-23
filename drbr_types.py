@@ -83,6 +83,7 @@ PROVENANCE_TEXT = {
     PROV_SCREENSHOT: "Parsed screenshot (OCR) — lower confidence",
     PROV_EXPORT: "Cold Turkey statistics (this Mac)",
     PROV_APP_TRACKER: "App tracker (Qbserve, this Mac)",
+    PROV_BROWSER_SYNC: "Phone browser sync (total measured, split across sites estimated)",
     PROV_VAULT: "Vault scan (count, not minutes)",
     PROV_LABEL: "Your label",
 }

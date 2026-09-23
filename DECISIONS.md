@@ -1848,3 +1848,36 @@ phone group, not desktop web, so the sites land where the block they replace
 was. `jobs.run_sync` gains a `phone_browser` step, configured by
 `DRBR_BRAVE_HISTORY_DB`; unset, the phone browser stays one block and nothing
 changes.
+
+### DR5.14 — The scheduled job applies whatever is in the working tree
+
+**23 September 2026.** Twice now a migration reached the live database before it
+was committed, and both times it was blamed on a dashboard restart. The second
+time that was wrong, and finding out why matters more than the attribution.
+
+`migrations/0007_phone_browser.sql` appeared at 09:24:46. The launchd job
+`com.jacob.drbr.jobs` runs at 09:30 daily, and `logs/jobs.log` has it starting
+at 09:30:04 — four minutes later. `jobs.py` calls `db.migrate` at start, so that
+run applied 0007. The log line proves it was running uncommitted code, not just
+an uncommitted schema: `phone_browser: no phone browser figures to attribute`, a
+step that existed only in the working tree at that moment.
+
+So the vector is not a restart at all. **A scheduled job runs the working tree,
+whatever state it is in, and nobody triggers it.** A pre-restart check cannot
+catch it because there is no restart to hang the check on. Between 09:30 and the
+commit, the live database was migrated by half-finished work and the daily
+import ran through a source module that had no tests yet.
+
+No harm either time — the database was backed up, `integrity_check` and
+`foreign_key_check` came back clean, and the live schema was byte-identical to a
+freshly migrated one. The exposure is what matters: a migration that was wrong,
+or a source module mid-edit, would have reached real data unattended.
+
+**Working rule while two sessions share a tree:** a migration is not left
+uncommitted across 09:30. Either commit it or move it aside. The same goes for a
+source module wired into `jobs.SYNC_STEPS` — adding the step is what arms it,
+so the step goes in last, after the module it calls is finished and tested.
+
+Recorded rather than fixed. Making the job run committed code only — a separate
+checkout, or refusing to migrate from a dirty tree — is a real change to how
+this is deployed, and worth doing deliberately rather than in passing.

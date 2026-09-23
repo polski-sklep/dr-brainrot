@@ -312,3 +312,11 @@ def test_an_unattributed_block_is_named_in_blind_spots(conn, clk, settings, tmp_
     ])
     brave_history.sync(conn, clk, _configured(settings, db))
     assert not any("not attributed" in s for s in report.blind_spots(conn, clk, settings))
+
+
+def test_the_new_provenance_is_described_rather_than_shown_as_a_slug():
+    """Every provenance the page can render needs words, or the badge shows the slug."""
+    assert T.PROV_BROWSER_SYNC in T.PROVENANCES
+    assert set(T.PROVENANCE_TEXT) == set(T.PROVENANCES)
+    text = T.PROVENANCE_TEXT[T.PROV_BROWSER_SYNC]
+    assert "measured" in text and "estimated" in text     # names which half is which
