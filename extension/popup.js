@@ -54,17 +54,38 @@ function diagnosticsLines(d) {
   return lines;
 }
 
+//: A run is only believed to be running while it keeps saying so. A sync that
+//: dies mid-scroll — the tab is switched away, the browser quits, the machine
+//: sleeps — leaves `status: "running"` in storage for ever, and without this
+//: the popup reports "Sync running…" and DISABLES the sync button, so the one
+//: thing that would recover it cannot be pressed. That is how a failed run on
+//: 22 Sep silently blocked every sync for a week.
+const STALE_RUN_MS = 15 * 60 * 1000;
+
+function isStalled(run) {
+  if (!run || run.status !== "running") return false;
+  const beat = Date.parse(run.updatedAt || run.startedAt || "");
+  return !Number.isFinite(beat) || Date.now() - beat > STALE_RUN_MS;
+}
+
 function render(run) {
   const panel = $("status");
   panel.replaceChildren();
   panel.className = "panel";
-  $("sync").disabled = Boolean(run && run.status === "running");
+  const stalled = isStalled(run);
+  $("sync").disabled = Boolean(run && run.status === "running" && !stalled);
   if (!run) {
     panel.appendChild(el("span", "No sync run yet.", "muted"));
     return;
   }
   const o = run.outcome;
-  if (run.status === "running") {
+  if (stalled) {
+    panel.classList.add("failed");
+    panel.appendChild(el("div", "SYNC INTERRUPTED — nothing was measured", "title"));
+    panel.appendChild(el("div", `It stopped at "${run.message || run.phase}" and never finished. `
+      + "The history tab has to stay visible for the whole run. Nothing was lost: the backend "
+      + "remembers where the last completed sync got to, so running again picks up from there."));
+  } else if (run.status === "running") {
     panel.appendChild(el("div", "Sync running…", "title"));
     panel.appendChild(el("div", run.message || run.phase));
   } else if (run.status === "failed") {
@@ -106,8 +127,14 @@ function render(run) {
     if (run.status === "failed") details.open = true;
     panel.appendChild(details);
   }
-  const when = run.finishedAt || run.updatedAt;
-  if (when) panel.appendChild(el("div", `Last update: ${new Date(when).toLocaleString()}`, "muted"));
+  // Distinguish a finish from a last breath: labelling an abandoned run's last
+  // heartbeat "Last update" is what made a week-old failure look like a success.
+  if (run.finishedAt) {
+    panel.appendChild(el("div", `Last completed: ${new Date(run.finishedAt).toLocaleString()}`, "muted"));
+  } else if (run.updatedAt) {
+    panel.appendChild(el("div", `Last activity: ${new Date(run.updatedAt).toLocaleString()} `
+      + "(this run did not complete)", "muted"));
+  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {

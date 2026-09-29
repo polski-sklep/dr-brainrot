@@ -1918,3 +1918,46 @@ The `m.youtube.com` row remains in `sources` with no measurements and no
 captures, reachable from nothing and absent from the label queue. It is left
 there: deleting rows from a live database to tidy an identity table is a worse
 habit than an inert row.
+
+### DR5.16 — A dead sync must not disable the button that restarts it
+
+**29 September 2026.** YouTube history for the week of 20–26 September was the
+only gap on the page. Jacob opened the extension, saw *"Sync running… Scrolling
+history back to the last sync"*, and asked whether it was working. It was not,
+and had not been for a week.
+
+The server log told the story. On 16 and 20 September the extension fetched the
+cursor and posted history. On **22 September it fetched the cursor at 11:57:13
+and never posted anything**. Nothing at all since — including while the popup
+said a sync was running.
+
+`background.js` writes `status: "running"` to `chrome.storage.local` before it
+starts, and only a completion or a caught failure ever changes it. A run that
+simply stops — the tab switched away, the browser quit, the machine asleep —
+leaves that record in place for ever. `popup.js` then rendered it on open:
+"Sync running…", with `$("sync").disabled = run.status === "running"`. **The
+stale record disabled the only control that could have recovered it.** A single
+interrupted run locked the extension out of syncing for seven days, while
+displaying a message that said the opposite.
+
+It also read *"Last update: 22/09/2026, 11:57:13"* — `finishedAt || updatedAt`,
+so an abandoned run's last heartbeat was presented as an update. That is why the
+failure went unnoticed rather than being obvious the next morning.
+
+So the popup now treats a "running" record with no heartbeat for fifteen minutes
+as **interrupted**: it says so in the failed styling, says the tab has to stay
+visible, says nothing was lost, and re-enables the button. A finish is labelled
+"Last completed"; an abandoned run is labelled "Last activity (this run did not
+complete)".
+
+**Nothing was lost, and that is by design rather than luck.** The watermark is
+the backend's — `GET /api/youtube/cursor` reads it from imported data — so it
+only advances when history actually arrives. It still read `2026-09-20`
+throughout, so the next successful run covers the whole gap. Had the extension
+kept its own cursor, the failed run would have skipped 20–22 September
+permanently.
+
+The general shape, worth carrying: **state that gates recovery must not be
+written by the thing that can die.** A status owned by the process is fine for
+display; using it to disable the restart turns one transient failure into a
+permanent one.
