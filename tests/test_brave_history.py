@@ -364,3 +364,18 @@ def test_the_mobile_front_door_is_the_same_site(conn, clk, settings, tmp_path):
     # The YouTube half is excluded as covered by account-level history, not
     # counted a second time here.
     assert pooled.by_group[T.GROUP_IPHONE].covered_excluded_min > 0
+
+
+def test_phone_sites_name_their_import_rather_than_claiming_to_be_polled(
+        conn, clk, settings, tmp_path):
+    """Without the mapping the row reads "polled via API", which it is not."""
+    assert report.IMPORT_KIND_FOR_PROVENANCE[T.PROV_BROWSER_SYNC] == "brave_sync"
+    _browser_block(conn, clk, settings, minutes=40.0)
+    db = history_db(tmp_path / "History", [
+        ("https://a.example/1", at("2026-09-15", 9, 0), PHONE),
+        ("https://a.example/2", at("2026-09-15", 9, 5), PHONE),
+    ])
+    out = brave_history.sync(conn, clk, _configured(settings, db))
+    row = next(t for t in report.weekly_totals(conn, clk, settings, WEEK)
+               if t.provenance == T.PROV_BROWSER_SYNC)
+    assert row.import_status is not None and row.import_id == out.import_id

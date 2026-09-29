@@ -59,6 +59,7 @@ IMPORT_KIND_FOR_PROVENANCE = {
     T.PROV_SCREENSHOT: "screentime",
     T.PROV_EXPORT: "coldturkey",
     T.PROV_APP_TRACKER: "qbserve",
+    T.PROV_BROWSER_SYNC: "brave_sync",
 }
 
 #: The rows a week *should* have from weekly evidence, so an absent import
