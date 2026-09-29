@@ -320,3 +320,47 @@ def test_the_new_provenance_is_described_rather_than_shown_as_a_slug():
     assert set(T.PROVENANCE_TEXT) == set(T.PROVENANCES)
     text = T.PROVENANCE_TEXT[T.PROV_BROWSER_SYNC]
     assert "measured" in text and "estimated" in text     # names which half is which
+
+
+def test_a_rerun_replaces_the_period_rather_than_accumulating(conn, clk, settings, tmp_path):
+    """A site that stops appearing, or folds to a different key, must not linger."""
+    _browser_block(conn, clk, settings, minutes=100.0)
+    first = history_db(tmp_path / "H1", [
+        ("https://gone.example/a", at("2026-09-15", 9, 0), PHONE),
+        ("https://gone.example/b", at("2026-09-15", 9, 5), PHONE),
+    ])
+    brave_history.sync(conn, clk, _configured(settings, first))
+    assert {r[0] for r in conn.execute(
+        "SELECT s.source_key FROM measurements m JOIN sources s ON s.id = m.source_id "
+        "WHERE m.provenance = ?", (T.PROV_BROWSER_SYNC,))} == {"gone.example"}
+
+    second = history_db(tmp_path / "H2", [
+        ("https://stayed.example/a", at("2026-09-16", 9, 0), PHONE),
+        ("https://stayed.example/b", at("2026-09-16", 9, 5), PHONE),
+    ])
+    brave_history.sync(conn, clk, _configured(settings, second))
+    rows = conn.execute(
+        "SELECT s.source_key, m.minutes FROM measurements m JOIN sources s ON s.id = m.source_id "
+        "WHERE m.provenance = ?", (T.PROV_BROWSER_SYNC,)).fetchall()
+    assert {r["source_key"] for r in rows} == {"stayed.example"}       # not both
+    assert sum(r["minutes"] for r in rows) == pytest.approx(100.0)
+
+
+def test_the_mobile_front_door_is_the_same_site(conn, clk, settings, tmp_path):
+    """m.youtube.com is YouTube, so it inherits YouTube's covered-elsewhere rule."""
+    assert labels.normalise_key(T.KIND_WEB_DOMAIN, "m.youtube.com") == (T.KIND_WEB_DOMAIN, "youtube.com")
+    assert labels.normalise_key(T.KIND_WEB_DOMAIN, "m.reddit.com") == (T.KIND_WEB_DOMAIN, "reddit.com")
+    # Only the exact prefix: a site that merely starts with m is left alone.
+    assert labels.normalise_key(T.KIND_WEB_DOMAIN, "maps.google.com") == (T.KIND_WEB_DOMAIN, "maps.google.com")
+
+    _browser_block(conn, clk, settings, minutes=60.0)
+    db = history_db(tmp_path / "History", [
+        ("https://m.youtube.com/watch", at("2026-09-15", 9, 0), PHONE),
+        ("https://news.example/a", at("2026-09-15", 9, 5), PHONE),
+    ])
+    brave_history.sync(conn, clk, _configured(settings, db))
+    import allowance
+    pooled = allowance.pooled_minutes(conn, settings, WEEK)
+    # The YouTube half is excluded as covered by account-level history, not
+    # counted a second time here.
+    assert pooled.by_group[T.GROUP_IPHONE].covered_excluded_min > 0

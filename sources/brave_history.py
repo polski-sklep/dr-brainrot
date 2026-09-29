@@ -223,10 +223,11 @@ def window(clk: Clock, settings: Settings, lookback_days: int = 35) -> tuple[dat
 def sync(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> evidence.Outcome | None:
     """Attribute each phone-browser block to the sites inside it. None when there are none.
 
-    One import per run, covering every Screen Time period in the window. A
-    period with a block but no synced visits is recorded as a warning rather
-    than silently dropped: its minutes are excluded as covered here, so the
-    gap has to be visible (`report.blind_spots` says so).
+    One import per run, covering every Screen Time period in the window, and
+    authoritative for each: a period's previous site figures are cleared before
+    its new ones are written. A period with a block but no synced visits is
+    recorded as a warning rather than silently dropped: its minutes are excluded
+    as covered here, so the gap has to be visible (`report.blind_spots` says so).
     """
     db_path = getattr(settings, "brave_history_db", None)
     if db_path is None:
@@ -248,6 +249,16 @@ def sync(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> evidence.O
             span_end = T.parse_date(block["period_end"])
             inside = [v for v in visits if span_start <= v[0] <= span_end]
             shares = apportion(dwell_weights(inside), float(block["minutes"]))
+            # This import is authoritative for its period: clear what a previous
+            # run wrote before writing again. Replacing on the natural key is not
+            # enough, because the key can change — a site that stops appearing in
+            # history, or one whose hostname now folds differently (`m.youtube.com`
+            # to `youtube.com`), would otherwise linger for ever beside its
+            # replacement and be counted twice.
+            conn.execute(
+                "DELETE FROM measurements WHERE provenance = ? AND period_start = ? "
+                "AND period_end = ?",
+                (T.PROV_BROWSER_SYNC, block["period_start"], block["period_end"]))
             if not shares:
                 rec.warnings.append(
                     f"no synced visits for {block['period_start']}..{block['period_end']}, so "

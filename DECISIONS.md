@@ -1886,3 +1886,35 @@ so the step goes in last, after the module it calls is finished and tested.
 Recorded rather than fixed. Making the job run committed code only — a separate
 checkout, or refusing to migrate from a dirty tree — is a real change to how
 this is deployed, and worth doing deliberately rather than in passing.
+
+### DR5.15 — `m.` is the same site, and an import owns its period
+
+**29 September 2026.** The first week with both a Screen Time block and synced
+phone history attributed 164 minutes across 17 sites, and immediately showed two
+defects that only phone data could reveal.
+
+**`m.youtube.com` was a source of its own.** `normalise_key` folded `www.` but
+not `m.`, and desktop evidence never carries a mobile front door, so it had
+never mattered. It matters now: phone YouTube arrived as `m.youtube.com`, which
+is not the `youtube.com` key in `COVERED_ELSEWHERE`, so 24 minutes of YouTube
+watched in the phone browser were counted here *and* in account-level YouTube
+history. `m.reddit.com` would likewise have carried a label separate from
+`reddit.com`. Both front doors now fold to the site, and only the exact prefix:
+`maps.google.com` and `media.example.com` are untouched.
+
+**An import that replaces on the natural key cannot replace a key that
+changed.** Re-running after the fold wrote `youtube.com` and left the old
+`m.youtube.com` row beside it — two rows, one period, both counted. The same
+hole existed for any site that simply stopped appearing in history: its figure
+would have persisted for ever. So `brave_history.sync` is now authoritative for
+each period and clears that period's own figures before writing them again.
+
+Both are the same shape of bug: a source's *identity* changing under a fact that
+was keyed on it. Worth remembering the next time a normalisation rule is
+widened — the rule change is the easy half, and the facts already written under
+the old key are the half that bites.
+
+The `m.youtube.com` row remains in `sources` with no measurements and no
+captures, reachable from nothing and absent from the label queue. It is left
+there: deleting rows from a live database to tidy an identity table is a worse
+habit than an inert row.

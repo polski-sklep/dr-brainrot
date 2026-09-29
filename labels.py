@@ -68,6 +68,7 @@ def normalise_key(kind: str, raw: str) -> tuple[str, str]:
     X is folded into one source whichever surface reports it (iPhone app 'X',
     desktop 'x.com'/'twitter.com', a Mac X client's bundle id), because the
     brief labels X once. A desktop app's key is its bundle id, casefolded.
+    A web domain drops `www.` and `m.`: one site, not three.
     """
     if kind not in T.SOURCE_KINDS:
         raise LabelError(f"unknown source kind {kind!r}")
@@ -82,8 +83,16 @@ def normalise_key(kind: str, raw: str) -> tuple[str, str]:
     if kind == T.KIND_WEB_DOMAIN:
         key = value.casefold()
         key = re.sub(r"^[a-z]+://", "", key).split("/")[0]
-        if key.startswith("www."):
-            key = key[4:]
+        # `www.` and the mobile `m.` are the same site under a different front
+        # door. Folding `m.` matters more since DR5.13: phone browsing arrives
+        # as `m.youtube.com`, which without this is a source of its own — so it
+        # escapes the YouTube covered-elsewhere exclusion and is counted twice,
+        # once here and once in account-level YouTube history, and `m.reddit.com`
+        # carries a separate label from `reddit.com`.
+        for front in ("www.", "m."):
+            if key.startswith(front):
+                key = key[len(front):]
+                break
         if key in _X_DOMAINS:
             return T.KIND_X, "x"
         return kind, key
