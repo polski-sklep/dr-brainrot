@@ -545,7 +545,6 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             # Appended, never reordered: the design pass reads this call's
             # argument order. `insight` is an insights.Insight or None.
             insight=(latest_insight := insights.latest(c, clk, settings)),
-            insight_stale=insight_is_stale(latest_insight, week.last_complete_sunday, settings.tz),
             insight_stale_reason=insight_staleness(c, latest_insight, week.last_complete_sunday,
                                                    settings.tz),
         )
