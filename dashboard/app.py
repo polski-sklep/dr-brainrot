@@ -268,6 +268,54 @@ def flash_from(args) -> list[tuple[str, str]]:
     return [FLASH_TEXT[code] for code in args.getlist("msg") if code in FLASH_TEXT]
 
 
+#: Why a stored summary no longer describes the figures beside it (DR5.18).
+STALE_NEWER_WEEK = "newer_week"
+STALE_RELABELLED = "relabelled"
+
+
+def insight_staleness(conn: sqlite3.Connection, insight, last_complete_sunday: str,
+                      tz: str) -> str | None:
+    """None when the summary still describes the page; otherwise why it doesn't.
+
+    Two reasons, and they want different sentences, so they are returned
+    rather than folded into one boolean:
+
+    * `newer_week` — a later week has finished (`insight_is_stale`).
+    * `relabelled` — a label that feeds the summarised figures changed after
+      the paragraph was written. Labelling is the thing Jacob does most, and
+      it moves every figure: forty-three sources bulk-labelled tool three
+      hours after a summary was written left it saying "181 to 131" beside a
+      panel saying "177 to 119", both claiming like for like, with no data
+      having arrived. Staleness per week never sees that.
+
+    Only labels that could have changed the summarised figures count: a source
+    with a measurement on or before the last summarised day, any podcast show
+    (its minutes come from listening, not measurements), and any per-item
+    override. Labelling a source first seen this week does not stale a
+    summary about last week. Regenerating is still a person's choice — an API
+    call per labelling session would be wrong — so this only says so.
+    """
+    if insight is None or not insight.based_on_through:
+        return None
+    if insight_is_stale(insight, last_complete_sunday, tz):
+        return STALE_NEWER_WEEK
+    written, through = insight.created_at, insight.based_on_through
+    relabelled = conn.execute(
+        """
+        SELECT 1 FROM sources s
+         WHERE s.labelled_at IS NOT NULL AND s.labelled_at > ?
+           AND (s.kind = ?
+                OR EXISTS (SELECT 1 FROM measurements m
+                            WHERE m.source_id = s.id AND m.period_start <= ?))
+        UNION ALL
+        SELECT 1 FROM item_labels WHERE set_at > ?
+        LIMIT 1
+        """,
+        (written, T.KIND_PODCAST_SHOW, through, written),
+    ).fetchone()
+    return STALE_RELABELLED if relabelled else None
+
+
 def insight_is_stale(insight, last_complete_sunday: str, tz: str) -> bool:
     """Does a completed week exist that is later than the one this summarises?
 
@@ -498,6 +546,8 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             # argument order. `insight` is an insights.Insight or None.
             insight=(latest_insight := insights.latest(c, clk, settings)),
             insight_stale=insight_is_stale(latest_insight, week.last_complete_sunday, settings.tz),
+            insight_stale_reason=insight_staleness(c, latest_insight, week.last_complete_sunday,
+                                                   settings.tz),
         )
 
     def _label_filters(args) -> tuple[str | None, str | None]:

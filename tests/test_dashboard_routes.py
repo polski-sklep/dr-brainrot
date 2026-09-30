@@ -442,3 +442,65 @@ def test_bars_are_empty_rather_than_infinite_when_a_week_has_nothing():
     chart = dashboard_app.split_bars([_split()], "2026-09-13T16:00:00+00:00", "Europe/Warsaw")
     assert chart["empty"] is True
     assert chart["bars"][0]["undec_h"] == 0.0
+
+
+# --- staleness by relabelling (DR5.18) ----------------------------------------
+# A summary written 2026-09-21T10:00Z describing the week ending 2026-09-19.
+
+def _relabel_at(conn, clk, kind, key, when, label=T.TOOL):
+    clk.set(when)
+    label_source(conn, clk, kind, key, label)
+
+
+def test_relabelling_a_source_the_summary_counted_makes_it_stale(conn, clk, settings):
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-15",
+            minutes=40.0)
+    insight = _insight("2026-09-20T16:00:00+00:00")
+    assert dashboard_app.insight_staleness(conn, insight, "2026-09-13", settings.tz) is None
+
+    _relabel_at(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", "2026-09-21T13:00:00+00:00")
+    assert dashboard_app.insight_staleness(conn, insight, "2026-09-13", settings.tz) \
+        == dashboard_app.STALE_RELABELLED
+    # The old flag keeps its one meaning, so its sentence stays true.
+    assert dashboard_app.insight_is_stale(insight, "2026-09-13", settings.tz) is False
+
+
+def test_labelling_a_source_first_seen_after_the_summary_does_not(conn, clk, settings):
+    """Only labels that feed the summarised figures count."""
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="new.example", day="2026-09-22",
+            minutes=40.0)
+    _relabel_at(conn, clk, T.KIND_WEB_DOMAIN, "new.example", "2026-09-23T13:00:00+00:00")
+    insight = _insight("2026-09-20T16:00:00+00:00")
+    assert dashboard_app.insight_staleness(conn, insight, "2026-09-13", settings.tz) is None
+
+
+def test_a_label_set_before_the_summary_was_written_does_not(conn, clk, settings):
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-15",
+            minutes=40.0)
+    _relabel_at(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", "2026-09-20T09:00:00+00:00")
+    insight = _insight("2026-09-20T16:00:00+00:00")
+    assert dashboard_app.insight_staleness(conn, insight, "2026-09-13", settings.tz) is None
+
+
+def test_a_podcast_show_label_counts_though_it_has_no_measurements(conn, clk, settings):
+    """Podcast minutes come from listening, not from measurements."""
+    labels.ensure_source(conn, clk, T.KIND_PODCAST_SHOW, "Some Show", "Some Show")
+    conn.commit()
+    _relabel_at(conn, clk, T.KIND_PODCAST_SHOW, "Some Show", "2026-09-21T13:00:00+00:00")
+    insight = _insight("2026-09-20T16:00:00+00:00")
+    assert dashboard_app.insight_staleness(conn, insight, "2026-09-13", settings.tz) \
+        == dashboard_app.STALE_RELABELLED
+
+
+def test_a_newer_week_outranks_a_relabel(conn, clk, settings):
+    """Both can be true; the bigger one is named. A superseded week is the more urgent news."""
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-15",
+            minutes=40.0)
+    _relabel_at(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", "2026-09-21T13:00:00+00:00")
+    insight = _insight("2026-09-20T16:00:00+00:00")
+    assert dashboard_app.insight_staleness(conn, insight, "2026-09-20", settings.tz) \
+        == dashboard_app.STALE_NEWER_WEEK
+
+
+def test_no_summary_is_never_stale(conn, settings):
+    assert dashboard_app.insight_staleness(conn, None, "2026-09-20", settings.tz) is None

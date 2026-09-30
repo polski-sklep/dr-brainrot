@@ -2034,3 +2034,34 @@ check confirms reintroducing the Facebook bug turns three tests red.
 `.unmeasured_sources`; `SourceLine.by_provenance`; `insights.PAYLOAD_SCHEMA` 2
 with `comparison`; the fallback sentences use it too; the Overview context
 gains `progress`. Rendering is the UI session's.
+
+### DR5.18 — A summary goes stale when its labels change, not only when a week ends
+
+**30 September 2026.** Moving the summary to the top of the Overview put it
+directly above the like-for-like panel, and they disagreed: "181 to 131" in the
+paragraph, "177 to 119" beneath it, both claiming like for like. The UI session
+checked before blaming the code, which was right — the two agree on what
+comparable means. What happened was ordinary use: the paragraph was written at
+08:19 and forty-three sources were bulk-labelled tool at 11:26. No data arrived.
+The labels moved both ends of the comparison.
+
+`insight_is_stale` only asked whether a newer week had finished (DR5.9). That
+misses the common case: labelling is the thing Jacob does most and the thing
+that moves every figure. So `insight_staleness` returns a *reason*:
+
+* `newer_week` — a later week has finished; it outranks the other, being the
+  more urgent news;
+* `relabelled` — a source label or per-item override that feeds the summarised
+  figures changed after the paragraph was written.
+
+"Feeds" is deliberate: a source with a measurement on or before the last
+summarised day, any podcast show (its minutes come from listening, not
+measurements), or any per-item override. Labelling something first seen this
+week does not stale a summary about last week. The evidence already existed —
+`sources.labelled_at`, `item_labels.set_at` — so there is no new state, and a
+bulk action needs no "mark stale" step: the check derives it on every render.
+
+It only says so. Regenerating on every labelling session would be an API call
+per sitting; the Rewrite button is the person's. `insight_stale` keeps its
+original meaning so the sentence already on the page stays true until the
+template learns to word the second reason.
