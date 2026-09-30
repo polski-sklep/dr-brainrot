@@ -478,6 +478,13 @@ supporting evidence is not an appendix, it is the working. **Blind spots**
 stays last, because a list of what the tool cannot see is the right note to
 end on.
 
+**A stale summary says which kind of stale.** Two different things make a
+generated paragraph wrong, and they need different sentences: a newer week has
+finished, or the labels under the week it describes have changed. The second is
+the common case — labelling is what the user does most — and it is the one that
+produces a visible contradiction, because the paragraph sits directly above a
+panel computing the same comparison live. Both chips point at Rewrite.
+
 **Progress.** The one section allowed to feel like something. A fall is the
 point of the whole diagnostic, and reporting it in the same grey as everything
 else asks the reader to supply the feeling himself.

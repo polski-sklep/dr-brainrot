@@ -15,14 +15,15 @@
       different weeks side by side with nothing saying so is the confusion
       DR5.7 was written to end. -#}
   <h2>Summary of the week ending {{ insight.based_on_through }}</h2>
-  <div class="generated{% if insight_stale %} generated-stale{% endif %}">
+  <div class="generated{% if insight_stale_reason %} generated-stale{% endif %}">
     <div class="generated-head">
       {% if insight.model %}
       <span class="state state-generated">written by a model</span>
       {% else %}
       <span class="state state-computed">computed on this Mac</span>
       {% endif %}
-      {% if insight_stale %}<span class="state state-unlabelled">a newer week has finished since this was written</span>{% endif %}
+      {% if insight_stale_reason == "newer_week" %}<span class="state state-unlabelled">a newer week has finished since this was written</span>
+      {% elif insight_stale_reason == "relabelled" %}<span class="state state-unlabelled">you have relabelled since — these figures no longer match</span>{% endif %}
       <span class="spacer"></span>
       <form method="post" action="{{ url_for('refresh_insight') }}" class="generated-refresh">
         <button type="submit" title="Write a new summary from the figures as they stand now">Rewrite</button>
@@ -91,7 +92,7 @@
     </div>
   </div>
   {% endif %}
-  <p class="progress-verdict">{{ progress.verdict }}</p>
+  <p class="progress-verdict">{{ progress.verdict }}{% if progress.set_aside %} <a class="progress-setaside-count" href="#progress-set-aside">{{ progress.set_aside|length }} source{{ "" if progress.set_aside|length == 1 else "s" }} set aside</a> — the comparison leaves them out.{% endif %}</p>
 
   <div class="progress-cols">
     {% if progress.previous_start %}
@@ -117,7 +118,7 @@
   {#- The caveat stays, but below the win rather than between the reader and
       it: the honest footnote should not be the second thing read. -#}
   {% if progress.set_aside %}
-  <p class="progress-aside">Left out, because the two weeks didn't measure them the same way:</p>
+  <p class="progress-aside" id="progress-set-aside">Left out, because the two weeks didn't measure them the same way:</p>
   <ul class="tight progress-aside">{% for s in progress.set_aside %}<li>{{ s }}</li>{% endfor %}</ul>
   {% endif %}
 </section>

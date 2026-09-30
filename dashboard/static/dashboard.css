@@ -1115,6 +1115,11 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
   color: var(--text-secondary);
 }
 
+/* The count sits with the number it qualifies. The hero's figure exists only
+   because these were set aside, so the reader learns that where the figure is,
+   not four hundred pixels later. */
+.progress-setaside-count { font-weight: 600; }
+
 .progress-verdict {
   margin: var(--s2) 0 var(--s4);
   max-width: var(--measure);
