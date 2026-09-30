@@ -458,6 +458,8 @@ def test_the_prompt_forbids_inventing_numbers_and_judging(two_weeks, conn, clk, 
     assert "no cheerleading" in system and "no moralising" in system
     # And the raw weekly totals are never passed off as a change in behaviour.
     assert "Never present the difference between the weeks' raw totals" in system
+    # ...nor the per-group figures, which carry the same distortion.
+    assert "do not set one week's group figures beside the other's" in system
     # Incomplete weeks are stated.
     assert "coverage_gaps" in system and "rather than treating the gap as zero" in system
     # Shape.

@@ -140,7 +140,11 @@ a reading that could not be read, or apps below a cut-off Screen Time list make 
 bigger or smaller for reasons that are not behaviour. When like_for_like is false, describe the \
 change only through comparison.before_min and comparison.after_min, say it is like for like, \
 and say briefly what was left out — by channel name, and by how many sources. Never present the \
-difference between the weeks' raw totals as a change in what the person did.
+difference between the weeks' raw totals as a change in what the person did. The same holds for \
+every per-group figure: when like_for_like is false, the groups carry the same distortion as the \
+totals, so do not set one week's group figures beside the other's, and do not call any \
+difference between them a shift, a rise or a fall. Describe the latest week's groups on their \
+own if you describe them at all.
 
 Where the payload's coverage_gaps say a week's evidence never arrived, say that the week is \
 incomplete rather than treating the gap as zero.
