@@ -100,31 +100,67 @@
 {% if progress %}
 <section id="progress">
   <h2>Week of Sun {{ progress.week_sunday }} – Sat {{ progress.week_saturday }}, against the week before</h2>
-  <p class="progress-verdict">{% if progress.direction == "down" %}<span class="progress-dir" aria-hidden="true">↓</span>{% elif progress.direction == "up" %}<span class="progress-dir" aria-hidden="true">↑</span>{% endif %}{{ progress.verdict }}</p>
-  {% if progress.set_aside %}
-  <p class="progress-aside">Left out, because the two weeks didn't measure them the same way:</p>
-  <ul class="tight progress-aside">{% for s in progress.set_aside %}<li>{{ s }}</li>{% endfor %}</ul>
+
+  {%- set comparable = progress.previous_start and progress.before_min is not none and progress.after_min is not none %}
+  {% if comparable %}
+  <div class="progress-hero progress-{{ progress.direction }}">
+    <div class="progress-score">
+      <span class="progress-dir" aria-hidden="true">{% if progress.direction == "down" %}↓{% elif progress.direction == "up" %}↑{% else %}→{% endif %}</span>
+      <span class="progress-amount">
+        {%- if progress.direction == "down" %}{{ (progress.before_min - progress.after_min)|min }}
+        {%- elif progress.direction == "up" %}{{ (progress.after_min - progress.before_min)|min }}
+        {%- else %}{{ progress.after_min|min }}{% endif %}</span>
+      <span class="progress-amount-label">
+        {%- if progress.direction == "down" %}back, against the week before
+        {%- elif progress.direction == "up" %}more than the week before
+        {%- else %}the same as the week before{% endif %}</span>
+    </div>
+
+    {#- Two bars in true proportion. Flex grow carries the ratio, so nothing
+        on this page is arithmetic the backend has not already done. -#}
+    <div class="progress-bars">
+      <div class="progress-bar-row">
+        <span class="progress-bar-label">week before</span>
+        <span class="progress-track"><span class="progress-fill progress-fill-before" style="flex-grow: {{ progress.before_min }}"></span><span class="progress-rest" style="flex-grow: {{ (progress.after_min - progress.before_min) if progress.after_min > progress.before_min else 0 }}"></span></span>
+        <span class="progress-bar-value">{{ progress.before_min|min }}</span>
+      </div>
+      <div class="progress-bar-row">
+        <span class="progress-bar-label">this week</span>
+        <span class="progress-track"><span class="progress-fill progress-fill-after" style="flex-grow: {{ progress.after_min }}"></span><span class="progress-rest" style="flex-grow: {{ (progress.before_min - progress.after_min) if progress.before_min > progress.after_min else 0 }}"></span></span>
+        <span class="progress-bar-value">{{ progress.after_min|min }}</span>
+      </div>
+    </div>
+  </div>
   {% endif %}
+  <p class="progress-verdict">{{ progress.verdict }}</p>
+
   <div class="progress-cols">
     {% if progress.previous_start %}
-    <div class="progress-col">
+    <div class="progress-col progress-col-wins">
       <h3>Better than the week before</h3>
       {% if progress.wins %}
-      <ul class="progress-list">{% for w in progress.wins %}<li>{{ w.text }}</li>{% endfor %}</ul>
+      <ul class="progress-list win-list">{% for w in progress.wins %}<li>{{ w.text }}</li>{% endfor %}</ul>
       {% else %}
       <p class="absent">Nothing measured the same way in both weeks improved.</p>
       {% endif %}
     </div>
     {% endif %}
-    <div class="progress-col">
+    <div class="progress-col progress-col-tips">
       <h3>Try next week</h3>
       {% if progress.tips %}
-      <ul class="progress-list">{% for t in progress.tips %}<li>{{ t.text }}</li>{% endfor %}</ul>
+      <ul class="progress-list tip-list">{% for t in progress.tips %}<li>{{ t.text }}</li>{% endfor %}</ul>
       {% else %}
       <p class="absent">Nothing stands out enough to suggest.</p>
       {% endif %}
     </div>
   </div>
+
+  {#- The caveat stays, but below the win rather than between the reader and
+      it: the honest footnote should not be the second thing read. -#}
+  {% if progress.set_aside %}
+  <p class="progress-aside">Left out, because the two weeks didn't measure them the same way:</p>
+  <ul class="tight progress-aside">{% for s in progress.set_aside %}<li>{{ s }}</li>{% endfor %}</ul>
+  {% endif %}
 </section>
 {% endif %}
 

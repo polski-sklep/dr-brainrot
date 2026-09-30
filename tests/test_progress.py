@@ -324,7 +324,8 @@ def test_the_overview_shows_the_verdict_what_improved_and_what_to_try(conn, clk,
     assert "Down 57% on the week before: 70 min to 30 min." in part
     assert "Better than the week before" in part and "reddit.com fell from 60 min to 20 min." in part
     assert "Try next week" in part and "reddit.com was your biggest source of brain rot" in part
-    # Wins are words, never the pipeline's green.
+    # Wins have a green of their own (--win). They must never borrow the
+    # pipeline's: --ok means a file arrived, and the two would be confusable.
     assert "state-ok" not in part and "import-ok" not in part
 
 

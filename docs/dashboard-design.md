@@ -478,6 +478,28 @@ supporting evidence is not an appendix, it is the working. **Blind spots**
 stays last, because a list of what the tool cannot see is the right note to
 end on.
 
+**Progress.** The one section allowed to feel like something. A fall is the
+point of the whole diagnostic, and reporting it in the same grey as everything
+else asks the reader to supply the feeling himself.
+
+- The hero is **minutes back**, not the percentage. "58 min back" is the felt
+  quantity; "down 33%" is the analytic one and sits underneath.
+- Two bars in **true proportion** — `flex-grow` set to each week's minutes, so
+  the ratio is the browser's arithmetic and no figure on the page is one this
+  template invented. A shrink you can see beats a shrink you have to read.
+- **The asymmetry is deliberate: a fall is celebrated, a rise is only
+  reported.** Down gets `--win`, the tinted panel and the green edge. Up gets a
+  neutral panel, dark text and no red at all. This page encourages; it never
+  scolds. There is no streak, no score and no badge — the marks are a tick and
+  an arrow, nothing that could be collected.
+- `--win` is a *different green* from `--ok`. `--ok` means a file arrived;
+  `--win` means you spent less time than last week. They are 1.19:1 apart, so
+  they must never appear in the same component, and a test asserts the
+  progress section never uses the pipeline's classes.
+- **The like-for-like caveat moved below the result.** It is still on the page
+  in full — absence is never hidden — but it was the second thing read, which
+  put an apology between the reader and his own win.
+
 **Notice.** A refused or failed action, on its own page: a bordered panel
 with a red left edge, the reason in full, and a muted second line saying that
 nothing changed and why the rule exists. Red appears here and on a genuinely
