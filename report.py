@@ -498,6 +498,9 @@ class SourceLine:
     label: str | None
     reflex_min: float                   # of `minutes`, how much bypassed the queue
     provenances: frozenset = frozenset()
+    #: `minutes` split by the provenance that measured it, sorted, so a source
+    #: can be compared across weeks only on channels both weeks had (DR5.17).
+    by_provenance: tuple = ()
 
     @property
     def all_reflex(self) -> bool:
@@ -517,7 +520,7 @@ def top_sources(conn: sqlite3.Connection, clk: Clock, settings: Settings,
     def line(key, *, name: str, group: str, source_id: int | None) -> dict:
         return acc.setdefault(key, {"display_name": name, "group": group, "source_id": source_id,
                                     "minutes": 0.0, "reflex_min": 0.0, "label": None,
-                                    "provenances": set()})
+                                    "provenances": set(), "by_prov": {}})
 
     def add(bucket: dict, minutes: float, resolved, gated: bool, provenance: str) -> None:
         bucket["minutes"] += minutes
@@ -525,6 +528,7 @@ def top_sources(conn: sqlite3.Connection, clk: Clock, settings: Settings,
             bucket["reflex_min"] += minutes
         bucket["label"] = None if resolved.basis == T.BASIS_DEFAULT else resolved.label
         bucket["provenances"].add(provenance)
+        bucket["by_prov"][provenance] = bucket["by_prov"].get(provenance, 0.0) + minutes
 
     for row in allowance._spotify_rows(conn, settings, week_start):
         resolved = allowance.spotify_label(conn, row)
@@ -556,7 +560,8 @@ def top_sources(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         add(b, float(row["minutes"]), resolved, gated, row["provenance"])
 
     out = [SourceLine(v["source_id"], v["display_name"], v["group"], v["minutes"], v["label"],
-                      v["reflex_min"], frozenset(v["provenances"]))
+                      v["reflex_min"], frozenset(v["provenances"]),
+                      tuple(sorted(v["by_prov"].items())))
            for v in acc.values() if v["minutes"] > 0]
     # Biggest first; name breaks ties so two equal rows never swap between runs.
     out.sort(key=lambda r: (-r.minutes, r.display_name))

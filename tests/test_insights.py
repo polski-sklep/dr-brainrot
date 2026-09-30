@@ -269,9 +269,14 @@ def test_every_free_text_string_in_the_payload_is_built_from_constants(
 
     import report
 
+    import progress
+
     payload = insights.build_payload(conn, clk, settings)
+    # DR5.17's comparison adds exactly two vocabularies, both fixed in code:
+    # the direction words, and the channel names — never a source.
     allowed_plain = (set(T.REPORT_GROUPS) | {settings.tz, insights.PAYLOAD_SCHEMA}
-                     | {None, "from", "to"})
+                     | {None, "from", "to"} | {"down", "up", "level"}
+                     | set(progress.CHANNEL_NAMES.values()))
     gap_names = {name for _k, _g, _p, _d, name in report.EXPECTED_WEEKLY}
 
     for path, text in _strings(payload):
@@ -442,11 +447,17 @@ def test_the_prompt_forbids_inventing_numbers_and_judging(two_weeks, conn, clk, 
     # No invention.
     assert "Every number you use must come from the JSON payload" in system
     assert "do not state any number that is not in the payload" in system
-    # No judgement, no relabelling, no advice.
+    # No judgement, no relabelling, no advice — advice is computed locally, with
+    # names, and shown beside the paragraph (DR5.17).
     assert "the system counts and the person labels" in system
-    assert "Do not say whether any of this content was worth the time." in system
-    assert "Do not suggest that anything should be labelled differently." in system
-    assert "no praise" in system and "no moralising" in system
+    assert "Do not say whether any of this content was worth the time" in system
+    assert "do not suggest that anything should be labelled" in system
+    assert "Give no advice and no recommendations" in system
+    # An improvement may be stated — as a fact, not a compliment.
+    assert "When the like-for-like comparison shows a fall, say so plainly" in system
+    assert "no cheerleading" in system and "no moralising" in system
+    # And the raw weekly totals are never passed off as a change in behaviour.
+    assert "Never present the difference between the weeks' raw totals" in system
     # Incomplete weeks are stated.
     assert "coverage_gaps" in system and "rather than treating the gap as zero" in system
     # Shape.

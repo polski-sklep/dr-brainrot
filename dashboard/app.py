@@ -62,6 +62,7 @@ import ingest_api
 import insights
 import jobs
 import labels
+import progress
 import report
 from clock import Clock
 from config import Settings
@@ -485,6 +486,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             week_imports=week_imports(c, clk, settings, totals),
             everything_in=report.everything_in(totals),
             top_sources=report.top_sources(c, clk, settings, week.week_start),
+            progress=progress.progress(c, clk, settings),
             all_sources_count=len(report.top_sources(c, clk, settings, week.week_start, limit=None)),
             window_start=floor,
             needs=report.needs_attention(c, clk, settings),

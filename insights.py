@@ -66,7 +66,7 @@ MAX_TOKENS = 400
 
 #: Bumped whenever the payload's shape changes, so a stored payload can always
 #: be read back against the code that wrote it.
-PAYLOAD_SCHEMA = 1
+PAYLOAD_SCHEMA = 2      # 2: `comparison`, the like-for-like week-on-week figures (DR5.17)
 
 #: How many complete weeks of figures the payload carries.
 WEEKS = 8
@@ -124,11 +124,23 @@ Every number you use must come from the JSON payload in the user's message. Do n
 figure, do not estimate one, and do not state any number that is not in the payload. You may \
 compare two numbers that are both in the payload; you may not derive anything else.
 
-The standing rule is that the system counts and the person labels. Describe the measured \
-pattern and stop there. Do not say whether any of this content was worth the time. Do not \
-suggest that anything should be labelled differently. Give no advice, no recommendations, no \
-encouragement, no praise, no criticism and no moralising, and do not tell the person what to do \
-next.
+The standing rule is that the system counts and the person labels. Do not say whether any of \
+this content was worth the time, and do not suggest that anything should be labelled \
+differently. Give no advice and no recommendations, and do not tell the person what to do next: \
+concrete suggestions, with names, are computed separately on their own machine and shown \
+beside this paragraph, so any advice here would only repeat them less precisely.
+
+When the like-for-like comparison shows a fall, say so plainly and first — it is the thing the \
+person most wants to know. State it as a fact, not a compliment: no cheerleading, no \
+exclamation, no criticism and no moralising.
+
+The payload's comparison block is the only trustworthy week-on-week figure. The weeks' own \
+totals are not comparable when comparison.like_for_like is false: a channel only one week had, \
+a reading that could not be read, or apps below a cut-off Screen Time list make one week look \
+bigger or smaller for reasons that are not behaviour. When like_for_like is false, describe the \
+change only through comparison.before_min and comparison.after_min, say it is like for like, \
+and say briefly what was left out — by channel name, and by how many sources. Never present the \
+difference between the weeks' raw totals as a change in what the person did.
 
 Where the payload's coverage_gaps say a week's evidence never arrived, say that the week is \
 incomplete rather than treating the gap as zero.
@@ -301,6 +313,34 @@ def _week_facts(conn: sqlite3.Connection, clk: Clock, settings: Settings,
     }
 
 
+def _comparison(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> dict | None:
+    """The like-for-like week-on-week figures, without a single name (DR5.17).
+
+    `progress.Progress` holds the same comparison for the page, with sources
+    named. Only its name-free half crosses here: channel names are that
+    module's fixed vocabulary, and sources set aside are counted, not listed.
+    Wins and tips never leave the Mac — they are nothing but names.
+    """
+    import progress  # noqa: PLC0415 — progress imports report, which this module also uses
+
+    p = progress.progress(conn, clk, settings)
+    if p is None or p.previous_start is None:
+        return None
+    prev = T.measurement_week_for_allowance_week(p.previous_start, settings.tz)
+    return {
+        "week": {"from": p.week_sunday, "to": p.week_saturday},
+        "previous_week": {"from": prev.start, "to": prev.end},
+        "direction": p.direction,
+        "like_for_like": p.like_for_like,
+        "before_min": _round_min(p.before_min),
+        "after_min": _round_min(p.after_min),
+        "pct": _pct_change(p.after_min, p.before_min),
+        "channels_set_aside": list(p.channels_set_aside),
+        "unreadable_sources": p.unreadable_sources,
+        "below_cut_sources": p.below_cut_sources,
+    }
+
+
 def build_payload(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> dict:
     """The aggregate-only facts the summary is written from. Read-only.
 
@@ -336,6 +376,7 @@ def build_payload(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> d
 
     diag = evidence.diagnostic(conn, clk, settings)
     funnels = report.funnels(conn, clk, settings)
+    comparison = _comparison(conn, clk, settings)
 
     return {
         "schema": PAYLOAD_SCHEMA,
@@ -355,6 +396,7 @@ def build_payload(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> d
             "total_weeks": settings.diagnostic_weeks,
         },
         "weeks": weeks,
+        "comparison": comparison,
         "cost_per_keeper": [
             {"group": k.group, "minutes": _round_min(k.minutes), "keepers": k.keepers,
              "minutes_per_keeper": _round_min(k.minutes_per_keeper)}
@@ -413,6 +455,25 @@ def fallback_summary(payload: dict) -> str:
             f"One complete week so far ({last['days']['from']} to {last['days']['to']}), "
             f"so there is no week-on-week trend yet: {_min(last['wasteful_min'])} wasteful content, "
             f"{_min(last['worthwhile_min'])} worthwhile.")
+    elif (cmp := payload.get("comparison")) and not cmp.get("like_for_like"):
+        # The weeks were not measured the same way, so their raw totals must
+        # not be compared (DR5.17). Say what the like-for-like figures show,
+        # and what was left out, by channel and by count — never by name.
+        before, after = cmp["before_min"], cmp["after_min"]
+        verb = {"down": "fell", "up": "rose"}.get(cmp.get("direction"), "held level")
+        pct = f" {abs(cmp['pct']):.0f}%" if cmp.get("pct") is not None and verb != "held level" else ""
+        sentences.append(f"Like for like, counted brain-rot time {verb}{pct} week on week, from "
+                         f"{_min(before)} to {_min(after)}.")
+        left: list[str] = list(cmp.get("channels_set_aside") or [])
+        if cmp.get("unreadable_sources"):
+            n = cmp["unreadable_sources"]
+            left.append(f"{n} reading{'s' if n != 1 else ''} that could not be read")
+        if cmp.get("below_cut_sources"):
+            n = cmp["below_cut_sources"]
+            left.append(f"{n} app{'s' if n != 1 else ''} below a cut-off Screen Time list")
+        if left:
+            sentences.append("Left out because the two weeks did not measure them the same way: "
+                             + "; ".join(left) + ".")
     else:
         prev = weeks[-2]
         now_w, prev_w = last["wasteful_min"], prev["wasteful_min"]

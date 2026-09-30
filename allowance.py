@@ -100,6 +100,20 @@ class PooledMinutes:
     screenshot_ocr_min: float = 0.0
     screenshot_ocr_wasteful_min: float = 0.0
     tool_min: float = 0.0
+    #: `charged_min` split by the provenance that measured it. Two weeks can only
+    #: be compared on what was measured the same way in both (DR5.17): a week
+    #: that gains a channel — the phone browser broken into sites from 20 Sep —
+    #: shows more minutes because more is *seen*, not because more was watched.
+    charged_by_provenance: dict[str, float] = field(default_factory=dict)
+    #: The same minutes per source per provenance: {source key: {provenance: min}}.
+    #: A source key is ("id", source_id), or ("name", show) for a podcast show
+    #: with no source row — the key `report.top_sources` lines resolve to.
+    charged_by_source: dict[tuple, dict[str, float]] = field(default_factory=dict)
+    #: (source key, provenance) pairs with a reading that could not be measured
+    #: this week. NULL is not zero (DR1.22): a comparison must treat these as
+    #: unknown, never as nothing — a Facebook reading stored unreadable once read
+    #: as "rose from nothing" when it had in fact fallen by ninety minutes.
+    unmeasured_sources: frozenset = frozenset()
 
     @property
     def charged_min(self) -> float:
@@ -344,9 +358,23 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
                                          "covered_excluded_min": 0.0, "unmeasured_items": 0,
                                          "tool_min": 0.0})
 
+    by_prov: dict[str, float] = {}
+    by_source: dict[tuple, dict[str, float]] = {}
+    unmeasured: set[tuple] = set()
+
+    def charge(key: tuple, provenance: str, fld: str, minutes: float) -> None:
+        if fld in ("wasteful_min", "unclassified_min"):
+            by_prov[provenance] = by_prov.get(provenance, 0.0) + minutes
+            per = by_source.setdefault(key, {})
+            per[provenance] = per.get(provenance, 0.0) + minutes
+
     for row in _spotify_rows(conn, settings, week_start):
         minutes = int(row["delta_ms"]) / MIN_MS
-        bucket(T.GROUP_PODCASTS)[_field(spotify_label(conn, row))] += minutes
+        fld = _field(spotify_label(conn, row))
+        bucket(T.GROUP_PODCASTS)[fld] += minutes
+        show = (row["show"] or "").strip() or "(unknown show)"
+        sid = _find_source_id(conn, T.KIND_PODCAST_SHOW, show)
+        charge(("id", sid) if sid is not None else ("name", show), T.PROV_API, fld, minutes)
 
     go_live = getattr(settings, "go_live", "") or ""
     for row in _measurement_rows(conn, settings, week_start):
@@ -368,9 +396,12 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
             continue
         if row["status"] != "ok":
             b["unmeasured_items"] += 1
+            unmeasured.add((("id", int(row["source_id"])), row["provenance"]))
             continue
         resolved = measurement_label(conn, row)
         b[_field(resolved)] += float(row["minutes"])
+        charge(("id", int(row["source_id"])), row["provenance"], _field(resolved),
+               float(row["minutes"]))
         if resolved.label == T.TOOL:
             continue            # not content: kept out of the OCR share of content minutes too
         if row["provenance"] == T.PROV_SCREENSHOT:
@@ -389,6 +420,9 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
         screenshot_ocr_min=ocr["all"],
         screenshot_ocr_wasteful_min=ocr["wasteful"],
         tool_min=sum(g.tool_min for g in by_group.values()),
+        charged_by_provenance=dict(sorted(by_prov.items())),
+        charged_by_source=by_source,
+        unmeasured_sources=frozenset(unmeasured),
     )
 
 

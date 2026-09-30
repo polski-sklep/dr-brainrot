@@ -1961,3 +1961,76 @@ The general shape, worth carrying: **state that gates recovery must not be
 written by the thing that can die.** A status owned by the process is fine for
 display; using it to disable the restart turns one transient failure into a
 permanent one.
+
+### DR5.17 — Highlight what improved, suggest what to try — but only like for like
+
+**30 September 2026.** Until now the system only described. The summary was
+told to give "no advice, no recommendations, no encouragement, no praise", and
+the Overview said there was nothing to hit. Jacob asked for the opposite: point
+out real improvements concretely, and offer tips for the coming weeks based on
+what he actually did. That reverses a founding rule, and it is his to reverse.
+
+**What made this hard was not the tips. It was "improvement".** Before writing
+a word of praise, the two complete weeks were checked, and they had not been
+measured the same way. Three distortions, all live in his data that day:
+
+1. **A channel only one week had.** From 20 September the phone browser was
+   broken into sites (DR5.13); the week before, its minutes were set aside.
+   Counted time went 220 → 344: "up 56%", largely because more was seen.
+2. **A reading that could not be read.** Facebook on 13–19 September was read
+   as 2h 27m *or* 2h 37m and stored as unreadable. The first version of this
+   module reported "Facebook rose from nothing to 56 min" — when it had fallen
+   by about ninety. NULL is not zero (DR1.22), and a comparison that forgets
+   it inverts the finding it is supposed to report.
+3. **A cut-off Screen Time list.** Both weeks' Most Used lists stopped before
+   their end (`most_used_complete` false/unknown), so an app below the cut is
+   absent, and absent reads as zero.
+
+Handled properly, the headline did not merely shrink — **it changed sign.**
+Like for like, the week of 20 September was *down* 28% (181 → 131 min), where
+the naive comparison said up 56%.
+
+**So the rule: a source is compared only on channels both weeks had, and only
+where both weeks actually hold a value.** `allowance.pooled_minutes` now splits
+counted minutes by source and provenance and records every unmeasured reading,
+so there is still one aggregator and one definition of a minute. A value is
+*unknown* — never zero — when its reading was unmeasured, or when it is a phone
+app absent from a Screen Time list not known to be complete. Other channels
+list everything they see, so an absence there is a real zero. Anything set
+aside is named on the page, by source where naming it lets him fix it
+("Facebook — couldn't be read the week before" is one click from becoming his
+biggest win).
+
+**Wins** are only ever improvements: a named source at least halving and by at
+least 15 min, the allowance overage falling, the reflex share falling by 15
+points. An allowance win is claimed only when the later week measured at least
+as much and holds no undercount of its own — less over *despite* seeing more
+cannot be an artefact. Nothing is invented when nothing improved; the verdict
+states direction honestly either way.
+
+**Tips** address only sources he labelled wasteful — never undecided ones —
+and name the lever that exists for the surface it was on: the queue for
+YouTube and podcasts, Cold Turkey on the Mac, a Screen Time app limit on the
+phone, a limit on Brave itself for phone-browser sites (per-site limits do not
+reach Brave), both for X. "Halving these would have brought the week inside the
+allowance" is promised only when the week is fully known; otherwise the tip
+states the arithmetic. At most three of each: he said the page made him feel he
+was drowning, and a list of eleven tips is the same problem wearing advice.
+
+**The summary model gets the comparison, never the findings.** Its payload
+gains a `comparison` block — direction, like-for-like before/after, the channel
+names set aside and *counts* of unreadable and below-the-cut sources — and
+nothing else: the wins and tips are all names and never leave the Mac (DR5.8
+stands). The prompt now says to state a like-for-like fall plainly and first,
+"as a fact, not a compliment", and never to present raw weekly totals as a
+change in behaviour. It still gives no advice: the named tips beside it are
+more precise than anything it could say without names. The privacy test that
+allows only known vocabulary into the payload was extended to enumerate the two
+new vocabularies (direction words, channel names), not loosened; a mutation
+check confirms reintroducing the Facebook bug turns three tests red.
+
+**Mechanics:** `progress.py` (`progress()`, `Progress`, `Finding`);
+`PooledMinutes.charged_by_provenance`, `.charged_by_source`,
+`.unmeasured_sources`; `SourceLine.by_provenance`; `insights.PAYLOAD_SCHEMA` 2
+with `comparison`; the fallback sentences use it too; the Overview context
+gains `progress`. Rendering is the UI session's.
