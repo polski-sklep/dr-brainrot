@@ -91,6 +91,43 @@
   {% endif %}
 </section>
 
+{# ================================================================= DR5.17
+   The latest finished week against the one before — like for like, or not
+   at all. The heading names its week: it is often not the week the strip
+   above shows, and two weeks side by side with nothing saying so is DR5.7's
+   confusion again. Wins speak in words, not in green: green means an import
+   arrived, and nothing else on this page. #}
+{% if progress %}
+<section id="progress">
+  <h2>Week of Sun {{ progress.week_sunday }} – Sat {{ progress.week_saturday }}, against the week before</h2>
+  <p class="progress-verdict">{% if progress.direction == "down" %}<span class="progress-dir" aria-hidden="true">↓</span>{% elif progress.direction == "up" %}<span class="progress-dir" aria-hidden="true">↑</span>{% endif %}{{ progress.verdict }}</p>
+  {% if progress.set_aside %}
+  <p class="progress-aside">Left out, because the two weeks didn't measure them the same way:</p>
+  <ul class="tight progress-aside">{% for s in progress.set_aside %}<li>{{ s }}</li>{% endfor %}</ul>
+  {% endif %}
+  <div class="progress-cols">
+    {% if progress.previous_start %}
+    <div class="progress-col">
+      <h3>Better than the week before</h3>
+      {% if progress.wins %}
+      <ul class="progress-list">{% for w in progress.wins %}<li>{{ w.text }}</li>{% endfor %}</ul>
+      {% else %}
+      <p class="absent">Nothing measured the same way in both weeks improved.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+    <div class="progress-col">
+      <h3>Try next week</h3>
+      {% if progress.tips %}
+      <ul class="progress-list">{% for t in progress.tips %}<li>{{ t.text }}</li>{% endfor %}</ul>
+      {% else %}
+      <p class="absent">Nothing stands out enough to suggest.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
 {# ================================================================= 2 of 3
    What was it? Named sources, biggest first. "Desktop web 49 min" names the
    pipe the evidence came down; "Brave 163 min" names the thing you did.   #}
@@ -158,6 +195,35 @@
 </section>
 
 {# ------------------------------------------------------- generated prose #}
+{# Readings OCR could not settle. The route and the data existed since DR5.6;
+   the form never did, so a reading like Facebook's 2h 27m-or-2h 37m could not
+   be settled from the page at all. Each is left out of every figure and every
+   comparison until it is. #}
+{% if needs_your_eye %}
+<section id="needs-your-eye">
+  <h2>Readings to settle</h2>
+  <p class="note">These couldn't be read with certainty, so they count as not measured — never as zero — and every comparison leaves them out. You were there: say what it was.</p>
+  <ul class="eye-list">
+  {% for r in needs_your_eye %}
+    <li class="eye-row">
+      <div class="eye-what"><strong>{{ r.source }}</strong>, {{ r.day }} to {{ r.period_end }}{% if r.options_min %}: read as {% for m in r.options_min %}{{ m|min }}{% if not loop.last %} or {% endif %}{% endfor %}, so nothing was recorded{% else %}: couldn't be read, so nothing was recorded{% endif %}.</div>
+      <div class="eye-forms">
+        {% for m in r.options_min %}
+        <form method="post" action="{{ url_for('fix_measurement', measurement_id=r.measurement_id) }}">
+          <button type="submit" name="minutes" value="{{ m }}">It was {{ m|min }}</button>
+        </form>
+        {% endfor %}
+        <form method="post" action="{{ url_for('fix_measurement', measurement_id=r.measurement_id) }}" class="eye-other">
+          <label>{% if r.options_min %}Or{% else %}It was{% endif %} <input type="number" name="minutes" min="0" step="1" inputmode="numeric" required aria-label="Minutes for {{ r.source }}"> min</label>
+          <button type="submit">Save</button>
+        </form>
+      </div>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 {% if insight %}
 <section id="insight">
   {#- The heading names the week the summary describes, which is the last

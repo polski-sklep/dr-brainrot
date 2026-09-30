@@ -294,6 +294,65 @@ def test_the_fallback_describes_the_like_for_like_figure(conn, clk, settings):
     assert "reddit" not in text
 
 
+
+# ==========================================================================
+# On the page, and the loop Jacob will actually use
+# ==========================================================================
+
+def _page(settings, clk, path="/"):
+    import db
+    from dashboard import app as dashboard_app
+    client = dashboard_app.create_app(settings, clk, lambda: db.connect(settings)).test_client()
+    return client, client.get(path).get_data(as_text=True)
+
+
+def _section(html, section_id):
+    import re
+    m = re.search(rf'<section id="{section_id}">(.*?)</section>', html, re.S)
+    assert m, f"section {section_id} missing"
+    return m.group(1)
+
+
+def test_the_overview_shows_the_verdict_what_improved_and_what_to_try(conn, clk, settings):
+    web(conn, clk, settings, "2026-09-15", {"reddit.com": 60, "news.example": 10})
+    web(conn, clk, settings, "2026-09-22", {"reddit.com": 20, "news.example": 10})
+    wasteful(conn, clk, (SITE, "reddit.com"))
+
+    _client, html = _page(settings, clk)
+    part = _section(html, "progress")
+    assert "Week of Sun 2026-09-20 – Sat 2026-09-26, against the week before" in part
+    assert "Down 57% on the week before: 70 min to 30 min." in part
+    assert "Better than the week before" in part and "reddit.com fell from 60 min to 20 min." in part
+    assert "Try next week" in part and "reddit.com was your biggest source of brain rot" in part
+    # Wins are words, never the pipeline's green.
+    assert "state-ok" not in part and "import-ok" not in part
+
+
+def test_settling_an_unreadable_reading_on_the_page_turns_it_into_a_win(conn, clk, settings):
+    """The whole loop: unreadable -> set aside -> settled by hand -> compared."""
+    screen_time(conn, clk, settings, A, {"Instagram": 40}, unreadable=("Facebook",))
+    screen_time(conn, clk, settings, B, {"Instagram": 40, "Facebook": 56})
+    wasteful(conn, clk, (APP, "Instagram"), (APP, "Facebook"))
+
+    before = progress.progress(conn, clk, settings)
+    assert "Facebook — couldn't be read the week before" in before.set_aside
+
+    client, html = _page(settings, clk)
+    eye = _section(html, "needs-your-eye")
+    assert "Facebook" in eye
+    import re
+    action = re.search(r'<form method="post" action="(/measurements/\d+/fix)"', eye).group(1)
+
+    resp = client.post(action, data={"minutes": "150"}, headers={"Sec-Fetch-Site": "same-origin"})
+    assert resp.status_code == 303 and "msg=fixed" in resp.headers["Location"]
+
+    after = progress.progress(conn, clk, settings)
+    assert after.set_aside == () and after.like_for_like
+    assert "Facebook fell from 150 min to 56 min." in [w.text for w in after.wins]
+    assert after.direction == "down"
+    # Settled, it is no longer asked about.
+    assert 'id="needs-your-eye"' not in _page(settings, clk)[1]
+
 # --- helpers -------------------------------------------------------------------
 
 Finding = progress.Finding

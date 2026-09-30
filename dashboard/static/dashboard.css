@@ -1041,3 +1041,52 @@ tr.refused-row a { color: var(--danger); text-decoration: underline; }
 th.col-check, td.col-check { width: 1%; white-space: nowrap; padding-right: 0; }
 td.col-check { vertical-align: middle; }
 input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
+
+/* ---------------------------------------------------------------------------
+   The week against the week before (DR5.17). Wins are stated in words, not in
+   green: --ok means an import arrived and is never a verdict on use. The
+   verdict is the one line here that carries weight; everything else is quiet.
+   --------------------------------------------------------------------------- */
+.progress-verdict {
+  margin: 0 0 var(--s2);
+  max-width: var(--measure);
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--text);
+}
+.progress-dir { margin-right: 0.35em; }
+.progress-aside {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+}
+p.progress-aside { margin-bottom: var(--s1); }
+ul.progress-aside { margin-bottom: var(--s3); }
+.progress-cols {
+  display: grid;
+  gap: var(--s3) var(--s6);
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 900px) {
+  .progress-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.progress-col h3 { margin-top: 0; }
+.progress-list { margin: 0; padding-left: 1.1em; }
+.progress-list li { margin: 0 0 var(--s2); max-width: var(--measure); line-height: 1.55; }
+
+/* Readings to settle: amber, because an unsettled reading is exactly the
+   uncertainty amber is reserved for. */
+.eye-list { list-style: none; margin: 0; padding: 0; }
+.eye-row {
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  border-radius: var(--r-panel);
+  padding: var(--s2) var(--s3);
+  margin-bottom: var(--s2);
+  max-width: calc(var(--measure) + var(--s6));
+}
+.eye-what { margin-bottom: var(--s2); }
+.eye-forms { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.eye-forms form { margin: 0; display: flex; gap: var(--s1); align-items: center; }
+.eye-other input { width: 5em; }

@@ -23,6 +23,19 @@ Three questions, in this order, and nothing above them:
 3. **What isn't counted yet?** The awaited-evidence states, compact, showing
    only what is not already in.
 
+Under the bars, **the latest finished week against the one before** (DR5.17):
+one verdict sentence, what improved, what to try next week — at most three of
+each. It is like for like or it says what it left out: a channel only one week
+had, a reading that couldn't be read, an app below a cut-off Screen Time list.
+In Jacob's first two weeks the naive comparison said *up 56%* and the honest
+one said *down 28%*; the caveat is the feature, not small print. Its heading
+names its own week, which is often not the week the strip above shows.
+
+**Readings to settle** sit beside "What isn't counted yet": a reading OCR could
+not decide between (Facebook, 2h 27m or 2h 37m) is one click from counting.
+The route existed from DR5.6 but no template ever drew the form — a feature
+that fell between two sessions, found only when a comparison needed it.
+
 Everything else — weekly totals, the allowance detail, gated, cost per keeper,
 funnels, imports, the reflex working — is on **Records**, under "Diagnostic
 detail", unchanged and still auditable. It was moved, never deleted. The
@@ -143,8 +156,14 @@ Amber is the app's busiest semantic colour because uncertainty is the thing it
 most often has to say. It is never used to make the page interesting.
 
 Green is deliberately confined to pipeline health. "The Cold Turkey export
-arrived" is a fact about the plumbing. Nothing on this dashboard is allowed to
-tell the user they did well.
+arrived" is a fact about the plumbing.
+
+Until DR5.17 nothing on this dashboard was allowed to tell the user they did
+well. Jacob reversed that on 30 September: real improvements are now pointed
+out. They are pointed out **in words, never in green** — "Facebook fell from
+150 min to 56 min" under a heading that says *Better than the week before*.
+Green keeps its one meaning, so an arrived import and a good week can never be
+mistaken for each other at a glance.
 
 **Colour is never the only signal.** Every state carries text (`partial`,
 `missing`, `lower confidence`, `unlabelled → counts as wasteful`); every
