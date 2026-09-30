@@ -30,7 +30,7 @@
       </form>
     </div>
 
-    <p class="generated-body">{{ insight.summary }}</p>
+    <p class="generated-body">{{ insight.summary|emphasise }}</p>
 
     {% if insight.fallback_reason %}
     <p class="generated-warn">No model wrote this. {{ insight.fallback_reason }}</p>

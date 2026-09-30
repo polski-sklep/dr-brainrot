@@ -478,6 +478,14 @@ supporting evidence is not an appendix, it is the working. **Blind spots**
 stays last, because a list of what the tool cannot see is the right note to
 end on.
 
+**The summary's figures are bolded, and the model never writes markup.** The
+`emphasise` filter escapes the text first and adds `<strong>` afterwards, so
+nothing a model emits can become markup. It bolds **quantities only** — a
+number with a unit — because those are what a reader skims for and the one
+thing recognisable without guessing at the model's phrasing. Dates are left
+alone. The weight is 650, not a full bold: a typical paragraph has nine
+figures, and at 700 the emphasis stops meaning anything.
+
 **A stale summary says which kind of stale.** Two different things make a
 generated paragraph wrong, and they need different sentences: a newer week has
 finished, or the labels under the week it describes have changed. The second is

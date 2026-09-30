@@ -46,12 +46,14 @@ Why it is shaped like this.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Callable
 
 from flask import Flask, abort, g, redirect, render_template, request, url_for
+from markupsafe import Markup, escape
 
 import allowance
 import clock
@@ -436,6 +438,28 @@ def fmt_pct(value: float | None) -> str:
     return "—" if value is None else f"{value * 100:.0f}%"
 
 
+#: Quantities inside generated prose: a number with a unit. Bolding these
+#: gives the paragraph a spine you can skim without the model having to emit
+#: markup, which it must never do — see `emphasise`.
+_QUANTITY = re.compile(
+    r"\b\d[\d,]*(?:\.\d+)?\s*-?\s*(?:minutes?|mins?\b|percent|hours?|hrs?)|\b\d[\d,]*(?:\.\d+)?\s*%",
+    re.IGNORECASE,
+)
+
+
+def emphasise(text: str) -> Markup:
+    """Bold the figures in a generated paragraph.
+
+    The text is model output, so it is **escaped first** and the `<strong>`
+    tags are added afterwards: nothing the model writes can become markup.
+    Only quantities are emphasised — they are the part a reader skims for, and
+    they are the one thing in the sentence this app can recognise reliably
+    without guessing at the model's phrasing.
+    """
+    escaped = str(escape(text or ""))
+    return Markup(_QUANTITY.sub(lambda m: f"<strong>{m.group(0)}</strong>", escaped))
+
+
 def _parse_day(raw: str | None, name: str, errors: list[str]) -> str | None:
     if not raw:
         return None
@@ -471,6 +495,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
     ))
 
     app.jinja_env.filters["min"] = fmt_min
+    app.jinja_env.filters["emphasise"] = emphasise
     app.jinja_env.filters["pct"] = fmt_pct
     app.jinja_env.filters["local_dt"] = lambda iso: clock.fmt_local(iso, settings.tz) if iso else ""
     app.jinja_env.globals.update(

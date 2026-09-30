@@ -990,6 +990,11 @@ svg.split .axis { stroke: var(--axis); stroke-width: 1; }
 
 /* Prose, not data: longer line height and the prose measure, so it reads as
    something written rather than something tabulated. */
+/* The figures inside generated prose. 650 rather than a full bold: there are
+   nine of them in a typical paragraph, and at 700 the emphasis stops meaning
+   anything and starts looking like alarm. */
+.generated-body strong { font-weight: 650; color: var(--text); }
+
 .generated-body {
   margin: 0;
   max-width: var(--measure);
