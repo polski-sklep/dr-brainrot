@@ -267,8 +267,8 @@ PROMPT_KINDS = ("screentime", "coldturkey", "youtube")
 #: what makes the two manual asks legible as the whole of the list.
 AUTOMATIC_TRAILER = (
     "Everything else collects itself every morning at 09:30: desktop websites (Cold Turkey), "
-    "Mac apps (Qbserve), podcasts (Spotify) and your vault. These are the only sources DRBR "
-    "cannot fetch on its own.\n"
+    "Mac apps (Qbserve), podcasts (Spotify) and your vault. These are the only sources that "
+    "can't be fetched automatically.\n"
     "Labelling is not done here any more — it's in the dashboard."
 )
 
@@ -291,7 +291,7 @@ SCREENTIME_STEPS = (
 YOUTUBE_STEPS = (
     "On the desktop browser:\n"
     "1. Open youtube.com/feed/history, signed in.\n"
-    "2. Click the DRBR extension and press Sync. It scrolls back to the last sync by itself, so "
+    "2. Click the YouTube history extension and press Sync. It scrolls back to the last sync by itself, so "
     "there is nothing to scroll or select."
 )
 
@@ -319,8 +319,8 @@ def prompt_text(kind: str, week: T.MeasurementWeek, *, automated_coldturkey: boo
                 f"{SCREENTIME_STEPS}\n\n{AUTOMATIC_TRAILER}")
     if kind == "coldturkey":
         head = (f"Cold Turkey for last week ({span}) hasn't arrived.\n"
-                + ("DRBR normally reads Cold Turkey's statistics on this Mac by itself every morning, so "
-                   "this means that automatic read failed. Check logs/jobs.log; exporting by hand "
+                + ("Cold Turkey's statistics on this Mac are normally read automatically every morning, "
+                   "so this means that automatic read failed. Check logs/jobs.log; exporting by hand "
                    "covers the week meanwhile."
                    if automated_coldturkey else
                    "DRBR_COLDTURKEY_DB is unset, so this Mac is not read automatically and the export "

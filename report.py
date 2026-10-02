@@ -1191,7 +1191,7 @@ def _qbserve_latest_record(conn: sqlite3.Connection) -> str | None:
 SCREENTIME_ACTION = ("Send last week's Screen Time screenshots to the bot: Settings → Screen Time → this "
                      "iPhone → Week → ‹ once (\"Last Week\"), tap Show More until it disappears, and send "
                      "the whole scroll in one go.")
-YOUTUBE_ACTION = ("Open youtube.com/feed/history in the desktop browser, click the browser extension and "
+YOUTUBE_ACTION = ("Open youtube.com/feed/history in the desktop browser, click the YouTube history extension and "
                   "press Sync.")
 COLDTURKEY_EXPORT_ACTION = ("Cold Turkey Blocker → Statistics → Websites usage (time) → last week → Export, "
                             "and send the JSON file to the bot.")

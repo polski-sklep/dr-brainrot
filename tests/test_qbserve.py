@@ -431,7 +431,7 @@ def test_stale_qbserve_warns_once_a_day_until_the_diagnostic_ends(conn, clk, set
     warnings = [m["text"] for m in bot.sent if "Qbserve" in m["text"]]
     assert len(warnings) == 1
     assert "hasn't recorded anything since Wed 16 Sep 10:00" in warnings[0]
-    assert "Desktop app time is missing" in warnings[0] and "open at login" in warnings[0]
+    assert "Desktop app time isn't being measured" in warnings[0] and "open at login" in warnings[0]
 
     bot = Bot()
     jobs.run_daily(conn, later, settings, bot)                            # same day: not again

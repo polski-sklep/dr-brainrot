@@ -141,7 +141,7 @@ def _insights(conn, clk: Clock, settings: Settings) -> str:
     """
     insight = insights.write_summary(conn, clk, settings)
     if insight.model is None:
-        return f"week {insight.week_start}: DRBR's own sentences — {insight.fallback_reason}"
+        return f"week {insight.week_start}: computed sentences — {insight.fallback_reason}"
     return f"week {insight.week_start}: written by {insight.model}"
 
 
@@ -238,7 +238,7 @@ def _qbserve_stale_warning(conn, clk: Clock, settings: Settings, bot) -> str:
     latest = json.loads(row["meta"] or "{}").get("latest_record_at")
     send(bot, settings, (
         f"Qbserve hasn't recorded anything since {clock.fmt_local(latest, settings.tz)}.\n\n"
-        "Desktop app time is missing from DRBR until it runs again. "
+        "Desktop app time isn't being measured until it runs again. "
         "Open Qbserve, and set it to open at login so this doesn't recur."
     ))
     conn.execute(
@@ -257,9 +257,9 @@ def send_end_notice(conn, clk: Clock, settings: Settings, bot) -> str:
     if conn.execute("SELECT 1 FROM prompts_sent WHERE kind = ?", (END_KIND,)).fetchone():
         return "end notice already sent"
     send(bot, settings, (
-        f"The DRBR diagnostic ended on {diag.end}, after {settings.diagnostic_weeks} weeks.\n\n"
+        f"The diagnostic ended on {diag.end}, after {settings.diagnostic_weeks} weeks.\n\n"
         "Open the dashboard, look at cost per keeper and the ungated share, and name the "
-        "one decision this should change. If there isn't one, shut DRBR down. "
+        "one decision this should change. If there isn't one, switch the whole thing off. "
         "Prompts and label requests have stopped."
     ))
     today = clock.iso(clk.now())

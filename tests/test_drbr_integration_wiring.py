@@ -101,7 +101,7 @@ def test_end_notice_is_sent_once_and_only_after_the_end(conn, clk, settings):
     clk.set("2026-11-08T10:00:00+00:00")
     assert jobs.send_end_notice(conn, clk, settings, b) == "end notice sent"
     assert jobs.send_end_notice(conn, clk, settings, b) == "end notice already sent"
-    assert len(b.sent) == 1 and "shut DRBR down" in b.sent[0]["text"]
+    assert len(b.sent) == 1 and "switch the whole thing off" in b.sent[0]["text"]
 
 
 # --- relabel re-records overage ------------------------------------------------
@@ -168,3 +168,35 @@ def test_label_resolution_is_shared_by_gate_and_report(conn, clk, settings):
     labels.set_source_label(conn, clk, src.id, "worthwhile")
     assert allowance.item_label(conn, item).label == "worthwhile"
     assert labels.resolve(conn, source_id=src.id, item_ref="spotify:4rOoJ6Egrf8K2IrywzwOMk").label == "worthwhile"
+
+
+def test_no_telegram_message_names_the_product():
+    """The product never names itself in its own copy — on the page or in Telegram.
+
+    The dashboard was cleaned on 22 Sep; Telegram was missed until a Friday-morning
+    Qbserve warning said "missing from DRBR". This pins every message constant and
+    template the bot sends, so the next one cannot slip through the same gap.
+    """
+    import pathlib
+    import re
+
+    import handlers_imports
+    import handlers_labels
+    import jobs as jobs_module
+
+    sources = {
+        "handlers_labels.CONTENT_QUESTION": handlers_labels.CONTENT_QUESTION,
+        "handlers_imports.AUTOMATIC_TRAILER": handlers_imports.AUTOMATIC_TRAILER,
+    }
+    # Message bodies built inline: read them from the source, skipping comments,
+    # docstrings and config-key names such as DRBR_COLDTURKEY_DB.
+    for module in (handlers_imports, handlers_labels, jobs_module):
+        text = pathlib.Path(module.__file__).read_text()
+        text = re.sub(r'""".*?"""', "", text, flags=re.S)
+        for n, line in enumerate(text.splitlines(), 1):
+            code = line.split("#", 1)[0]
+            for literal in re.findall(r'f?"((?:[^"\\]|\\.)*)"', code):
+                sources[f"{module.__name__}:{n}"] = literal
+    offenders = {where: s for where, s in sources.items()
+                 if re.search(r"\bDRBR\b(?!_)|Dr\.? ?Brainrot", s)}
+    assert not offenders, offenders

@@ -49,7 +49,7 @@ PROMPT_KIND = "labels"
 #: here because the digest links to that page and must not describe it
 #: differently; the page itself is where it is answered.
 CONTENT_QUESTION = (
-    "DRBR measures brain-rot content only. Is this content you consume? "
+    "Only brain-rot content is measured. Is this content you consume? "
     "If yes, is it brain rot (wasteful) or not (worthwhile)? "
     "If you only go there to get a task done — buy, pay, book, log in, organise, "
     "check the weather — it's a tool and isn't counted."
