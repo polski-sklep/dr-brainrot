@@ -122,7 +122,7 @@ def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
     results = run_sync(conn, clk, settings, bot)
     failed = [name for name, result in results.items() if not result.ok]
     for name, fn in (
-        ("import_prompts", lambda: handlers_imports.send_due_prompts(conn, clk, settings, bot)),
+        ("import_prompts", lambda: _prompts_with_digest(conn, clk, settings, bot)),
         ("label_digest", lambda: handlers_labels.send_label_digest(conn, clk, settings, bot)),
         ("diagnostic_end", lambda: send_end_notice(conn, clk, settings, bot)),
     ):
@@ -130,6 +130,24 @@ def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
             failed.append(name)
     _run_step(conn, "insights", lambda: _insights(conn, clk, settings))
     return failed
+
+
+def _prompts_with_digest(conn, clk: Clock, settings: Settings, bot) -> list[str]:
+    """Monday's import reminders, carrying the label note when it is due (DR5.19).
+
+    One predictable morning, one fewer message: when reminders go out, the
+    label digest rides on the last of them and is recorded as sent, so the
+    `label_digest` step that follows finds nothing to do. When no reminder is
+    due, that step sends the digest on its own.
+    """
+    digest = handlers_labels.due_digest(conn, clk, settings)
+    trailer = handlers_labels.digest_text(digest, settings, mode="folded") if digest else None
+    sent = handlers_imports.send_due_prompts(conn, clk, settings, bot, trailer=trailer)
+    if sent and digest is not None:
+        handlers_labels.record_digest(conn, clk, settings)
+        sent = [*sent, f"label digest folded in: {digest.count} unlabelled source(s), "
+                       f"{round(digest.minutes)} min"]
+    return sent
 
 
 def _insights(conn, clk: Clock, settings: Settings) -> str:

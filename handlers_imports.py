@@ -367,7 +367,8 @@ def _self_feeding(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> s
             if row.mode == report.MODE_AUTOMATIC and row.state == report.STATE_OK}
 
 
-def send_due_prompts(conn: sqlite3.Connection, clk: Clock, settings: Settings, bot) -> list[str]:
+def send_due_prompts(conn: sqlite3.Connection, clk: Clock, settings: Settings, bot,
+                     trailer: str | None = None) -> list[str]:
     """Nudge once per day, from the Monday after the week, for each missing manual import.
 
     The week asked about is the most recent complete Sunday..Saturday. Before
@@ -388,6 +389,7 @@ def send_due_prompts(conn: sqlite3.Connection, clk: Clock, settings: Settings, b
         return []                                     # a week before DRBR existed is not asked for (DR2.2)
     sent: list[str] = []
     healthy = _self_feeding(conn, clk, settings)
+    due: list[str] = []
     for kind in PROMPT_KINDS:
         if _covered(conn, kind, week, settings.tz):
             continue
@@ -397,7 +399,14 @@ def send_due_prompts(conn: sqlite3.Connection, clk: Clock, settings: Settings, b
                                (kind, week.start, today.isoformat())).fetchone()
         if already:
             continue
-        triage.send(bot, settings, prompt_text(kind, week, automated_coldturkey=settings.coldturkey_db is not None))
+        due.append(kind)
+    for i, kind in enumerate(due):
+        text = prompt_text(kind, week, automated_coldturkey=settings.coldturkey_db is not None)
+        if trailer and i == len(due) - 1:
+            # One more note rides on the last reminder rather than arriving as
+            # a message of its own (DR5.19: the Monday label digest).
+            text = f"{text}\n\n{trailer}"
+        triage.send(bot, settings, text)
         conn.execute("INSERT OR IGNORE INTO prompts_sent (kind, period_start, sent_on, sent_at) VALUES (?, ?, ?, ?)",
                      (kind, week.start, today.isoformat(), clock.iso(clk.now())))
         conn.commit()

@@ -2065,3 +2065,37 @@ It only says so. Regenerating on every labelling session would be an API call
 per sitting; the Rewrite button is the person's. `insight_stale` keeps its
 original meaning so the sentence already on the page stays true until the
 template learns to word the second reason.
+
+### DR5.19 — The label nudge comes on Monday, and only when it is worth it
+
+**2 October 2026.** DR5.6 set the label digest to "at most once every three
+days", Jacob's own number. It kept to it — 25 Sep, 29 Sep, 2 Oct — and on
+Friday 2 October it interrupted his morning to say that 50 sources, 34 minutes
+in all, were unlabelled: under a minute each, across the whole diagnostic. He
+asked whether that should be happening on a Friday. It was doing what it was
+told; what it was told was the wrong rule.
+
+Two changes, both his choice:
+
+**Monday only.** A three-day clock drifts across the week and lands wherever it
+lands. Monday is already when he hears from this system — the Screen Time and
+YouTube reminders for the week just ended — so labelling joins that one
+predictable morning.
+
+**Only when an hour or more is undecided.** The figure is cumulative over the
+diagnostic, so the bar reads "an hour of your measured time is still
+undecided". Below it the undecided time cannot move the headline enough to be
+worth a message.
+
+**And it rides on the reminders rather than arriving beside them.** When import
+reminders go out that Monday, the note is appended to the last one ("Also: …")
+and recorded as sent, so the standalone step finds nothing to do; only on a
+Monday with no reminders does it go out alone. `/labels` gets its own wording,
+because a reply to a question he just asked should not talk about when the next
+reminder comes.
+
+The Qbserve warning that arrived beside it on the same Friday was right and is
+unchanged: Qbserve had stopped on Wednesday afternoon while the Mac was still in
+use (Cold Turkey logged 36 minutes on Thursday), so Thursday's desktop-app time
+is lost — Qbserve records live and cannot fill a gap afterwards. The warning
+already tells him to set it to open at login.
