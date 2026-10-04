@@ -12,6 +12,12 @@ Works in Chrome and Brave (Manifest V3, Chrome 111+).
 3. **Load unpacked** → choose this `extension/` folder.
 4. Pin "DRBR YouTube history sync" to the toolbar.
 
+After pulling changes, click the reload arrow on the extension's card in
+`chrome://extensions`. The toolbar icon is the dashboard's brain mark
+(`BRAIN_OUTLINE` / `BRAIN_FOLDS` in `dashboard/app.py`): outline, midline and
+specks only at 16px, where the fold arcs blur; bolder lines at 32 and 48px; the
+mark as drawn at 128px.
+
 In Brave, Shields do not block the extension, but if the history page looks
 empty, check you are signed in to YouTube in that browser profile.
 
