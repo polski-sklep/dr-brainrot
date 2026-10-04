@@ -1,0 +1,145 @@
+{#- dashboard/templates/_rot.html — the brain against your peak week (#rot).
+
+    Added at Jacob's request (DECISIONS DR5.20): the wordmark's brain, large, with
+    the latest finished week's brain rot grown on it as mould, scaled to his own
+    peak week, like for like. Conditionals and loops only: every figure, shape and
+    sentence fragment comes from `rot`, built by app.rot_view() from
+    progress.peak_chain(). Its <section> tag stays bare for the tests' regex, and
+    it is a sibling of #insight, never inside it, so the summary's stale chip and
+    amber edge can never seem to cover a live, counted drawing. -#}
+
+{% macro rot_svg(sp, label) -%}
+{#- Named by aria-label alone: an identical <title> is read out a second time
+    as the description. -#}
+<svg class="rot-brain{% if sp.step is none %} rot-blank{% endif %}" viewBox="{{ sp.viewbox }}" role="img" aria-label="{{ label }}">
+  {%- if sp.mould or sp.undecided %}
+  <defs>
+    <clipPath id="{{ sp.uid }}-clip"><path d="{{ sp.outline }}"/></clipPath>
+    {#- Fixed noise in brain units (fixed seeds), so the same week always frays
+        the same mould edges, at any size the brain is drawn. Undecided patches
+        are not frayed: their dashed edge is what sets them apart. -#}
+    <filter id="{{ sp.uid }}-rough" x="-30%" y="-30%" width="160%" height="160%">
+      <feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="3" seed="4" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale=".45" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="{{ sp.uid }}-bloom" x="-30%" y="-30%" width="160%" height="160%">
+      <feTurbulence type="fractalNoise" baseFrequency="2.6" numOctaves="2" seed="9" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale=".7" xChannelSelector="R" yChannelSelector="G" result="frayed"/>
+      <feGaussianBlur in="frayed" stdDeviation=".07"/>
+    </filter>
+    <filter id="{{ sp.uid }}-stain" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation=".35"/></filter>
+    <radialGradient id="{{ sp.uid }}-young" cx=".45" cy=".42" r=".6"><stop offset="0" class="rot-young-0"/><stop offset=".5" class="rot-young-1"/><stop offset=".85" class="rot-young-2"/><stop offset="1" class="rot-young-3"/></radialGradient>
+    <radialGradient id="{{ sp.uid }}-grown" cx=".45" cy=".42" r=".6"><stop offset="0" class="rot-grown-0"/><stop offset=".45" class="rot-grown-1"/><stop offset=".8" class="rot-grown-2"/><stop offset="1" class="rot-grown-3"/></radialGradient>
+    {%- for m in sp.mould %}
+    <path id="{{ m.ref }}" d="{{ m.d }}"/>
+    {%- endfor %}
+  </defs>
+  {%- endif %}
+  <path class="rot-tissue" d="{{ sp.outline }}"/>
+  {%- if sp.spoil %}
+  <path class="rot-spoil" d="{{ sp.outline }}" fill-opacity="{{ sp.spoil }}"/>
+  {%- endif %}
+  <path class="rot-folds" d="{{ sp.folds }}"/>
+  {%- if sp.mould or sp.undecided %}
+  <g clip-path="url(#{{ sp.uid }}-clip)">
+    {%- if sp.bruises %}
+    <g class="rot-stain" filter="url(#{{ sp.uid }}-stain)">{% for b in sp.bruises %}<circle cx="{{ b.cx }}" cy="{{ b.cy }}" r="{{ b.r }}"/>{% endfor %}</g>
+    {%- endif %}
+    {#- Mould is drawn twice, a pale frayed rim then the bodies, so touching
+        colonies merge into one growth instead of a pavement of tiles. Colonies
+        born at the drawn step are the speck green and have no rim yet; at the
+        first step they are still the mark's own flat specks, unfrayed. -#}
+    {%- if sp.bloom %}
+    <g class="rot-bloom" filter="url(#{{ sp.uid }}-bloom)">{% for ref in sp.bloom %}<use href="#{{ ref }}"/>{% endfor %}</g>
+    {%- endif %}
+    {%- if sp.mould %}
+    <g filter="url(#{{ sp.uid }}-rough)">{% for m in sp.mould if not m.plain %}<use href="#{{ m.ref }}" fill="url(#{{ sp.uid }}-{{ 'young' if m.young else 'grown' }})"/>{% endfor %}</g>
+    <g class="rot-speck">{% for m in sp.mould if m.plain %}<use href="#{{ m.ref }}"/>{% endfor %}</g>
+    {%- endif %}
+    {%- if sp.spores %}
+    <g class="rot-spores">{% for s in sp.spores %}<circle cx="{{ s.cx }}" cy="{{ s.cy }}" r="{{ s.r }}"/>{% endfor %}</g>
+    {%- endif %}
+    {%- if sp.undecided %}
+    <g class="rot-undecided">{% for d in sp.undecided %}<path d="{{ d }}"/>{% endfor %}</g>
+    {%- endif %}
+  </g>
+  {%- endif %}
+  <path class="rot-outline" d="{{ sp.outline }}"/>
+</svg>
+{%- endmacro %}
+
+{% macro rot_section(rot) -%}
+<section id="rot">
+  {%- if not rot.week_sunday %}
+  <h2>Against your peak week</h2>
+  {%- elif rot.state == "first_week" %}
+  <h2>Week of Sun {{ rot.week_sunday }} – Sat {{ rot.week_saturday }}, the first week measured</h2>
+  {%- elif rot.state in ("nothing_before", "not_comparable") %}
+  <h2>Week of Sun {{ rot.week_sunday }} – Sat {{ rot.week_saturday }}, against the week before</h2>
+  {%- else %}
+  <h2>Week of Sun {{ rot.week_sunday }} – Sat {{ rot.week_saturday }}, against your {% if rot.is_new_peak %}previous {% endif %}peak week</h2>
+  {%- endif %}
+  <div class="rot-plate">
+    <figure class="rot-figure">{{ rot_svg(rot.specimen, rot.alt) }}</figure>
+    <div class="rot-read">
+    {%- if rot.state == "drawn" %}
+      {%- if rot.is_new_peak %}
+      <p class="rot-share"><span class="rot-pct">New peak week</span>
+        {% if rot.single %}<strong>{{ rot.over_pct }}</strong> above your previous peak, Sun {{ rot.peak_sunday }}.
+        {%- else %}about <strong>{{ rot.over_pct }}</strong> above your previous peak, Sun {{ rot.peak_sunday }}, taking each week against the one before it.{% endif %}
+        Later weeks are drawn against this one.</p>
+      {%- elif rot.ratio == 0 %}
+      <p class="rot-share"><span class="rot-pct">0%</span> of your peak week: no brain rot on what {% if rot.single %}both weeks{% else %}this week and the week before{% endif %} measured.</p>
+      {%- elif rot.above_peak %}
+      <p class="rot-share"><span class="rot-pct">{{ rot.pct }}</span> of your peak week: a little above it, too little to call a new peak. Later weeks are drawn against this one.</p>
+      {%- elif rot.single %}
+      <p class="rot-share"><span class="rot-pct">{{ rot.pct }}</span> of your peak week</p>
+      {%- else %}
+      <p class="rot-share"><span class="rot-pct">{{ rot.pct }}</span> of your peak week, Sun {{ rot.peak_sunday }}: an estimate, taking each week against the one before it</p>
+      {%- endif %}
+      {%- if rot.single %}
+      <dl class="rot-readings">
+        <div><dt>This week</dt><dd>{{ rot.after_min|min }}</dd></div>
+        <div><dt>{% if rot.is_new_peak %}Previous peak{% else %}Peak week{% endif %}, Sun {{ rot.peak_sunday }}</dt><dd>{{ rot.before_min|min }}</dd></div>
+      </dl>
+      {%- else %}
+      <dl class="rot-readings rot-steps">
+        {%- for s in rot.steps %}
+        <div><dt>Sun {{ s.sunday }}, against {{ s.against }}</dt><dd>{{ s.before_min|min }} → {{ s.after_min|min }} <span class="rot-sub">{{ s.change }}</span></dd></div>
+        {%- endfor %}
+      </dl>
+      {%- if rot.earlier_steps %}
+      <p class="rot-line">And {{ rot.earlier_steps }} earlier week{{ "" if rot.earlier_steps == 1 else "s" }}, back to your {% if rot.is_new_peak %}previous {% endif %}peak week.</p>
+      {%- endif %}
+      {%- endif %}
+      <p class="rot-key">The more mould, the closer the week came to your peak: your heaviest week so far, compared like for like. A yardstick, not a target.</p>
+      <p class="rot-line">Only what {% if rot.single %}both weeks{% else %}this week and the week before{% endif %} measured: {{ rot.counted_min|min }}
+        {%- if rot.week_charged_min is not none %} of this week's {{ rot.week_charged_min|min }}{% endif %}
+        {%- if rot.set_aside %}, with <a href="#progress-set-aside">{{ rot.set_aside }} set aside</a>{% endif %}.
+        {%- if rot.undecided_min %} {{ rot.undecided_text }} of those {{ rot.counted_min|min }} is still undecided{% if rot.undecided_drawn %}, drawn as the dashed patches{% else %} — too little to draw{% endif %}.{% endif %}</p>
+    {%- elif rot.state == "first_week" %}
+      <p class="rot-share">This is the first finished week, so it sets the benchmark. Later weeks are drawn against it.</p>
+    {%- elif rot.state == "nothing_before" and rot.clean_both %}
+      <p class="rot-share">No brain rot this week or the week before.</p>
+    {%- elif rot.state == "nothing_before" and rot.counted_min == 0 %}
+      <p class="rot-share">Not drawn: no brain rot on what this week and the week before both measured, but <a href="#progress-set-aside">some of it was left out</a>, so it can't be called clean.</p>
+    {%- elif rot.state == "nothing_before" %}
+      <p class="rot-share">Not drawn: the week before had no brain rot at all, so there's nothing to scale this week against. Later weeks are drawn against this one.</p>
+    {%- elif rot.state == "not_comparable" %}
+      <p class="rot-share">Not drawn: too little of this week and the week before was measured the same way to compare them.</p>
+    {%- else %}
+      <p class="rot-share"><span class="absent">Not measured yet</span>: no week has finished with its evidence in.</p>
+    {%- endif %}
+    </div>
+  </div>
+  {%- if rot.peak_not_tallest or rot.settle_can_move or rot.since_sunday or rot.next_sunday %}
+  <p class="note">
+    {%- if rot.state == "drawn" %}
+    {%- if rot.peak_not_tallest %} Your peak isn't the tallest bar in “Where the week went”, below: that chart counts everything each week measured.{% endif %}
+    {%- if rot.settle_can_move %} Settling a reading under “Readings to settle” can change the drawing.{% endif %}
+    {%- if rot.since_sunday %} Weeks before Sun {{ rot.since_sunday }} are left out: {% if rot.cut == "thin" %}too little of that week and the one before it was measured the same way.{% else %}the week before it had no brain rot, so nothing earlier can be scaled through it.{% endif %}{% endif %}
+    {%- endif %}
+    {%- if rot.next_sunday %} The week of Sun {{ rot.next_sunday }} is drawn the Monday after it ends.{% endif %}</p>
+  {%- endif %}
+</section>
+{%- endmacro %}

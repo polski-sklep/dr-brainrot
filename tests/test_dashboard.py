@@ -631,3 +631,36 @@ def test_records_page_filters_tool(client, conn, clk, settings):
     resp = client.get("/records?label=tool")
     assert resp.status_code == 200
     assert "amazon.pl" in text(resp) and "reddit.com" not in text(resp)
+
+
+# ==========================================================================
+# The brain against your peak week (#rot)
+# ==========================================================================
+
+def test_the_brain_renders_on_an_empty_database_as_not_measured(client):
+    html = text(client.get("/"))
+    part = section(html, "rot")
+    assert "Not measured yet" in flat(part)
+    assert 'role="img"' in part and 'aria-label="Grey brain outline, nothing drawn' in part
+    assert "rot-blank" in part                         # never a clean, healthy brain
+
+
+def test_the_brain_never_names_the_product_or_borrows_another_components_classes(
+        client, conn, clk, settings):
+    populate(conn, clk, settings)
+    for html in (text(client.get("/")), text(client.get("/?week=2026-09-06"))):
+        part = section(html, "rot")
+        assert not re.search(r"\bDRBR\b|Dr\.? ?Brainrot", part)
+        assert "What it was" not in part                 # P4-01 compares first occurrences
+        classes = {c for attr in re.findall(r'class="([^"]+)"', part) for c in attr.split()}
+        assert not {c for c in classes
+                    if c.startswith(("bar-", "state-", "import-", "progress-", "win"))}
+        ids = re.findall(r'\sid="([^"]+)"', html)
+        assert len(ids) == len(set(ids)), "duplicate ids on the page"
+
+
+def test_the_lead_row_gives_the_panel_below_its_margin_back():
+    css = CSS.read_text()
+    first_of_type = css.index("section:first-of-type")
+    for rule in (".lead + section { margin-top: var(--s8); }", ".lead > section { margin-top: 0; }"):
+        assert css.index(rule) > first_of_type        # same specificity: source order decides

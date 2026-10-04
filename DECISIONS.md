@@ -2099,3 +2099,69 @@ unchanged: Qbserve had stopped on Wednesday afternoon while the Mac was still in
 use (Cold Turkey logged 36 minutes on Thursday), so Thursday's desktop-app time
 is lost — Qbserve records live and cannot fill a gap afterwards. The warning
 already tells him to set it to open at login.
+
+### DR5.20 — The brain beside the summary grows mould against your own peak week
+
+**4 October 2026.** Jacob asked for the wordmark's brain, large, beside the
+summary, growing more mould the more brain rot a week held — "full brain rot"
+being his own peak week. It is the first picture on the dashboard that means
+something, so three choices had to be made about what it measures.
+
+**The peak is like for like, not the biggest raw total.** By the raw charged
+total the peak is 20–26 Sep (330 min), and the brain would be fully covered
+today. But 20–26 Sep is simply the first week the phone browser was measured
+by site (DR5.13): a total that grows when a sensor is added would make the
+first well-instrumented week the "worst" forever, and no later week could
+ever look better against it. Instead each finished week is compared with the
+one before exactly as the progress panel compares them (`progress._compare`,
+DR5.17), and the comparisons are chained: I(w) = I(w−1) × after / before. The
+peak is the highest I; the drawing is the shown week's I over it. Today that
+puts the peak at 13–19 Sep and 20–26 Sep at 0.67 of it.
+
+**A thin overlap is never chained.** What both weeks measured must hold at
+least a quarter of *each* week's brain rot (`MIN_LINK_SHARE`). The progress
+panel shows a thin pair once; chained, a 7-minute overlap (a week whose Screen
+Time and Cold Turkey export both went missing) would multiply every later
+week by 21 / 7.4 and set a peak that stood for the rest of the diagnostic.
+Today's real pairs hold 36–91% of their weeks. A thin pair cuts the run, and
+so does a week before with no brain rot at all; weeks before a cut are left
+out and the page says so. When the shown week itself is cut, the page says
+which: too little measured the same way (grey, not drawn), or nothing the
+week before to scale against — and two clean weeks in a row are a clean brain.
+
+**It describes the last finished week, never the running one** — the same
+week as the progress panel beneath it, so the two can never disagree about
+which week they mean.
+
+**It is drawn in tenths, with the exact share printed beside it.** The
+like-for-like figure is honest to roughly ±15 points once coverage is allowed
+for, so it is drawn at the nearest tenth (seven of ten today) and the tenths
+are never named. Beside it go the exact share and both weeks' minutes when the
+peak is the week before, or the newest week-on-week comparisons when it is
+chained. Any brain rot at all draws at least the mark's own
+three specks; zero draws a clean brain; a week that couldn't be compared, or
+no finished week at all, draws a grey dashed outline — absence is not zero. A
+new peak is drawn full and the words say how far over it went — but only past
+the progress panel's own level rule, so the lead row never announces a record
+for a change the panel below calls level; a smaller rise reads "100%, a little
+above it". Settling the
+Facebook reading (2h 27m or 2h 37m) moves today's drawing from seven to five.
+
+**Mould is coloured, here only.** §1 of the design doc says no good/bad colour
+for consumption; this component reverses it at his request and nowhere else.
+Mould starts in the mark's own speck green and greys as it ages, with a pale
+frayed rim and a stain on the tissue round it, so it reads as mould and not
+as the `--win` green of a week that went well. No red, no score, no named
+levels, and the figures are always printed beside the drawing.
+
+`progress.py` gains `Link`, `PeakChain`, `chain_index` and `peak_chain`,
+additively: they call `_week_described`, `_load` and `_compare` and change
+none of them. The session that owns `progress.py` was not running when this
+landed; nothing it wrote was edited.
+
+**"N sources set aside" counted lines, not sources** — in the progress panel
+too, since DR5.17. A whole channel is one line in that list and can hold
+dozens of sources, and "2 phone apps below the end of a cut-off list" is one
+line for two. Both panels now say what was left out in the units it has: one
+channel by name, several by count, and sources counted apart ("the phone
+browser by site and 3 sources set aside").

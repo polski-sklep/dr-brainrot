@@ -504,3 +504,240 @@ def test_a_newer_week_outranks_a_relabel(conn, clk, settings):
 
 def test_no_summary_is_never_stale(conn, settings):
     assert dashboard_app.insight_staleness(conn, None, "2026-09-20", settings.tz) is None
+
+
+# ==========================================================================
+# The brain against your peak week: geometry and wording (rot_view)
+# ==========================================================================
+
+import progress  # noqa: E402
+
+W13, W20, W27 = ("2026-09-13T16:00:00+00:00", "2026-09-20T16:00:00+00:00",
+                 "2026-09-27T16:00:00+00:00")
+
+
+def _link(sunday, before, after, *, undecided=0.0, channels=(), sources=0, unreadable=0,
+          start=W20):
+    saturday = {"2026-09-20": "2026-09-26", "2026-09-27": "2026-10-03"}[sunday]
+    return progress.Link(start, sunday, saturday, before, after, undecided, channels, sources,
+                         unreadable)
+
+
+def _chain(ratio, steps, *, state="drawn", week=("2026-09-20", "2026-09-26"), start=W20,
+           unreadable=0):
+    return progress.PeakChain(state, start, week[0], week[1], ratio, W13, "2026-09-13",
+                              "2026-09-19", tuple(steps), (W13, start), None, unreadable)
+
+
+class _Eye:                                       # report.EyeRow, as far as rot_view reads it
+    def __init__(self, day):
+        self.day = day
+
+
+@pytest.mark.parametrize("ratio,step", [
+    (None, None), (0, 0), (1e-9, 1), (0.05, 1), (0.14, 1), (0.15, 2), (0.6, 6), (0.61, 6),
+    (0.67, 7), (0.7, 7), (0.5445, 5), (0.85, 9), (0.901, 9), (0.94, 9), (0.95, 10), (1.0, 10),
+    (1.2, 10),
+])
+def test_the_brain_is_drawn_at_the_nearest_tenth_and_never_clean_with_rot_in_it(ratio, step):
+    assert dashboard_app.drawn_step(ratio) == step
+
+
+def test_todays_step_holds_under_every_disputed_reading_but_settling_facebook():
+    """0.670 today; 0.687 with X's desktop half kept; 0.539 / 0.523 once Facebook is settled."""
+    assert {dashboard_app.drawn_step(r) for r in (0.670, 0.687)} == {7}
+    assert {dashboard_app.drawn_step(r) for r in (0.539, 0.523)} == {5}
+
+
+def test_the_first_step_is_the_icon():
+    assert [(c.cx, c.cy, c.r) for c in dashboard_app.STEP_COLONIES[1]] == [
+        (8.2, 9.1, 1.15), (15.4, 12.4, 1.05), (10.9, 14.9, 0.9)]
+    first = dashboard_app.specimen(0.1)
+    assert len(first.mould) == 3 and first.bruises == () and first.spores == ()
+    assert all(m["young"] for m in first.mould)           # the icon's own speck green
+
+
+def test_a_heavier_step_contains_every_colony_of_a_lighter_one():
+    for lighter, heavier in zip(dashboard_app.STEP_COLONIES, dashboard_app.STEP_COLONIES[1:]):
+        big = {c.seat: c.r for c in heavier}
+        assert all(c.seat in big and big[c.seat] >= c.r for c in lighter)
+    assert len(dashboard_app.STEP_COLONIES[10]) > len(dashboard_app.STEP_COLONIES[9])
+
+
+def _outline_polygon(steps=24):
+    nums = [float(n) for n in re.findall(r"-?\d*\.?\d+", dashboard_app.BRAIN_OUTLINE)]
+    x, y, pts, i = nums[0], nums[1], [], 2
+    while i + 6 <= len(nums):
+        c1x, c1y, c2x, c2y, ex, ey = nums[i:i + 6]
+        for k in range(1, steps + 1):
+            t = k / steps
+            a, b, c, d = (1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t ** 3
+            pts.append((a * x + b * c1x + c * c2x + d * ex, a * y + b * c1y + c * c2y + d * ey))
+        x, y, i = ex, ey, i + 6
+    return pts
+
+
+def test_every_seat_sits_well_inside_the_brain():
+    poly = _outline_polygon()
+
+    def inside(px, py):
+        hit, j = False, len(poly) - 1
+        for k, (xi, yi) in enumerate(poly):
+            xj, yj = poly[j]
+            if (yi > py) != (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi:
+                hit = not hit
+            j = k
+        return hit
+
+    def edge(px, py):
+        return min(((px - x) ** 2 + (py - y) ** 2) ** 0.5 for x, y in poly)
+
+    for cx, cy, *_ in dashboard_app.SEATS:
+        assert inside(cx, cy) and edge(cx, cy) >= 1.1, (cx, cy)
+
+
+def test_the_same_week_always_draws_the_same_brain():
+    assert dashboard_app.specimen(0.67, 0.04, "a") == dashboard_app.specimen(0.67, 0.04, "a")
+    assert dashboard_app.rot_view(None, []) == dashboard_app.rot_view(None, [])
+
+
+def test_undecided_time_is_drawn_apart_and_only_when_a_patch_fits():
+    assert dashboard_app.specimen(0.67, 0.0).undecided == ()
+    everything = dashboard_app.specimen(0.67, 1.0)
+    assert everything.mould == () and len(everything.undecided) == 18
+    assert dashboard_app.specimen(0.1, 0.01).undecided == ()        # too small a share to draw
+
+
+def test_nothing_measured_is_a_blank_brain_never_a_clean_one():
+    view = dashboard_app.rot_view(None, [])
+    assert view["state"] == "not_measured" and view["specimen"].step is None
+    assert view["specimen"].mould == () and "nothing drawn" in view["alt"]
+
+
+def test_one_step_prints_both_like_for_like_figures():
+    split = _split(week_start=W20, wasteful_min=324.8, unclassified_min=4.8)
+    peak = _split(week_start=W13, wasteful_min=210.4, unclassified_min=6.5)
+    view = dashboard_app.rot_view(
+        _chain(118.58 / 177.07, [_link("2026-09-20", 177.07, 118.58, undecided=4.74,
+                                       channels=("the phone browser by site",), sources=3,
+                                       unreadable=1)], unreadable=1),
+        [peak, split], eye=[_Eye("2026-09-14")])
+    assert view["single"] and (view["before_min"], view["after_min"]) == (177.07, 118.58)
+    assert view["pct"] == "67%" and view["specimen"].step == 7
+    assert view["counted_min"] == 118.58 and view["week_charged_min"] == pytest.approx(329.6)
+    assert view["peak_not_tallest"] and view["settle_can_move"]
+    assert view["set_aside"] == "the phone browser by site and 3 sources"
+    assert "119 min" in view["alt"] and "177 min" in view["alt"] and "not measured" not in view["alt"]
+
+
+def test_several_steps_never_set_minutes_from_different_bases_side_by_side():
+    view = dashboard_app.rot_view(_chain(0.5445, [
+        _link("2026-09-20", 177.07, 118.58), _link("2026-09-27", 207.82, 168.97, start=W27)],
+        week=("2026-09-27", "2026-10-03"), start=W27), [])
+    assert not view["single"] and view["before_min"] is None and view["after_min"] is None
+    assert [s["sunday"] for s in view["steps"]] == ["2026-09-27", "2026-09-20"]
+    assert [s["change"] for s in view["steps"]] == ["down 19%", "down 33%"]
+    assert view["specimen"].step == 5 and "about 54%" in view["alt"]
+
+
+def test_a_new_peak_is_drawn_full_and_the_rest_said_in_words():
+    view = dashboard_app.rot_view(_chain(1.2, [_link("2026-09-20", 100.0, 120.0)]), [])
+    assert view["is_new_peak"] and view["over_pct"] == "20%" and view["pct"] == "100%"
+    assert view["specimen"].step == 10
+    assert "new peak week" in view["alt"] and "not measured" not in view["alt"]
+
+
+def test_the_overview_carries_the_brain_last(client, conn, clk, settings, monkeypatch):
+    seen = []
+    real = dashboard_app.render_template
+
+    def capture(name, **ctx):
+        if name == "overview.html":
+            seen.append(list(ctx))
+        return real(name, **ctx)
+
+    monkeypatch.setattr(dashboard_app, "render_template", capture)
+    assert client.get("/").status_code == 200
+    assert seen[0][-1] == "rot" and seen[0][-2] == "insight_stale_reason"
+
+
+def test_settling_is_only_offered_when_there_is_a_reading_to_settle():
+    chain = _chain(0.67, [_link("2026-09-20", 177.07, 118.58, unreadable=1)], unreadable=1)
+    assert not dashboard_app.rot_view(chain, [])["settle_can_move"]       # no "Readings to settle"
+    assert dashboard_app.rot_view(chain, [], eye=[_Eye("2026-09-21")])["settle_can_move"]
+    assert not dashboard_app.rot_view(chain, [], eye=[_Eye("2026-09-29")])["settle_can_move"]
+
+
+def test_set_aside_counts_channels_and_sources_apart():
+    assert dashboard_app.set_aside_phrase((), 0) == ""
+    assert dashboard_app.set_aside_phrase(("the phone browser by site",), 0) == "the phone browser by site"
+    assert dashboard_app.set_aside_phrase(("a", "b"), 11) == "2 channels and 11 sources"
+    assert dashboard_app.set_aside_phrase((), 1) == "1 source"
+
+
+def test_a_rise_the_panel_calls_level_is_never_a_new_peak():
+    view = dashboard_app.rot_view(_chain(251 / 250, [_link("2026-09-20", 250.0, 251.0)]), [])
+    assert not view["is_new_peak"] and view["above_peak"] and view["pct"] == "100%"
+    assert view["over_pct"] is None and "new peak" not in view["alt"]
+
+
+def test_a_sliver_of_brain_rot_never_reads_as_zero():
+    view = dashboard_app.rot_view(_chain(1 / 250, [_link("2026-09-20", 250.0, 1.0)]), [])
+    assert view["specimen"].step == 1 and view["pct"] == "under 1%"
+    assert "0%" not in view["alt"]
+    assert dashboard_app._undecided_min(0.03) == "Under 0.1 min"      # it opens a sentence
+
+
+def test_the_tallest_bar_is_the_one_the_chart_draws():
+    peak = _split(week_start=W13, wasteful_min=200.0, worthwhile_min=150.0)       # bar 350
+    shown = _split(week_start=W20, wasteful_min=250.0)                            # bar 250
+    chain = _chain(0.8, [_link("2026-09-20", 200.0, 160.0)])
+    assert not dashboard_app.rot_view(chain, [peak, shown])["peak_not_tallest"]
+    peak = _split(week_start=W13, wasteful_min=200.0)                             # bar 200
+    assert dashboard_app.rot_view(chain, [peak, shown])["peak_not_tallest"]
+
+
+def test_the_alt_gives_undecided_time_in_minutes():
+    view = dashboard_app.rot_view(
+        _chain(0.67, [_link("2026-09-20", 177.07, 118.58, undecided=40.0)]), [])
+    assert view["undecided_drawn"] and "40 min of the week's 119 min is undecided time" in view["alt"]
+    assert "patches are" not in view["alt"]
+
+
+def test_the_first_step_draws_the_marks_own_flat_specks():
+    first = dashboard_app.specimen(0.1)
+    assert all(m["plain"] for m in first.mould) and first.bloom == ()
+    assert not any(m["plain"] for m in dashboard_app.specimen(0.2).mould)
+
+
+def test_a_clean_week_before_and_two_clean_weeks_say_so():
+    nothing = progress.PeakChain("nothing_before", W20, "2026-09-20", "2026-09-26", None, None,
+                                 None, None, (_link("2026-09-20", 0.0, 30.0),), (), None)
+    view = dashboard_app.rot_view(nothing, [])
+    assert view["specimen"].step is None and "had no brain rot" in view["alt"]
+    clean = progress.PeakChain("nothing_before", W20, "2026-09-20", "2026-09-26", None, None,
+                               None, None, (_link("2026-09-20", 0.0, 0.0),), (), None)
+    view = dashboard_app.rot_view(clean, [])
+    assert view["specimen"].step == 0 and view["clean_both"]
+
+
+def test_the_progress_panel_phrase_opens_its_sentence_capitalised():
+    p = progress.Progress(W20, "2026-09-20", "2026-09-26", W13, "down", "Down.", 177.0, 119.0,
+                          ("x",), (), (), ("the phone browser by site",), 1, 2)
+    assert dashboard_app.progress_set_aside(p) == "The phone browser by site and 3 sources"
+
+
+def test_two_quiet_weeks_with_something_left_out_are_not_called_clean():
+    chain = progress.PeakChain("nothing_before", W20, "2026-09-20", "2026-09-26", None, None,
+                               None, None, (_link("2026-09-20", 0.0, 0.0, sources=1),), (), None)
+    view = dashboard_app.rot_view(chain, [])
+    assert not view["clean_both"] and view["specimen"].step is None
+
+
+def test_a_week_just_above_the_peak_is_the_benchmark_it_is_about_to_become():
+    shown = _split(week_start=W20, wasteful_min=262.0)
+    peak = _split(week_start=W13, wasteful_min=250.0)
+    view = dashboard_app.rot_view(_chain(262 / 250, [_link("2026-09-20", 250.0, 262.0)]),
+                                  [peak, shown])
+    assert view["above_peak"] and not view["is_new_peak"]
+    assert not view["peak_not_tallest"]         # the shown week is the tallest, and the benchmark

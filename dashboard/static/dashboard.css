@@ -14,7 +14,9 @@
    2. No targets, scores or streaks. There is no "good" colour. Green appears
       only for import pipeline health (did the data arrive), never for the
       user's own consumption. The wasteful/worthwhile split uses a neutral
-      lightness ramp, not hue, so the chart makes no judgement.
+      lightness ramp, not hue, so the chart makes no judgement. One component
+      reverses this at Jacob's request, and only that one: the brain beside
+      the summary, whose mould is coloured (DR5.20, the end of this file).
    ========================================================================== */
 
 :root {
@@ -1186,3 +1188,168 @@ ul.progress-aside { margin-bottom: 0; }
 .eye-forms { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
 .eye-forms form { margin: 0; display: flex; gap: var(--s1); align-items: center; }
 .eye-other input { width: 5em; }
+
+/* ==========================================================================
+   The brain against your peak week (#rot). Appended at the END of
+   dashboard.css: .lead > section and .lead + section have the same
+   specificity as section:first-of-type (0,1,1), so source order decides.
+
+   Added at Jacob's explicit request (DECISIONS DR5.20): the wordmark's brain,
+   large, with the latest finished week's brain rot grown on it as mould,
+   scaled to his own peak week, like for like. It reverses §1's "no good/bad
+   colour for consumption" for this one component and keeps everything else:
+   no score, no named levels, no red, the figures always printed beside it,
+   and a peak that is his own benchmark, never a target.
+   ========================================================================== */
+
+:root {
+  /* -- The brain: the wordmark's own colours, so the large brain is the mark. */
+  --rot-tissue:        #F4CFD3;   /* its surface. = the wordmark fill.               */
+  --rot-tissue-spoilt: #D8C9B4;   /* the surface at your peak week, laid over
+                                     --rot-tissue at the drawn level. Dulls toward
+                                     a sallow beige: decay, never red.              */
+  --rot-stain:         #B9A27A;   /* blurred stain round a grown colony, at 45%.     */
+  --rot-outline:       #A85964;   /* outline and folds. = the wordmark stroke.
+                                     4.9:1 on --surface.                            */
+  /* -- Mould: the one place on the page where a colour means brain rot. It
+        starts as the mark's own speck green (#46A46A) and greys as it ages,
+        dusty rather than leafy, so it is mould, not the --win green of a week
+        that went well: shape (frayed colonies on a brain) carries it too.     */
+  --rot-speck:         #46A46A;   /* the mark's own speck: the first step, flat.     */
+  --rot-young-0: #2F8150; --rot-young-1: #46A46A; --rot-young-2: #5DB07B; --rot-young-3: #86C597;
+  --rot-grown-0: #355F45; --rot-grown-1: #4E8A62; --rot-grown-2: #6FA580; --rot-grown-3: #A3C6A6;
+  --rot-bloom:         #F3F5EA;   /* the pale frayed rim of a grown colony.          */
+  --rot-spore:         #28452F;   /* spores on a large colony: maturity, not data.   */
+  /* Undecided patches reuse --series-undecided / --series-undecided-edge: the
+     same job as the chart's undecided band (counted, never called brain rot). */
+}
+
+/* -- The lead row: the summary and the brain -------------------------------- */
+/* Both stay bare, un-nested <section>s in a plain wrapper, so every section()
+   regex in the tests is untouched. Wrapping them makes #progress main's first
+   <section>, which section:first-of-type would pull up to 20px: the last rule
+   gives it back its 32px. */
+.lead { margin-top: var(--s5); }
+.lead > section { margin-top: 0; }
+.lead > section + section { margin-top: var(--s8); }
+.lead + section { margin-top: var(--s8); }
+
+/* Beside the summary from 1440px. In the lead row the summary keeps its
+   below-1100px shape, provenance under the paragraph: beside the 300px
+   provenance column the brain's figures dropped under the drawing, leaving a
+   tall empty field beside a short summary. This way the two panels end level
+   and any spare width falls at the page edge. Below 1440 the brain stacks
+   under the summary. */
+@media (min-width: 1440px) {
+  .lead {
+    display: grid;
+    grid-template-columns: minmax(0, calc(var(--measure) + var(--s4) * 2 + 4px)) minmax(0, 1fr);
+    column-gap: var(--s6);
+    align-items: start;
+  }
+  .lead > section + section { margin-top: 0; }
+  .lead > section:only-child { grid-column: 1 / -1; }
+  .lead .generated { display: block; }
+  .lead .generated-meta {
+    margin: var(--s3) 0 0;
+    border-left: none;
+    border-top: 1px solid var(--hairline);
+    padding: var(--s2) 0 0;
+  }
+}
+
+/* -- The plate: the brain and the figures it draws, side by side, the figures
+      dropping under the brain when the column is narrow. Framed, never lifted;
+      it hugs its content. ---------------------------------------------------- */
+.rot-plate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s4) var(--s6);
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--s4) var(--s5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+}
+.rot-figure { margin: 0; flex: none; }
+.rot-read { flex: 1 1 200px; max-width: 34ch; min-width: 0; font-size: var(--fs-table); }
+
+/* The share of your peak week leads, at the progress panel's amount size; the
+   two like-for-like figures sit under it as a small specimen label. */
+.rot-share { margin: 0 0 var(--s3); color: var(--text-secondary); }
+.rot-share strong { font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; }
+.rot-pct {
+  display: block;
+  font-size: 40px;
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.rot-readings { margin: 0 0 var(--s3); border-top: 1px solid var(--hairline); }
+.rot-readings > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s4);
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.rot-readings dt { color: var(--text-secondary); }
+.rot-readings dd {
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+}
+/* The benchmark is context, not this week: the quieter of the two. Chained
+   steps are all context, so every one of them is quiet, and stacked. */
+.rot-readings > div + div dd { font-weight: 600; color: var(--text-secondary); }
+.rot-steps > div { display: block; }
+.rot-steps dd { margin-top: 2px; font-weight: 600; color: var(--text-secondary); }
+.rot-sub { font-size: var(--fs-meta); font-weight: 400; color: var(--text-muted); }
+.rot-line { margin: 0 0 var(--s2); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* What the drawing means, said once, beside it. */
+.rot-key { margin: 0 0 var(--s2); color: var(--text); }
+.rot-read > :last-child { margin-bottom: 0; }
+#rot > .note { margin-top: var(--s2); max-width: var(--measure); }
+
+/* -- The brain -------------------------------------------------------------- */
+/* Large, and larger where the column allows: 260px up to 400px. Strokes are in
+   brain units, so the large brain keeps the mark's chunky outline and folds
+   (.58 ~ 13px at 400px, about half the mark's own ratio, which would be a rope
+   at this size). */
+.rot-brain { display: block; width: clamp(260px, 21vw, 400px); height: auto; }
+.rot-tissue { fill: var(--rot-tissue); }
+.rot-spoil { fill: var(--rot-tissue-spoilt); }
+.rot-folds { fill: none; stroke: var(--rot-outline); stroke-width: .42; stroke-linecap: round; opacity: .75; }
+.rot-outline { fill: none; stroke: var(--rot-outline); stroke-width: .58; stroke-linejoin: round; }
+.rot-stain { fill: var(--rot-stain); opacity: .45; }
+.rot-bloom { fill: var(--rot-bloom); stroke: var(--rot-bloom); stroke-width: .55; stroke-linejoin: round; }
+.rot-young-0 { stop-color: var(--rot-young-0); } .rot-young-1 { stop-color: var(--rot-young-1); }
+.rot-young-2 { stop-color: var(--rot-young-2); } .rot-young-3 { stop-color: var(--rot-young-3); }
+.rot-grown-0 { stop-color: var(--rot-grown-0); } .rot-grown-1 { stop-color: var(--rot-grown-1); }
+.rot-grown-2 { stop-color: var(--rot-grown-2); } .rot-grown-3 { stop-color: var(--rot-grown-3); }
+.rot-speck { fill: var(--rot-speck); }
+.rot-spores { fill: var(--rot-spore); }
+/* Undecided, apart: the chart's undecided band, dashed because the call is
+   still open, and never frayed, with no rim, stain or spores, so shape says it
+   as well as hue. The dash is long enough to read at the 240px phone size. */
+.rot-undecided { fill: var(--series-undecided); stroke: var(--series-undecided-edge); stroke-width: .13; stroke-dasharray: .3 .18; }
+
+/* Nothing to draw is not a clean brain: absence is not zero. Grey tissue and a
+   dashed grey outline (5.4:1), whatever the reason; the text says which. */
+.rot-blank .rot-tissue { fill: var(--surface-sunk); }
+.rot-blank .rot-folds { stroke: var(--border-strong); opacity: 1; }
+.rot-blank .rot-outline { stroke: var(--text-muted); stroke-width: .38; stroke-dasharray: .9 .6; }
+
+/* A fixed length, not a percentage: inside the `flex: none` figure a
+   percentage width is cyclic and the box falls back to 300px around it. */
+@media (max-width: 760px) {
+  .rot-brain { width: 240px; max-width: 100%; }
+}

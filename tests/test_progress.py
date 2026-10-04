@@ -362,3 +362,158 @@ Finding = progress.Finding
 def _plain(findings):
     """Findings without their source ids, for comparing text."""
     return [Finding(f.kind, f.text) for f in findings]
+
+
+# ==========================================================================
+# The brain against your peak week (DR5.20): peak_chain
+# ==========================================================================
+
+@pytest.mark.parametrize("pairs,expected", [
+    ([], None),                                      # the first week: nothing behind it
+    ([(0.0, 5.0)], None),                            # nothing comparable with the week before
+    ([(177.07, 118.58)], (0, 0, 118.58 / 177.07)),   # 20 Sep against 13 Sep, as the panel says
+    ([(177.07, 118.58), (207.82, 168.97)], (0, 0, 118.58 / 177.07 * 168.97 / 207.82)),
+    ([(100.0, 120.0)], (0, 0, 1.2)),                 # a new peak: above 1, capped only when drawn
+    ([(100.0, 50.0), (40.0, 80.0)], (0, 0, 1.0)),    # a tie goes to the earliest week
+    ([(10.0, 5.0), (0.0, 3.0), (4.0, 8.0)], (2, 2, 2.0)),   # an old break bounds the run, never blanks it
+    ([(10.0, 0.0), (5.0, 5.0)], (1, 1, 1.0)),        # a week at zero cannot carry the chain back
+    ([(10.0, 0.0)], (0, 0, 0.0)),                    # nothing on what both measured: a clean brain
+    ([(25.0, 7.0), (7.0, 25.0)], (0, 0, 1.0)),       # 7/25 * 25/7 is a tie, not a new peak
+    ([(25.0, 7.0), (7.0, 25.0), (25.0, 20.0)], (0, 0, 0.8)),  # ...so the peak stays the earliest
+])
+def test_the_chain_index_moves_with_each_like_for_like_step(pairs, expected):
+    got = progress.chain_index(pairs)
+    if expected is None:
+        assert got is None
+    else:
+        assert got[:2] == expected[:2] and got[2] == pytest.approx(expected[2])
+
+
+def test_the_brain_chains_exactly_the_pair_the_panel_shows(conn, clk, settings):
+    web(conn, clk, settings, "2026-09-15", {"reddit.com": 60, "news.example": 10})
+    web(conn, clk, settings, "2026-09-22", {"reddit.com": 20, "news.example": 10})
+    wasteful(conn, clk, (SITE, "reddit.com"))
+
+    p = progress.progress(conn, clk, settings)
+    ch = progress.peak_chain(conn, clk, settings)
+    assert ch.state == "drawn" and ch.week_start == p.week_start
+    assert (ch.week_sunday, ch.peak_sunday) == (B[0], A[0])
+    (step,) = ch.steps
+    assert (step.before_min, step.after_min) == (p.before_min, p.after_min) == (70, 30)
+    assert ch.ratio == pytest.approx(30 / 70)
+    # news.example has no label: charged, inside the comparison, and counted apart.
+    assert step.undecided_after_min == 10
+    assert step.direction == p.direction == "down"
+
+
+def test_an_unreadable_reading_is_left_out_of_the_peak_and_flagged(conn, clk, settings):
+    screen_time(conn, clk, settings, A, {"Instagram": 40}, unreadable=("Facebook",))
+    screen_time(conn, clk, settings, B, {"Instagram": 40, "Facebook": 56})
+    wasteful(conn, clk, (APP, "Instagram"), (APP, "Facebook"))
+
+    ch = progress.peak_chain(conn, clk, settings)
+    (step,) = ch.steps
+    assert (step.before_min, step.after_min) == (40, 40)      # never "rose from nothing"
+    assert step.unreadable == 1 and step.sources_set_aside == 1 and step.channels_set_aside == ()
+    assert ch.unreadable == 1                     # settling it can move the drawing
+
+
+def test_the_brain_is_none_exactly_when_the_panel_is(settings, tmp_path):
+    c = open_db(make_settings(tmp_path, db_path=tmp_path / "empty.db", tz=TZ,
+                              go_live="2026-10-30", weekly_allowance_min=360))
+    early = clock.FrozenClock("2026-09-16T10:00:00+00:00")
+    assert progress.progress(c, early, settings) is None
+    assert progress.peak_chain(c, early, settings) is None
+    c.close()
+
+
+def test_the_first_finished_week_sets_the_benchmark(conn, clk, tmp_path):
+    late = make_settings(tmp_path, db_path=tmp_path / "late.db", tz=TZ, go_live="2026-09-20",
+                         weekly_allowance_min=360)
+    c = open_db(late)
+    evidence.ensure_diagnostic_start(c, B[0])
+    web(c, clk, late, "2026-09-22", {"reddit.com": 30})
+    ch = progress.peak_chain(c, clk, late)
+    assert ch.state == "first_week" and ch.ratio is None and ch.steps == ()
+    c.close()
+
+
+def test_the_running_week_never_joins_the_chain(conn, clk, settings):
+    """Sunday 4 Oct: the brain still describes 20-26 Sep, like the panel, not the open week."""
+    web(conn, clk, settings, "2026-09-15", {"reddit.com": 60})
+    web(conn, clk, settings, "2026-09-22", {"reddit.com": 20})
+    web(conn, clk, settings, "2026-09-29", {"reddit.com": 900})          # 27 Sep: not yet due
+    wasteful(conn, clk, (SITE, "reddit.com"))
+    sunday = clock.FrozenClock("2026-10-04T10:00:00+00:00")
+    ch = progress.peak_chain(conn, sunday, settings)
+    assert ch.week_sunday == B[0] and len(ch.steps) == 1
+    assert ch.ratio == pytest.approx(20 / 60)
+
+
+def test_the_overview_draws_the_brain_beside_the_summary_naming_both_weeks(conn, clk, settings):
+    import re
+    web(conn, clk, settings, "2026-09-15", {"reddit.com": 60, "news.example": 10})
+    web(conn, clk, settings, "2026-09-22", {"reddit.com": 20, "news.example": 10})
+    wasteful(conn, clk, (SITE, "reddit.com"))
+
+    _client, html = _page(settings, clk)
+    part = _section(html, "rot")
+    text = " ".join(re.sub(r"<[^>]+>", " ", part).split())
+    assert "Week of Sun 2026-09-20 – Sat 2026-09-26, against your peak week" in text
+    assert "43% of your peak week" in text
+    assert "This week 30 min" in text and "Peak week, Sun 2026-09-13 70 min" in text
+    assert "Only what both weeks measured: 30 min of this week's" in text
+    assert "10 min of those 30 min is still undecided" in text
+    label = re.search(r'<svg class="rot-brain[^"]*"[^>]*role="img" aria-label="([^"]+)"', part).group(1)
+    assert "30 min" in label and "70 min" in label and "Sun 2026-09-13" in label
+    # Its own section, a sibling: never inside the summary or the panel.
+    assert html.count('<section id="rot">') == 1
+    assert 'id="rot"' not in _section(html, "progress")
+    assert html.index('<section id="rot">') < html.index('<section id="progress">')
+
+
+def test_a_thin_overlap_is_never_chained(conn, clk, settings):
+    """Phone time missing from the week described: what both weeks measured is a
+    sliver of the week before, and chaining it would multiply every later week."""
+    screen_time(conn, clk, settings, A, {"Instagram": 200})
+    web(conn, clk, settings, "2026-09-15", {"reddit.com": 10})
+    web(conn, clk, settings, "2026-09-22", {"reddit.com": 20})
+    wasteful(conn, clk, (APP, "Instagram"), (SITE, "reddit.com"))
+
+    ch = progress.peak_chain(conn, clk, settings)
+    assert ch.state == "not_comparable" and ch.ratio is None
+    (step,) = ch.steps
+    assert (step.before_min, step.after_min) == (10, 20)
+    assert step.channels_set_aside == ("Screen Time",)
+
+
+def test_a_clean_week_before_is_nothing_to_scale_against_not_a_mismatch(conn, clk, settings):
+    web(conn, clk, settings, "2026-09-15", {"news.example": 10})
+    web(conn, clk, settings, "2026-09-22", {"news.example": 10, "reddit.com": 30})
+    label_source(conn, clk, SITE, "news.example", T.WORTHWHILE)
+    wasteful(conn, clk, (SITE, "reddit.com"))
+
+    ch = progress.peak_chain(conn, clk, settings)
+    assert ch.state == "nothing_before" and ch.steps[-1].after_min == 30
+
+
+def test_a_cut_says_why_weeks_before_it_are_left_out(conn, clk, settings):
+    sunday = clock.FrozenClock("2026-10-07T10:00:00+00:00")       # shows 27 Sep - 3 Oct
+    screen_time(conn, clk, settings, A, {"Instagram": 200})
+    web(conn, clk, settings, "2026-09-15", {"reddit.com": 10})
+    web(conn, clk, settings, "2026-09-22", {"reddit.com": 40})
+    web(conn, clk, settings, "2026-09-29", {"reddit.com": 30})
+    wasteful(conn, clk, (APP, "Instagram"), (SITE, "reddit.com"))
+
+    ch = progress.peak_chain(conn, sunday, settings)
+    assert ch.state == "drawn" and ch.since_sunday == B[0] and ch.cut == "thin"
+    assert ch.from_sunday == A[0] and ch.ratio == pytest.approx(30 / 40)
+
+
+def test_two_clean_weeks_are_a_clean_brain(conn, clk, settings):
+    web(conn, clk, settings, "2026-09-15", {"news.example": 10})
+    web(conn, clk, settings, "2026-09-22", {"news.example": 12})
+    label_source(conn, clk, SITE, "news.example", T.WORTHWHILE)
+
+    ch = progress.peak_chain(conn, clk, settings)
+    assert ch.state == "nothing_before" and ch.steps[-1].after_min == 0

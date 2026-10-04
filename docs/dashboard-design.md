@@ -31,6 +31,16 @@ In Jacob's first two weeks the naive comparison said *up 56%* and the honest
 one said *down 28%*; the caveat is the feature, not small print. Its heading
 names its own week, which is often not the week the strip above shows.
 
+**Beside the summary, the brain** (DR5.20): the mark, large, with the last
+finished week's brain rot grown on it as mould against your own peak week,
+like for like. It is the page's one picture and its quickest answer — how bad
+was last week, against the worst so far — so it sits at the top with the
+summary, and the exact share is printed beside it, with both weeks' minutes
+when the peak is the week before, or the newest week-on-week comparisons when
+it is chained.
+It describes the same week as the progress panel under it, never the running
+week.
+
 **Readings to settle** sit beside "What isn't counted yet": a reading OCR could
 not decide between (Facebook, 2h 27m or 2h 37m) is one click from counting.
 The route existed from DR5.6 but no template ever drew the form — a feature
@@ -71,6 +81,16 @@ rather than "brain rot", and the name deserves the joke. The brain reads at
 all three sizes; at 21px the specks register as flecks rather than as dots,
 which is enough.
 
+**The large brain on the Overview is the same mark** — the same outline,
+folds and fill, from the same constants (`BRAIN_OUTLINE`, `BRAIN_FOLDS` in
+`app.py`, which `base.html` also draws from), with its first step of mould
+exactly the mark's three specks. Its strokes scale with it, at about half the
+mark's own ratio: at the mark's ratio a 400px brain has a 22px rope for an
+outline, and at a fixed 1.75px (the first prototype) it stopped looking like
+the mark at all. Mould grows from the specks through 25 fixed seats, so the
+same week always draws the same brain and a heavier week contains every
+colony of a lighter one.
+
 ## 1. Visual direction
 
 A restrained analytical tool, not a product dashboard. Neutral surfaces,
@@ -84,6 +104,8 @@ reason this does not look like a generic admin template:
 1. **DRBR makes no good/bad claim.** There are no targets, scores or streaks.
    So there is no "good" colour and no "bad" colour for consumption. The
    wasteful/worthwhile split is told apart by **lightness, not hue**.
+   One component reverses this at Jacob's request (DR5.20): the brain beside
+   the summary, where mould is coloured. Nothing else borrows it.
 2. **Provenance is never flattened.** Every figure carries where it came from.
    Provenance is metadata and appears on nearly every row, so it is styled to
    be *quiet*; a genuine warning must always win the page.
@@ -237,6 +259,27 @@ and stays silent about which is better. The light series was darkened from
 against the page.
 
 ---
+
+### The brain (`--rot-*`)
+
+| Token | Value | Role |
+|---|---|---|
+| `--rot-tissue` | `#F4CFD3` | the brain's surface; the mark's fill |
+| `--rot-tissue-spoilt` | `#D8C9B4` | laid over the tissue at the drawn share: decay toward sallow beige, never red |
+| `--rot-stain` | `#B9A27A` | blurred stain round a grown colony, at 45% |
+| `--rot-outline` | `#A85964` | outline and folds; the mark's stroke |
+| `--rot-speck` | `#46A46A` | the mark's own speck: the first step is drawn flat in it, unfrayed |
+| `--rot-young-0…3` | `#2F8150` → `#86C597` | colonies born at the drawn step, centred on the speck green |
+| `--rot-grown-0…3` | `#355F45` → `#A3C6A6` | older colonies: dustier, greyer, so mould is never the `--win` green |
+| `--rot-bloom` | `#F3F5EA` | the pale frayed rim round a grown colony |
+| `--rot-spore` | `#28452F` | spores on a large colony: texture, not data |
+
+Undecided patches reuse `--series-undecided` and its edge, dashed: the same
+job as the chart's undecided band. Mould edges are frayed by an SVG turbulence
+filter with fixed seeds, in brain units, so they are identical at every size
+and on every render. Undecided patches are never frayed — displacement breaks
+a dash into speckle — so they keep a clean dashed edge, which also sets them
+apart from mould by shape.
 
 ### Copy
 
@@ -573,3 +616,10 @@ A third, quieter breakpoint at **1500px** governs whether tables absorb spare
 width or simply size to their content. It is not a layout change the reader
 would notice — no column moves, nothing stacks — which is why it is not listed
 with the two above.
+
+From **1440px** the Overview's lead row puts the brain beside the summary, and
+the summary keeps its narrow shape there (provenance under the paragraph, not
+in a 300px column beside it). With the provenance column the brain's figures
+dropped under the drawing and left a tall empty field beside a short summary;
+without it the two panels end level and any spare width falls at the page
+edge. Below 1440px the brain stacks under the summary.

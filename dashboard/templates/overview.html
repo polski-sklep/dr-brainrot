@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import badge, caveat, hint %}
+{% from "_rot.html" import rot_section %}
 {% block title %}Overview{% endblock %}
 {% block content %}
 
@@ -8,6 +9,9 @@
 <p class="note">You decide what counts as brain rot; this page only adds it up. There is nothing to hit here, just weeks to compare.
 {% if window_start %}Figures start at {{ window_start }}.{% endif %}</p>
 
+{#- The lead row: the summary and, beside it from 1440px, the brain against
+    your peak week. Two sibling sections in a plain wrapper: never nested. -#}
+<div class="lead">
 {% if insight %}
 <section id="insight">
   {#- The heading names the week the summary describes, which is the last
@@ -50,6 +54,8 @@
   labels behind it are yours.</p>
 </section>
 {% endif %}
+{{ rot_section(rot) }}
+</div>
 
 {# ================================================================= DR5.17
    The latest finished week against the one before — like for like, or not
@@ -92,7 +98,7 @@
     </div>
   </div>
   {% endif %}
-  <p class="progress-verdict">{{ progress.verdict }}{% if progress.set_aside %} <a class="progress-setaside-count" href="#progress-set-aside">{{ progress.set_aside|length }} source{{ "" if progress.set_aside|length == 1 else "s" }} set aside</a> — the comparison leaves them out.{% endif %}</p>
+  <p class="progress-verdict">{{ progress.verdict }}{% if progress.set_aside %} <a class="progress-setaside-count" href="#progress-set-aside">{{ progress_set_aside(progress) }} set aside</a> — the comparison leaves them out.{% endif %}</p>
 
   <div class="progress-cols">
     {% if progress.previous_start %}

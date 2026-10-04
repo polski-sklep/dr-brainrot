@@ -34,9 +34,11 @@ suggest how anything should be labelled.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Sequence
 
 import allowance
 import drbr_types as T
@@ -447,3 +449,158 @@ def progress(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Progre
                     tuple(_wins(conn, clk, settings, now, prev, pair)),
                     tuple(_tips(conn, now, prev, pair)),
                     pair.channels, pair.unreadable, pair.below_cut)
+
+
+# --- the brain against your peak week (DR5.20) -----------------------------------
+# Additive: it calls _week_described, _load and _compare and changes none of them,
+# so every step it chains is exactly a pair the progress panel would show.
+
+@dataclass(frozen=True)
+class Link:
+    """One finished week against the week before it, exactly as the progress panel compares them."""
+
+    week_start: str                # allowance week start of the later week
+    sunday: str                    # its measurement week, ISO dates
+    saturday: str
+    before_min: float              # the earlier week, on what both weeks measured
+    after_min: float               # this week, on the same basis
+    undecided_after_min: float     # of after_min: sources with no label yet
+    channels_set_aside: tuple[str, ...]  # whole channels only one of the two weeks measured
+    sources_set_aside: int         # sources left out: unreadable, or below a cut-off list
+    unreadable: int                # of those, readings that couldn't be read
+
+    @property
+    def direction(self) -> str:
+        """`_verdict`'s own rule, so a step reads exactly as the panel would read it."""
+        diff = self.after_min - self.before_min
+        if self.before_min <= 0:
+            return "level" if self.after_min <= 0 else "up"
+        if abs(diff / self.before_min * 100) < LEVEL_PCT or abs(diff) < LEVEL_MIN:
+            return "level"
+        return "down" if diff < 0 else "up"
+
+    @property
+    def change(self) -> float | None:
+        """|after / before - 1|, or None when there was nothing before."""
+        return abs(self.after_min / self.before_min - 1) if self.before_min > 0 else None
+
+
+@dataclass(frozen=True)
+class PeakChain:
+    """The described week against your peak week, one like-for-like week at a time."""
+
+    state: str                     # "drawn" | "first_week" | "nothing_before" | "not_comparable"
+    week_start: str                # == Progress.week_start
+    week_sunday: str
+    week_saturday: str
+    ratio: float | None            # I(shown) / highest I before it. Above 1 is a new peak.
+    peak_start: str | None         # allowance week start of the peak week (the previous one, on a new peak)
+    peak_sunday: str | None
+    peak_saturday: str | None
+    steps: tuple[Link, ...]        # peak week -> shown week, oldest first; the last is the panel's pair
+    segment: tuple[str, ...]       # allowance week starts the ratio was chained across
+    since_sunday: str | None       # set when the chain restarts after the first finished week
+    unreadable: int = 0            # unreadable readings on any link that decides the ratio,
+                                   # including the one that cut the run: settling one can move it
+    from_sunday: str | None = None # first measurement week those links touch
+    cut: str | None = None         # why weeks before since_sunday are left out:
+                                   # "thin" (too little measured the same way) | "zero"
+
+
+def chain_index(pairs: Sequence[tuple[float, float]]) -> tuple[int, int, float] | None:
+    """Where the last of len(pairs)+1 weeks stands against the highest week before it.
+
+    `pairs[i]` is (before, after) comparing week i+1 with week i, like for like,
+    oldest first. Returns (segment_start, peak, ratio): the first week of the
+    unbroken run of comparisons ending at the last week, the earliest week in
+    that run with the highest chained index, and the last week's index over it.
+    A link with nothing comparable before it (before == 0) cannot be crossed,
+    nor can a week whose chained index fell to zero carry it on: either bounds
+    the run instead of blanking it. None when the last week has no comparable
+    week behind it at all.
+    """
+    n = len(pairs)
+    start = n
+    while start > 0:
+        before, after = pairs[start - 1]
+        # A link is crossed only with something before it to scale by, and a
+        # week whose index fell to zero cannot carry the chain further back.
+        if before <= 0 or (start < n and after <= 0):
+            break
+        start -= 1
+    if start == n:
+        return None
+    index = [1.0]
+    for before, after in pairs[start:]:
+        index.append(index[-1] * after / before)
+    earlier = index[:-1]
+    top = max(earlier)                       # >= 1: the run's first week is 1
+    # Float noise must not break a tie (7/25 * 25/7 is 1.0000000000000002): the
+    # earliest of equal weeks is the peak, and a week equal to it is level.
+    peak = next(i for i, x in enumerate(earlier) if math.isclose(x, top, rel_tol=1e-9))
+    ratio = index[-1] / top
+    return start, start + peak, 1.0 if math.isclose(ratio, 1.0, rel_tol=1e-9) else ratio
+
+
+#: What both weeks measured must hold at least this share of EACH week's brain
+#: rot for the pair to be chained. The progress panel shows a thin pair once;
+#: chained, a 7-minute overlap would multiply every later week by after/before
+#: and could set a peak that stands for the rest of the diagnostic. Today's
+#: real pairs hold 36-91% of their weeks.
+MIN_LINK_SHARE = 0.25
+
+
+def peak_chain(conn, clk, settings) -> PeakChain | None:
+    """The described week against your peak week, like for like. Read-only.
+
+    None exactly when `progress()` is None. Every link is `_compare` on two
+    adjacent finished weeks, so the last link is the progress panel's own pair
+    and each step moves with it.
+    """
+    floor = report.window_start(conn, clk, settings)
+    if floor is None:
+        return None
+    shown = _week_described(clk, settings)
+    if shown.end < floor:
+        return None
+    weeks = [shown]
+    while True:
+        earlier = T.measurement_week(weeks[0].sunday - timedelta(days=7))
+        if earlier.end < floor:
+            break
+        weeks.insert(0, earlier)
+    splits = {s.week_start: s for s in report.label_split(conn, clk, settings)}
+    loaded = [_load(conn, clk, settings, w, splits) for w in weeks]
+    links: list[Link] = []
+    for i in range(1, len(weeks)):
+        now, prev = loaded[i], loaded[i - 1]
+        pair = _compare(conn, now, prev)
+        undecided = sum(after for key, (_, after) in pair.per_source.items()
+                        if key in now.lines and now.lines[key].label is None)
+        links.append(Link(now.start, weeks[i].start, weeks[i].end, pair.before, pair.after,
+                          undecided, pair.channels, pair.unreadable + pair.below_cut,
+                          pair.unreadable))
+    # A thin pair is cut exactly like one with nothing before it (before == 0).
+    thin = [l.before_min < MIN_LINK_SHARE * loaded[i].pooled.charged_min
+            or l.after_min < MIN_LINK_SHARE * loaded[i + 1].pooled.charged_min
+            for i, l in enumerate(links)]
+    base = dict(week_start=loaded[-1].start, week_sunday=shown.start, week_saturday=shown.end)
+    placed = chain_index([(0.0 if t else l.before_min, l.after_min) for l, t in zip(links, thin)])
+    if placed is None:
+        # Not thin, so before == 0 on a real overlap: the week before had no brain
+        # rot at all (a share of nothing is never thin), which is not a mismatch.
+        state = ("first_week" if not links else "not_comparable" if thin[-1]
+                 else "nothing_before")
+        return PeakChain(state, ratio=None, peak_start=None, peak_sunday=None, peak_saturday=None,
+                         steps=tuple(links[-1:]), segment=(), since_sunday=None,
+                         unreadable=sum(l.unreadable for l in links[-1:]),
+                         from_sunday=weeks[-2].start if links else None, **base)
+    start, peak, ratio = placed
+    return PeakChain("drawn", ratio=ratio, peak_start=loaded[peak].start,
+                     peak_sunday=weeks[peak].start, peak_saturday=weeks[peak].end,
+                     steps=tuple(links[peak:]),
+                     segment=tuple(w.start for w in loaded[start:]),
+                     since_sunday=weeks[start].start if start > 0 else None,
+                     unreadable=sum(l.unreadable for l in links[max(start - 1, 0):]),
+                     from_sunday=weeks[max(start - 1, 0)].start,
+                     cut=("thin" if thin[start - 1] else "zero") if start > 0 else None, **base)

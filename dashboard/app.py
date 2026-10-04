@@ -46,11 +46,12 @@ Why it is shaped like this.
 from __future__ import annotations
 
 import logging
+import math
 import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Callable
+from typing import Callable, Sequence
 
 from flask import Flask, abort, g, redirect, render_template, request, url_for
 from markupsafe import Markup, escape
@@ -400,6 +401,373 @@ def week_summary(splits: list[report.WeekSplit], week_start: str) -> report.Week
     return None
 
 
+# The brain against your peak week (#rot). Scale only; no judgement: the ratio
+# is progress.peak_chain's, and everything below only selects and words it.
+
+# --- identity: the wordmark's own geometry (base.html reads these too) -------
+BRAIN_OUTLINE = ("M12 4.6C9.6 3.3 6.4 4.1 5.4 6.3C3.5 6.9 2.9 9 4 10.6C3.1 12.2 3.8 14.4 5.6 15.1"
+                 "C6 17.3 8.3 18.6 10.3 17.9C11 18.9 13 18.9 13.7 17.9C15.7 18.6 18 17.3 18.4 15.1"
+                 "C20.2 14.4 20.9 12.2 20 10.6C21.1 9 20.5 6.9 18.6 6.3C17.6 4.1 14.4 3.3 12 4.6Z")
+BRAIN_FOLDS = ("M12 4.6V17.9M9 7.4c-1.6.5-2 2.2-1.2 3.2M15 7.4c1.6.5 2 2.2 1.2 3.2"
+               "M8.4 13.2c-.9.5-1 1.6-.4 2.3M15.6 13.2c.9.5 1 1.6.4 2.3")
+#: Cropped to the outline's box (x 3.45-20.55, y 3.97-18.65) plus stroke room.
+BRAIN_VIEWBOX = "2.8 3.3 18.4 16.1"
+
+#: Drawn in whole tenths of your peak week. The like-for-like figure is honest
+#: to roughly +/-15 points (20-26 Sep lies between 61% and 91% of 13-19 Sep
+#: once coverage is allowed for), so drawing it to the percent would be false
+#: precision. Steps are never named or numbered on the page.
+STEPS = 10
+
+#: Where mould grows: (cx, cy, born, r_first, r_full). `born` is the first
+#: drawn step a colony exists on. The first three are the icon's three specks,
+#: at the icon's coordinates and radii, so the first step IS the mark. The rest
+#: were placed once (farthest-point, 2.2 units apart, centres at least 1.15
+#: inside the outline) and ordered outward from the specks, alternating
+#: hemispheres, so rot spreads from where the mark puts it. Frozen here as
+#: literals: nothing is generated at render time.
+SEATS = (
+    (8.2, 9.1, 1, 1.15, 1.90), (15.4, 12.4, 1, 1.05, 1.80), (10.9, 14.9, 1, 0.90, 1.61),
+    (10.2, 7.9, 2, 0.42, 1.35), (13.8, 14.5, 2, 0.42, 1.51), (10.2, 10.3, 2, 0.42, 1.35),
+    (12.2, 17.3, 3, 0.42, 1.56), (6.0, 10.9, 3, 0.42, 1.63), (12.4, 12.3, 4, 0.42, 1.51),
+    (7.0, 6.1, 4, 0.42, 1.45), (17.2, 14.9, 4, 0.42, 1.45), (8.8, 12.3, 5, 0.42, 1.40),
+    (17.8, 10.3, 5, 0.42, 1.40), (7.8, 16.5, 6, 0.42, 1.40), (15.8, 8.9, 6, 0.42, 1.40),
+    (4.8, 8.3, 6, 0.42, 1.47), (19.2, 12.3, 7, 0.42, 1.40), (10.0, 5.3, 7, 0.42, 1.51),
+    (12.4, 9.3, 8, 0.42, 1.40), (5.6, 13.7, 8, 0.42, 1.47), (15.0, 16.9, 8, 0.42, 1.42),
+    (12.2, 6.7, 9, 0.42, 1.35), (19.2, 8.3, 9, 0.42, 1.40), (17.2, 6.3, 10, 0.90, 0.90),
+    (14.4, 5.3, 10, 0.90, 0.90),
+)
+#: Radius follows sqrt of age, so each colony's AREA grows evenly per step and
+#: the covered share of the brain tracks the ratio. Measured by rasterising the
+#: outline: mould plus its halo covers 19%, 35%, 55%, 68% and 90% of what it
+#: covers at the peak, at steps 2, 4, 6, 7 and 9; the last step still changes
+#: 16% of the brain's area, more than steps 2 to 4 together.
+GROWTH = 0.5
+#: Lumpiness by age (drawn step - born): the icon's three specks are born
+#: plain and round, exactly as the mark draws them; every colony roughens as
+#: it ages, and later colonies are born a little rough.
+LUMP = (0.0, 0.04, 0.06, 0.07, 0.08, 0.09, 0.09, 0.10, 0.10, 0.10)
+LOBES = 22
+#: The tissue a colony has spoilt round itself, blurred, once it is past its
+#: first step: rot stains the brain beyond the mould's own edge.
+BRUISE_K, BRUISE_ADD = 1.45, 0.2
+#: Spores show once a colony is clearly larger than an icon speck.
+SPORE_FROM_R, SPORE_EVERY_R, SPORE_MAX, SPORE_R = 1.2, 0.18, 5, 0.09
+SPORE_UNIT = ((0.05, -0.1), (0.45, 0.2), (-0.4, 0.28), (0.3, -0.45), (-0.32, -0.38))
+GOLDEN_DEG = 137.508
+
+
+def _n(x: float) -> str:
+    s = f"{x:.2f}".rstrip("0").rstrip(".")
+    return "0" if s in ("-0", "") else s
+
+
+def _blob(cx: float, cy: float, r: float, lump: float, phase: float) -> str:
+    """A closed lumpy outline round (cx, cy). lump 0 is a circle, drawn with arcs.
+
+    A slow swell plus a fine scallop: a colony's edge, not a pebble's.
+    """
+    if lump == 0:
+        return (f"M{_n(cx - r)} {_n(cy)}a{_n(r)} {_n(r)} 0 1 0 {_n(2 * r)} 0"
+                f"a{_n(r)} {_n(r)} 0 1 0 {_n(-2 * r)} 0Z")
+    pts = []
+    for j in range(LOBES):
+        t = 2 * math.pi * j / LOBES
+        k = 1 + lump * (math.sin(3 * t + phase) + 0.6 * math.sin(5 * t + 1.7 * phase)
+                        + 0.35 * math.sin(11 * t + 2.3 * phase))
+        pts.append((cx + r * k * math.cos(t), cy + r * k * math.sin(t)))
+    d = [f"M{_n(pts[0][0])} {_n(pts[0][1])}"]
+    for i in range(LOBES):               # closed Catmull-Rom through the points, as cubics
+        p0, p1, p2, p3 = pts[i - 1], pts[i], pts[(i + 1) % LOBES], pts[(i + 2) % LOBES]
+        c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
+        c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+        d.append(f"C{_n(c1[0])} {_n(c1[1])} {_n(c2[0])} {_n(c2[1])} {_n(p2[0])} {_n(p2[1])}")
+    return "".join(d) + "Z"
+
+
+@dataclass(frozen=True)
+class Colony:
+    seat: int
+    cx: float
+    cy: float
+    r: float
+    age: int
+    d: str                         # absolute path, computed at import
+
+
+def _colonies_at(step: int) -> tuple[Colony, ...]:
+    out = []
+    for i, (cx, cy, born, r0, rf) in enumerate(SEATS):
+        if step < born:
+            continue
+        age = step - born
+        p = age / (STEPS - born) if born < STEPS else 0.0
+        r = r0 + (rf - r0) * p ** GROWTH
+        lump = LUMP[age] if (age or born == 1) else LUMP[1]   # only the icon's specks are born round
+        out.append(Colony(i, cx, cy, round(r, 3), age, _blob(cx, cy, r, lump, i * 0.83)))
+    return tuple(out)
+
+
+#: Every step's colonies, computed once at import: a render is selection only.
+STEP_COLONIES = tuple(_colonies_at(s) for s in range(STEPS + 1))
+
+
+def drawn_step(ratio: float | None) -> int | None:
+    """The nearest whole tenth, never rounded up past it, and capped at the peak.
+
+    Any brain rot at all draws at least step 1, the icon's three specks: a clean
+    brain means zero minutes and nothing else. round(x, 6) first, so float noise
+    such as 0.7 * 10 = 7.000000000000001 can never move a step. Half-tenths go
+    up (floor(x + 0.5)), not to the even neighbour as Python's round() would.
+    """
+    if ratio is None:
+        return None
+    if ratio <= 0:
+        return 0
+    return min(STEPS, max(1, math.floor(round(ratio * STEPS, 6) + 0.5)))
+
+
+@dataclass(frozen=True)
+class Specimen:
+    step: int | None               # 0..10; None draws the blank outline
+    spoil: float                   # fill-opacity of the spoilt-tissue layer: step / 10
+    mould: tuple[dict, ...]        # {ref, d, young, plain}: drawn twice (pale rim, then body),
+                                   # merged; young = born at the drawn step, in the speck green;
+                                   # plain = still the mark's own flat speck (step 1 only)
+    undecided: tuple[str, ...]     # path d's, drawn apart with the undecided band's tint and dashed edge
+    bruises: tuple[dict, ...]      # {cx, cy, r}: blurred stains round colonies past their first step
+    spores: tuple[dict, ...]       # {cx, cy, r}
+    uid: str
+    bloom: tuple[str, ...] = ()    # refs of the grown colonies that carry the pale, frayed rim
+    outline: str = BRAIN_OUTLINE
+    folds: str = BRAIN_FOLDS
+    viewbox: str = BRAIN_VIEWBOX
+
+
+def specimen(ratio: float | None, undecided_share: float = 0.0, uid: str = "rot") -> Specimen:
+    """Geometry for one brain. `ratio` is the shown week over your peak week, like for like.
+
+    `undecided_share` is undecided minutes over the compared minutes of the
+    shown week. That share of the mould's area is drawn apart, youngest colonies
+    first, a colony counting once at least half of it fits (so a small share
+    can draw nothing, and the page then says "too small a share to draw").
+    """
+    step = drawn_step(ratio)
+    if step is None:
+        return Specimen(None, 0.0, (), (), (), (), uid)
+    cols = STEP_COLONIES[step]
+    total = sum(c.r * c.r for c in cols)
+    target, taken, undecided = max(0.0, min(1.0, undecided_share)) * total, 0.0, set()
+    for c in sorted(cols, key=lambda c: (c.age, -c.seat)):        # youngest first
+        a = c.r * c.r
+        if taken + a / 2 > target:
+            break
+        undecided.add(c.seat)
+        taken += a
+    mould, und, bruises, spores = [], [], [], []
+    for c in cols:
+        if c.seat in undecided:
+            und.append(c.d)
+            continue
+        # plain: still exactly the mark's own speck (step 1), drawn flat and unfrayed.
+        mould.append({"ref": f"{uid}-c{c.seat}", "d": c.d, "young": c.age == 0,
+                      "plain": c.age == 0 and SEATS[c.seat][2] == 1})
+        if c.age >= 1:
+            bruises.append({"cx": _n(c.cx), "cy": _n(c.cy), "r": _n(c.r * BRUISE_K + BRUISE_ADD)})
+        if c.r >= SPORE_FROM_R:
+            k = min(SPORE_MAX, 1 + int((c.r - SPORE_FROM_R) / SPORE_EVERY_R))
+            turn = math.radians(c.seat * GOLDEN_DEG)
+            for ux, uy in SPORE_UNIT[:k]:
+                x = ux * math.cos(turn) - uy * math.sin(turn)
+                y = ux * math.sin(turn) + uy * math.cos(turn)
+                spores.append({"cx": _n(c.cx + x * c.r * 0.8), "cy": _n(c.cy + y * c.r * 0.8),
+                               "r": _n(SPORE_R)})
+    return Specimen(step, step / STEPS, tuple(mould), tuple(und), tuple(bruises), tuple(spores), uid,
+                    bloom=tuple(m["ref"] for m in mould if not m["young"]))
+
+
+def _pct(x: float) -> str:
+    return f"{x * 100:.0f}%"
+
+
+def _share(x: float) -> str:
+    """_pct for a share of the peak week. Any brain rot at all draws mould, so a
+    share above zero never prints as 0%."""
+    s = _pct(x)
+    return "under 1%" if x > 0 and s == "0%" else s
+
+
+def set_aside_phrase(channels: tuple[str, ...], sources: int) -> str:
+    """What a like-for-like comparison left out, counted honestly.
+
+    A whole channel is one line in the set-aside list but may hold dozens of
+    sources, so channels and sources are never added together: one channel is
+    named, several are counted.
+    """
+    parts = []
+    if len(channels) == 1:
+        parts.append(channels[0])
+    elif channels:
+        parts.append(f"{len(channels)} channels")
+    if sources:
+        parts.append(f"{sources} source{'' if sources == 1 else 's'}")
+    return " and ".join(parts)
+
+
+def progress_set_aside(p: progress.Progress) -> str:
+    """set_aside_phrase where it opens a sentence, as it does in the progress panel."""
+    phrase = set_aside_phrase(p.channels_set_aside, p.unreadable_sources + p.below_cut_sources)
+    return phrase[:1].upper() + phrase[1:]
+
+
+def _undecided_min(x: float) -> str:
+    """fmt_min, except that a sliver above zero never reads as "0.0 min". It opens
+    a sentence wherever it is printed, so it is capitalised."""
+    return "Under 0.1 min" if 0 < x < 0.05 else fmt_min(x)
+
+
+#: Chained steps printed beside the brain, newest first; older ones are counted.
+MAX_STEPS_SHOWN = 3
+
+_BLANK = {
+    "state": "not_measured", "week_sunday": None, "week_saturday": None, "next_sunday": None,
+    "specimen": None, "alt": "", "ratio": None, "pct": None, "is_new_peak": False,
+    "over_pct": None, "above_peak": False, "single": False, "after_min": None,
+    "before_min": None, "steps": (), "earlier_steps": 0, "peak_sunday": None,
+    "peak_saturday": None, "counted_min": None, "week_charged_min": None, "set_aside": "",
+    "undecided_min": None, "undecided_text": None, "undecided_drawn": 0,
+    "settle_can_move": False, "peak_not_tallest": False, "since_sunday": None, "cut": None,
+    "clean_both": False,
+}
+
+
+def rot_view(chain: progress.PeakChain | None, splits: list[report.WeekSplit],
+             uid: str = "rot", eye: Sequence[report.EyeRow] = ()) -> dict:
+    """Everything #rot prints and draws. Selection and wording only.
+
+    `chain` is progress.peak_chain(...) or None; `splits` is the list
+    report.label_split already returned to overview(); `eye` is
+    report.needs_your_eye's rows, so the page only points at "Readings to
+    settle" when that section is there to point at. Never None, so the
+    section renders on an empty database and before any summary exists.
+    """
+    by_start = {s.week_start: s for s in splits}
+    # Every key, always: the template branches on state and never meets an Undefined.
+    base = dict(_BLANK)
+    if chain is None:
+        return base | {"specimen": specimen(None, uid=uid),
+                       "alt": "Grey brain outline, nothing drawn: no week has finished with its "
+                              "evidence in yet."}
+    nxt = (date.fromisoformat(chain.week_sunday) + timedelta(days=7)).isoformat()
+    base |= {"state": chain.state, "week_sunday": chain.week_sunday,
+             "week_saturday": chain.week_saturday,
+             "next_sunday": nxt if any(s.week_start > chain.week_start for s in splits) else None}
+    who = f"the week of Sun {chain.week_sunday}"
+    if chain.state == "first_week":
+        return base | {"specimen": specimen(None, uid=uid),
+                       "alt": (f"Grey brain outline, nothing drawn: {who} is the first finished "
+                               "week, so it sets the benchmark.")}
+    if chain.state == "not_comparable":
+        return base | {"specimen": specimen(None, uid=uid),
+                       "alt": (f"Grey brain outline, nothing drawn: too little of {who} and the "
+                               "week before was measured the same way to compare them.")}
+    if chain.state == "nothing_before":
+        # Not thin, so the week before had no brain rot at all. If this week had
+        # none either, and nothing was left out or unreadable, that is a clean
+        # brain, not an absence.
+        last = chain.steps[-1]
+        clean = (last.after_min <= 0 and not chain.unreadable
+                 and not last.channels_set_aside and not last.sources_set_aside)
+        return base | {"specimen": specimen(0.0 if clean else None, uid=uid), "clean_both": clean,
+                       "counted_min": last.after_min,
+                       "set_aside": set_aside_phrase(last.channels_set_aside,
+                                                     last.sources_set_aside),
+                       "alt": (f"Brain with no mould: no brain rot in {who} or the week before."
+                               if clean else
+                               f"Grey brain outline, nothing drawn: the week before {who} had no "
+                               "brain rot, so there is nothing to scale it against.")}
+
+    last = chain.steps[-1]
+    ratio = chain.ratio
+    single = len(chain.steps) == 1
+    # A new peak only past the progress panel's own level rule, so the lead row
+    # never announces a record for a change the panel below calls level.
+    new_peak = ratio > 1 and (ratio - 1) * 100 >= progress.LEVEL_PCT and (
+        not single or last.direction == "up")
+    undecided_share = (last.undecided_after_min / last.after_min) if last.after_min > 0 else 0.0
+    sp = specimen(min(ratio, 1.0), undecided_share, uid)
+    newest = list(reversed(chain.steps))
+    earlier = max(0, len(newest) - MAX_STEPS_SHOWN)
+    first_against = "your previous peak week" if new_peak else "your peak week"
+    steps = [{"sunday": l.sunday,
+              "against": first_against if l is chain.steps[0] else "the week before",
+              "before_min": l.before_min, "after_min": l.after_min,
+              "change": ("level" if l.direction == "level"
+                         else f"{l.direction} {_pct(l.change)}")} for l in newest[:MAX_STEPS_SHOWN]]
+    # The week the page now calls your peak: the shown week itself whenever it is
+    # above the old one, called a new peak or not, because chain_index makes it the
+    # benchmark from next week either way.
+    bench = by_start.get(chain.week_start if ratio > 1 else chain.peak_start)
+    charged = by_start[chain.week_start].charged_min if chain.week_start in by_start else None
+    # "Tallest bar" means what split_bars draws: every counted minute, worthwhile too.
+    bar = lambda s: s.charged_min + s.worthwhile_min            # noqa: E731
+    peak_not_tallest = bench is not None and any(bar(s) > bar(bench) for s in splits)
+
+    peak = f"Sun {chain.peak_sunday}"
+    if new_peak and single:
+        alt = (f"Brain covered in mould: {who} is a new peak week, {fmt_min(last.after_min)} of brain "
+               f"rot against {fmt_min(last.before_min)} in your previous peak week of {peak}, "
+               "counting only what both weeks measured.")
+    elif new_peak:
+        alt = (f"Brain covered in mould: {who} is a new peak week, about {_share(ratio - 1)} above "
+               f"your previous peak week of {peak}, taking each week against the one before it.")
+    elif ratio == 0 and single:
+        alt = (f"Brain with no mould: {who} had no brain rot on what it and your peak week of "
+               f"{peak} both measured.")
+    elif ratio == 0:
+        alt = (f"Brain with no mould: {who} had no brain rot on what it and the week before both "
+               f"measured, so 0% of your peak week of {peak}.")
+    elif single:
+        alt = (f"Brain with mould for {_share(min(ratio, 1.0))} of your peak week. Week of Sun "
+               f"{chain.week_sunday}: {fmt_min(last.after_min)} of brain rot against "
+               f"{fmt_min(last.before_min)} in your peak week of {peak}, counting only what both "
+               "weeks measured.")
+    else:
+        parts = ", ".join(f"Sun {s['sunday']} {s['change']} ({fmt_min(s['before_min'])} to "
+                          f"{fmt_min(s['after_min'])})" for s in reversed(steps))
+        if earlier:
+            parts = f"{earlier} earlier week{'' if earlier == 1 else 's'} from {peak}, then {parts}"
+        share = _share(min(ratio, 1.0))
+        share = share if share.startswith("under") else f"about {share}"
+        alt = (f"Brain with mould for {share} of your peak week, {peak}, "
+               f"taking each week against the one before it: {parts}.")
+    if sp.undecided:
+        alt += (f" {_undecided_min(last.undecided_after_min)} of the week's "
+                f"{fmt_min(last.after_min)} is undecided time, drawn as dashed patches.")
+
+    return base | {
+        "specimen": sp, "alt": alt,
+        "ratio": ratio, "pct": _share(min(ratio, 1.0)), "is_new_peak": new_peak,
+        "over_pct": _share(ratio - 1) if new_peak else None,
+        "above_peak": ratio > 1 and not new_peak,
+        "single": single,
+        "after_min": last.after_min if single else None,
+        "before_min": last.before_min if single else None,
+        "steps": tuple(steps), "earlier_steps": earlier,
+        "peak_sunday": chain.peak_sunday, "peak_saturday": chain.peak_saturday,
+        "counted_min": last.after_min, "week_charged_min": charged,
+        "set_aside": set_aside_phrase(last.channels_set_aside, last.sources_set_aside),
+        "undecided_min": last.undecided_after_min,
+        "undecided_text": _undecided_min(last.undecided_after_min),
+        "undecided_drawn": len(sp.undecided),
+        # Only a reading in the weeks the ratio was chained across can move it.
+        "settle_can_move": bool(chain.unreadable) and any(
+            (chain.from_sunday or "") <= r.day <= chain.week_saturday for r in eye),
+        "peak_not_tallest": peak_not_tallest,
+        "since_sunday": chain.since_sunday, "cut": chain.cut,
+    }
+
+
 def week_imports(conn: sqlite3.Connection, clk: Clock, settings: Settings,
                  totals: list[report.SourceTotal]) -> list[report.ImportSummary]:
     """The imports the week's rows report on, so "partial" links to *its* warnings.
@@ -504,6 +872,8 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         PROV_SCREENSHOT=T.PROV_SCREENSHOT, PROV_BROWSER_SYNC=T.PROV_BROWSER_SYNC, HTMX_URL=HTMX_URL, HTMX_SRI=HTMX_SRI,
         UNKNOWN_CHANNEL_REASON=UNKNOWN_CHANNEL_REASON, WASTEFUL=T.WASTEFUL, WORTHWHILE=T.WORTHWHILE,
         TOOL=T.TOOL, TOOL_TEXT=TOOL_TEXT,
+        BRAIN={"outline": BRAIN_OUTLINE, "folds": BRAIN_FOLDS},
+        progress_set_aside=progress_set_aside,
     )
 
     @app.context_processor
@@ -564,7 +934,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             window_start=floor,
             needs=report.needs_attention(c, clk, settings),
             provenance_rows=report.provenance_map(c, clk, settings),
-            needs_your_eye=report.needs_your_eye(c, clk, settings),
+            needs_your_eye=(eye := report.needs_your_eye(c, clk, settings)),
             unlabelled=labels.unlabelled_summary(c, clk, settings),
             flash=flash_from(request.args),
             # Appended, never reordered: the design pass reads this call's
@@ -572,6 +942,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             insight=(latest_insight := insights.latest(c, clk, settings)),
             insight_stale_reason=insight_staleness(c, latest_insight, week.last_complete_sunday,
                                                    settings.tz),
+            rot=rot_view(progress.peak_chain(c, clk, settings), splits, eye=eye),
         )
 
     def _label_filters(args) -> tuple[str | None, str | None]:
