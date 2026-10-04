@@ -413,6 +413,195 @@ BRAIN_FOLDS = ("M12 4.6V17.9M9 7.4c-1.6.5-2 2.2-1.2 3.2M15 7.4c1.6.5 2 2.2 1.2 3
 #: Cropped to the outline's box (x 3.45-20.55, y 3.97-18.65) plus stroke room.
 BRAIN_VIEWBOX = "2.8 3.3 18.4 16.1"
 
+# --- the large brain's own detail (#rot only) --------------------------------
+# The 21px mark keeps only the outline, the four folds above and its three
+# specks; the tab icon only the outline and specks. Only the large brain is
+# drawn in full. It is the same brain:
+# the same outline, midline and four folds (now its deepest grooves), with the
+# rest of its grooves, its light and its lobes added round them. Light comes
+# from the upper left. Every groove is a filled, tapered ribbon with round ends,
+# so it swells and thins like a brush line. Placed by hand once (in brain
+# units) and frozen here as literals: nothing is generated at render time.
+#: The two hemispheres, each closed along the midline (the bottom lobe split at
+#: its own lowest point, 12 18.65), so each gets its own dome of light.
+BRAIN_HALVES = ("M12 4.6C9.6 3.3 6.4 4.1 5.4 6.3C3.5 6.9 2.9 9 4 10.6C3.1 12.2 3.8 14.4 5.6 15.1"
+                "C6 17.3 8.3 18.6 10.3 17.9C10.65 18.4 11.33 18.65 12 18.65Z",
+                "M12 4.6C14.4 3.3 17.6 4.1 18.6 6.3C20.5 6.9 21.1 9 20 10.6C20.9 12.2 20.2 14.4 18.4 15.1"
+                "C18 17.3 15.7 18.6 13.7 17.9C13.35 18.4 12.67 18.65 12 18.65Z")
+#: A soft pool of light on each hemisphere's upper shoulder.
+BRAIN_GLOW = ("M3.9 7.3A3.4 2.6 0 1 1 10.7 7.3A3.4 2.6 0 1 1 3.9 7.3Z",
+              "M12.4 6.9A2.9 2.2 0 1 1 18.2 6.9A2.9 2.2 0 1 1 12.4 6.9Z")
+#: The deepest grooves: the mark's midline and four folds (the same lines as
+#: BRAIN_FOLDS), tapered.
+BRAIN_DEEP = ("M8.97 7.31C7.23 7.65 6.71 9.7 7.74 10.65A.08 .08 0 0 0 7.86 10.55"
+              "C7.29 9.5 7.57 8.15 9.03 7.49A.09 .09 0 0 0 8.97 7.31ZM14.97 7.49"
+              "C16.43 8.15 16.71 9.5 16.14 10.55A.08 .08 0 0 0 16.26 10.65"
+              "C17.29 9.7 16.77 7.65 15.03 7.31A.09 .09 0 0 0 14.97 7.49ZM8.36 13.13"
+              "C7.31 13.52 7.16 14.92 7.95 15.55A.07 .07 0 0 0 8.05 15.45"
+              "C7.64 14.68 7.69 13.88 8.44 13.27A.08 .08 0 0 0 8.36 13.13ZM15.56 13.27"
+              "C16.31 13.88 16.36 14.68 15.95 15.45A.07 .07 0 0 0 16.05 15.55"
+              "C16.84 14.92 16.69 13.52 15.64 13.13A.08 .08 0 0 0 15.56 13.27ZM11.85 4.5"
+              "C11.77 8.95 11.75 13.45 11.87 17.9A.13 .13 0 0 0 12.13 17.9"
+              "C12.25 13.45 12.23 8.95 12.15 4.5A.15 .15 0 0 0 11.85 4.5Z")
+#: The other grooves: one family on each side, never a mirror.
+BRAIN_SULCI = ("M11.58 5.99C11.24 5.77 10.9 5.46 10.48 5.33C10.07 5.21 9.6 5.25 9.23 5.32"
+               "C8.85 5.39 8.49 5.56 8.24 5.76C7.96 5.97 7.86 6.24 7.7 6.46A.06 .06 0 0 0 7.8 6.54"
+               "C8.01 6.33 8.14 6.08 8.36 5.94C8.61 5.79 8.94 5.64 9.27 5.58"
+               "C9.62 5.52 10.06 5.49 10.42 5.57C10.77 5.64 11.13 5.93 11.52 6.11"
+               "A.07 .07 0 0 0 11.58 5.99ZM10.75 6.42C10.53 6.69 10.25 6.95 10.1 7.31"
+               "C9.95 7.66 9.92 8.08 9.93 8.45C9.93 8.83 9.98 9.24 10.1 9.58"
+               "C10.22 9.93 10.42 10.2 10.6 10.48A.06 .06 0 0 0 10.7 10.42"
+               "C10.58 10.1 10.38 9.83 10.3 9.52C10.22 9.2 10.17 8.81 10.17 8.45"
+               "C10.18 8.09 10.2 7.7 10.3 7.39C10.4 7.08 10.67 6.81 10.85 6.48"
+               "A.06 .06 0 0 0 10.75 6.42ZM11.64 8.71C11.47 8.73 11.27 8.71 11.1 8.83"
+               "C10.94 8.96 10.88 9.17 10.82 9.33A.04 .04 0 0 0 10.88 9.37"
+               "C11.02 9.23 11.1 9.04 11.2 8.97C11.3 8.89 11.49 8.87 11.66 8.79"
+               "A.04 .04 0 0 0 11.64 8.71ZM5.29 6.31C5.26 6.62 5.28 6.91 5.21 7.17"
+               "C5.15 7.41 4.93 7.68 4.86 8.02C4.8 8.34 4.81 8.71 4.89 8.98"
+               "C4.97 9.27 5.16 9.41 5.29 9.59A.07 .07 0 0 0 5.41 9.51C5.31 9.29 5.15 9.13 5.11 8.92"
+               "C5.07 8.69 5.08 8.35 5.14 8.08C5.19 7.84 5.41 7.57 5.49 7.23"
+               "C5.56 6.92 5.54 6.61 5.55 6.33A.13 .13 0 0 0 5.29 6.31ZM5.05 8.07"
+               "C5.26 8.11 5.52 8.22 5.78 8.15C6.03 8.08 6.25 7.86 6.38 7.66"
+               "C6.53 7.44 6.55 7.19 6.6 6.97A.05 .05 0 0 0 6.5 6.93C6.39 7.15 6.34 7.39 6.22 7.54"
+               "C6.09 7.71 5.89 7.89 5.72 7.95C5.57 8.01 5.31 7.93 5.05 7.93A.07 .07 0 0 0 5.05 8.07Z"
+               "M5.47 6.42C5.7 6.33 5.97 6.27 6.22 6.1C6.46 5.94 6.63 5.71 6.79 5.5"
+               "A.06 .06 0 0 0 6.71 5.4C6.47 5.56 6.29 5.77 6.08 5.9C5.88 6.02 5.63 6.09 5.37 6.22"
+               "A.11 .11 0 0 0 5.47 6.42ZM3.98 10.76C4.35 10.87 4.72 10.92 5.04 11.05"
+               "C5.36 11.17 5.66 11.42 6.05 11.56C6.41 11.68 6.8 11.77 7.2 11.78"
+               "C7.59 11.78 8.02 11.7 8.39 11.58C8.77 11.44 9.07 11.21 9.39 11.02"
+               "A.08 .08 0 0 0 9.31 10.88C8.96 11.02 8.65 11.23 8.31 11.32"
+               "C7.96 11.42 7.56 11.48 7.2 11.46C6.85 11.45 6.49 11.36 6.15 11.24"
+               "C5.84 11.14 5.54 10.89 5.16 10.75C4.79 10.62 4.41 10.56 4.06 10.48"
+               "A.15 .15 0 0 0 3.98 10.76ZM8.57 11.55C8.75 11.72 8.96 11.95 9.22 12.04"
+               "C9.49 12.12 9.73 12.03 9.95 12A.05 .05 0 0 0 9.95 11.9C9.7 11.87 9.46 11.93 9.28 11.86"
+               "C9.09 11.8 8.88 11.58 8.63 11.45A.06 .06 0 0 0 8.57 11.55ZM4.54 12.21"
+               "C4.85 12.29 5.15 12.29 5.41 12.41C5.68 12.53 6.05 12.73 6.2 12.93"
+               "C6.35 13.12 6.43 13.45 6.44 13.7C6.46 13.92 6.3 14.16 6.24 14.43"
+               "A.06 .06 0 0 0 6.36 14.47C6.46 14.24 6.64 14.01 6.66 13.7"
+               "C6.67 13.42 6.61 13.04 6.4 12.77C6.19 12.5 5.8 12.31 5.49 12.19"
+               "C5.17 12.08 4.85 12.11 4.56 12.09A.07 .07 0 0 0 4.54 12.21ZM5.6 15.21"
+               "C5.89 15.32 6.19 15.36 6.38 15.5C6.55 15.62 6.64 15.97 6.92 16.2"
+               "C7.17 16.4 7.51 16.57 7.83 16.63C8.14 16.68 8.5 16.64 8.75 16.5"
+               "C9.01 16.36 9.2 16.08 9.29 15.84C9.39 15.57 9.31 15.29 9.31 15.05"
+               "A.07 .07 0 0 0 9.19 15.05C9.15 15.31 9.2 15.58 9.11 15.76"
+               "C9.02 15.97 8.84 16.21 8.65 16.3C8.45 16.39 8.13 16.42 7.87 16.37"
+               "C7.62 16.33 7.3 16.17 7.08 16C6.89 15.86 6.8 15.51 6.52 15.3"
+               "C6.26 15.11 5.93 15.08 5.68 14.99A.12 .12 0 0 0 5.6 15.21ZM10.4 17.83"
+               "C10.29 17.55 10.09 17.28 10.07 17.09C10.05 16.88 10.13 16.62 10.24 16.47"
+               "C10.32 16.33 10.58 16.25 10.78 16.1A.06 .06 0 0 0 10.72 16"
+               "C10.52 16.08 10.25 16.12 10.06 16.33C9.9 16.53 9.8 16.83 9.83 17.11"
+               "C9.86 17.42 10.08 17.69 10.2 17.93A.11 .11 0 0 0 10.4 17.83ZM11.32 11.9"
+               "C11.04 12 10.7 12.07 10.43 12.26C10.18 12.45 9.97 12.73 9.84 13"
+               "C9.71 13.27 9.66 13.6 9.65 13.84C9.65 14.11 9.74 14.28 9.79 14.46"
+               "A.06 .06 0 0 0 9.91 14.44C9.89 14.22 9.82 14.06 9.85 13.86"
+               "C9.87 13.63 9.94 13.33 10.06 13.1C10.18 12.87 10.36 12.61 10.57 12.44"
+               "C10.77 12.26 11.1 12.17 11.38 12A.06 .06 0 0 0 11.32 11.9ZM12.49 6.8"
+               "C12.79 6.58 13.02 6.29 13.31 6.16C13.6 6.01 13.98 5.92 14.31 5.88"
+               "C14.64 5.85 15.03 5.88 15.31 5.96C15.58 6.03 15.79 6.25 16.06 6.4"
+               "A.06 .06 0 0 0 16.14 6.3C15.91 6.11 15.72 5.87 15.39 5.74"
+               "C15.07 5.62 14.66 5.58 14.29 5.62C13.92 5.65 13.52 5.76 13.19 5.94"
+               "C12.86 6.14 12.64 6.45 12.41 6.7A.07 .07 0 0 0 12.49 6.8ZM13.05 6.63"
+               "C13.21 6.96 13.44 7.23 13.55 7.54C13.66 7.86 13.72 8.25 13.73 8.6"
+               "C13.73 8.92 13.54 9.32 13.54 9.7C13.55 10.06 13.67 10.36 13.74 10.66"
+               "A.06 .06 0 0 0 13.86 10.64C13.83 10.31 13.74 10.02 13.76 9.7"
+               "C13.77 9.4 13.97 9.01 13.97 8.6C13.98 8.22 13.89 7.8 13.75 7.46"
+               "C13.61 7.11 13.36 6.84 13.15 6.57A.06 .06 0 0 0 13.05 6.63ZM14.9 8.64"
+               "C14.81 8.87 14.66 9.11 14.65 9.4C14.66 9.69 14.81 9.93 14.91 10.16"
+               "A.05 .05 0 0 0 14.99 10.14C14.96 9.87 14.84 9.61 14.85 9.4"
+               "C14.84 9.19 14.96 8.93 15 8.66A.05 .05 0 0 0 14.9 8.64ZM18.49 6.23"
+               "C18.32 6.38 18.09 6.53 17.93 6.77C17.78 7 17.69 7.28 17.67 7.54"
+               "C17.66 7.81 17.76 8.01 17.83 8.21A.07 .07 0 0 0 17.97 8.19"
+               "C17.97 7.95 17.89 7.74 17.93 7.56C17.96 7.37 18.06 7.11 18.17 6.93"
+               "C18.27 6.76 18.49 6.61 18.67 6.41A.13 .13 0 0 0 18.49 6.23ZM18.56 6.21"
+               "C18.3 6.24 17.99 6.22 17.7 6.34C17.42 6.47 17.25 6.71 17.06 6.9A.06 .06 0 0 0 17.14 7"
+               "C17.39 6.86 17.58 6.64 17.8 6.56C18.01 6.47 18.3 6.48 18.6 6.43"
+               "A.11 .11 0 0 0 18.56 6.21ZM20.02 10.45C19.72 10.28 19.35 10.17 19.2 10"
+               "C19.02 9.83 18.9 9.56 18.87 9.34C18.83 9.15 18.97 8.89 19.02 8.62"
+               "A.07 .07 0 0 0 18.88 8.58C18.79 8.81 18.62 9.05 18.63 9.36"
+               "C18.65 9.64 18.78 9.97 19 10.2C19.25 10.43 19.63 10.53 19.9 10.67"
+               "A.12 .12 0 0 0 20.02 10.45ZM19.94 10.48C19.58 10.57 19.2 10.66 18.84 10.8"
+               "C18.46 10.95 18.13 11.21 17.85 11.3C17.56 11.4 17.19 11.43 16.96 11.42"
+               "C16.76 11.42 16.65 11.3 16.43 11.22A.08 .08 0 0 0 16.37 11.38"
+               "C16.51 11.46 16.64 11.63 16.94 11.68C17.21 11.72 17.59 11.7 17.95 11.6"
+               "C18.32 11.49 18.65 11.23 18.96 11.1C19.29 10.97 19.66 10.89 20.02 10.76"
+               "A.15 .15 0 0 0 19.94 10.48ZM17.39 11.5C17.28 11.74 17.12 12 17.1 12.29"
+               "C17.09 12.59 17.22 12.86 17.3 13.11A.05 .05 0 0 0 17.4 13.09"
+               "C17.38 12.81 17.28 12.53 17.3 12.31C17.31 12.08 17.45 11.82 17.51 11.54"
+               "A.06 .06 0 0 0 17.39 11.5ZM12.72 11.65C12.96 11.84 13.27 11.96 13.42 12.16"
+               "C13.58 12.38 13.71 12.72 13.73 13.01C13.75 13.29 13.65 13.67 13.55 13.96"
+               "C13.46 14.25 13.28 14.48 13.15 14.77A.06 .06 0 0 0 13.25 14.83"
+               "C13.42 14.58 13.62 14.35 13.75 14.04C13.87 13.73 14 13.34 13.97 12.99"
+               "C13.94 12.65 13.79 12.28 13.58 12.04C13.36 11.78 13.04 11.69 12.78 11.55"
+               "A.06 .06 0 0 0 12.72 11.65ZM18.48 15.01C18.3 14.73 18.03 14.48 17.98 14.27"
+               "C17.92 14.03 17.98 13.67 18.07 13.46C18.15 13.26 18.37 13.08 18.56 12.94"
+               "C18.73 12.82 18.96 12.78 19.18 12.67A.07 .07 0 0 0 19.12 12.53"
+               "C18.91 12.59 18.67 12.61 18.44 12.76C18.23 12.88 17.96 13.06 17.83 13.34"
+               "C17.7 13.61 17.63 14.01 17.72 14.33C17.81 14.68 18.11 14.91 18.28 15.15"
+               "A.13 .13 0 0 0 18.48 15.01ZM18.3 15C18.04 15.16 17.79 15.29 17.52 15.5"
+               "C17.25 15.72 17.02 16.06 16.79 16.19C16.54 16.33 16.17 16.42 15.95 16.43"
+               "C15.72 16.43 15.56 16.38 15.43 16.27C15.3 16.16 15.17 15.89 15.15 15.69"
+               "C15.11 15.51 15.23 15.26 15.26 15.01A.07 .07 0 0 0 15.14 14.99"
+               "C15.07 15.2 14.94 15.44 14.95 15.71C14.98 15.96 15.1 16.26 15.27 16.43"
+               "C15.44 16.6 15.68 16.68 15.95 16.67C16.23 16.67 16.61 16.59 16.91 16.41"
+               "C17.23 16.23 17.45 15.88 17.68 15.7C17.92 15.51 18.17 15.38 18.42 15.2"
+               "A.12 .12 0 0 0 18.3 15ZM13.8 17.93C13.94 17.69 14.12 17.43 14.22 17.14"
+               "C14.31 16.86 14.34 16.55 14.31 16.29C14.28 16.02 14.15 15.83 14.06 15.63"
+               "A.06 .06 0 0 0 13.94 15.67C13.98 15.91 14.09 16.1 14.09 16.31"
+               "C14.1 16.53 14.06 16.82 13.98 17.06C13.91 17.3 13.73 17.55 13.6 17.83"
+               "A.11 .11 0 0 0 13.8 17.93Z")
+#: The finest grooves: short dimples and forks, one shade lighter.
+BRAIN_FINE = ("M6.47 9.42C6.53 9.59 6.65 9.74 6.68 9.87C6.71 9.99 6.65 10.17 6.66 10.35"
+              "A.04 .04 0 0 0 6.74 10.35C6.78 10.2 6.86 10.03 6.82 9.83C6.78 9.65 6.64 9.51 6.53 9.38"
+              "A.04 .04 0 0 0 6.47 9.42ZM17.47 9.43C17.38 9.56 17.25 9.7 17.23 9.89"
+              "C17.21 10.08 17.3 10.25 17.36 10.41A.04 .04 0 0 0 17.44 10.39"
+              "C17.43 10.21 17.36 10.03 17.37 9.91C17.38 9.78 17.49 9.64 17.53 9.47"
+              "A.04 .04 0 0 0 17.47 9.43ZM4.72 13.37C4.85 13.6 5.09 13.81 5.12 13.97"
+              "C5.17 14.11 5.04 14.32 5.01 14.54A.04 .04 0 0 0 5.09 14.56"
+              "C5.16 14.38 5.33 14.19 5.28 13.93C5.21 13.69 4.95 13.5 4.78 13.33"
+              "A.04 .04 0 0 0 4.72 13.37ZM9.07 6.78C9.24 6.72 9.41 6.56 9.5 6.58"
+              "C9.59 6.56 9.76 6.72 9.93 6.78A.04 .04 0 0 0 9.97 6.72C9.84 6.62 9.71 6.44 9.5 6.42"
+              "C9.29 6.44 9.16 6.62 9.03 6.72A.04 .04 0 0 0 9.07 6.78ZM12.82 15.87"
+              "C12.88 16.04 13.01 16.18 13.03 16.31C13.05 16.44 12.97 16.65 12.96 16.84"
+              "A.04 .04 0 0 0 13.04 16.86C13.1 16.69 13.2 16.49 13.17 16.29"
+              "C13.14 16.09 12.98 15.96 12.88 15.83A.04 .04 0 0 0 12.82 15.87ZM7 12.58"
+              "C7.17 12.63 7.36 12.61 7.47 12.66C7.58 12.71 7.68 12.87 7.83 12.97"
+              "A.04 .04 0 0 0 7.87 12.93C7.78 12.8 7.7 12.62 7.53 12.54C7.35 12.46 7.16 12.51 7 12.52"
+              "A.04 .04 0 0 0 7 12.58ZM11.27 16.68C11.17 16.79 11.02 16.91 10.98 17.09"
+              "C10.96 17.27 11.06 17.42 11.12 17.56A.04 .04 0 0 0 11.18 17.54"
+              "C11.17 17.38 11.09 17.21 11.12 17.11C11.13 17.01 11.26 16.87 11.33 16.72"
+              "A.04 .04 0 0 0 11.27 16.68ZM8.82 13.79C8.76 13.93 8.67 14.07 8.68 14.26"
+              "C8.7 14.44 8.83 14.58 8.92 14.71A.04 .04 0 0 0 8.98 14.69"
+              "C8.94 14.52 8.83 14.36 8.82 14.24C8.8 14.13 8.87 13.97 8.88 13.81"
+              "A.04 .04 0 0 0 8.82 13.79ZM19.37 7.33C19.28 7.45 19.16 7.57 19.13 7.74"
+              "C19.12 7.91 19.21 8.04 19.27 8.16A.04 .04 0 0 0 19.33 8.14"
+              "C19.32 7.99 19.25 7.85 19.27 7.76C19.28 7.66 19.38 7.52 19.43 7.37"
+              "A.04 .04 0 0 0 19.37 7.33Z")
+#: Light along the crest of a few ridges on the lit side.
+BRAIN_CREST = ("M8.1 4.78C8.45 4.78 8.79 4.7 9.1 4.7C9.42 4.69 9.75 4.75 10.1 4.73"
+               "A.03 .03 0 0 0 10.1 4.67C9.78 4.58 9.45 4.5 9.1 4.5C8.75 4.51 8.42 4.62 8.1 4.72"
+               "A.03 .03 0 0 0 8.1 4.78ZM4.37 7.44C4.23 7.7 4.09 7.99 4.05 8.29"
+               "C4.02 8.59 4.1 8.85 4.17 9.1A.03 .03 0 0 0 4.23 9.1C4.27 8.82 4.21 8.56 4.25 8.31"
+               "C4.28 8.06 4.4 7.76 4.43 7.46A.03 .03 0 0 0 4.37 7.44ZM13.21 5.18"
+               "C13.56 5.12 13.9 4.97 14.21 4.94C14.52 4.9 14.86 4.96 15.2 4.93"
+               "A.03 .03 0 0 0 15.2 4.87C14.88 4.81 14.55 4.72 14.19 4.76"
+               "C13.83 4.81 13.51 4.98 13.19 5.12A.03 .03 0 0 0 13.21 5.18ZM4.28 11.6"
+               "C4.18 11.83 4.08 12.09 4.07 12.35C4.07 12.6 4.15 12.8 4.23 13A.02 .02 0 0 0 4.27 13"
+               "C4.28 12.77 4.22 12.57 4.23 12.35C4.24 12.14 4.32 11.87 4.32 11.6"
+               "A.02 .02 0 0 0 4.28 11.6ZM5.93 15.76C6.03 16.02 6.12 16.31 6.29 16.54"
+               "C6.47 16.77 6.71 16.91 6.94 17.07A.02 .02 0 0 0 6.96 17.03"
+               "C6.79 16.82 6.56 16.66 6.41 16.46C6.25 16.26 6.14 15.98 5.97 15.74"
+               "A.02 .02 0 0 0 5.93 15.76ZM18.94 6.91C19.08 7.11 19.27 7.26 19.39 7.44"
+               "C19.52 7.62 19.59 7.85 19.73 8.06A.02 .02 0 0 0 19.77 8.04"
+               "C19.71 7.81 19.65 7.57 19.51 7.36C19.36 7.16 19.16 7.02 18.96 6.89"
+               "A.02 .02 0 0 0 18.94 6.91Z")
+#: The rim: the outline stroked at each of these widths, faintly, inside the
+#: clip, so the light rolls off every lobe of it; stacked, it fades inward.
+BRAIN_RIM = (3.2, 2.8, 2.4, 2.05, 1.75, 1.45, 1.2, .95)
+#: Each groove's lit lip: the groove itself, moved this far toward the lower
+#: right (away from the light) and drawn under it, pale.
+BRAIN_LIP = ".07 .085"
+
+# --- the mould ----------------------------------------------------------------
 #: Drawn in whole tenths of your peak week. The like-for-like figure is honest
 #: to roughly +/-15 points (20-26 Sep lies between 61% and 91% of 13-19 Sep
 #: once coverage is allowed for), so drawing it to the percent would be false
@@ -439,22 +628,40 @@ SEATS = (
 )
 #: Radius follows sqrt of age, so each colony's AREA grows evenly per step and
 #: the covered share of the brain tracks the ratio. Measured by rasterising the
-#: outline: mould plus its halo covers 19%, 35%, 55%, 68% and 90% of what it
+#: outline: mould plus its fuzz covers 14%, 28%, 48%, 61% and 86% of what it
 #: covers at the peak, at steps 2, 4, 6, 7 and 9; the last step still changes
-#: 16% of the brain's area, more than steps 2 to 4 together.
+#: 16% of the brain's area (the mould itself), more than steps 2 to 4 together.
 GROWTH = 0.5
-#: Lumpiness by age (drawn step - born): the icon's three specks are born
-#: plain and round, exactly as the mark draws them; every colony roughens as
-#: it ages, and later colonies are born a little rough.
-LUMP = (0.0, 0.04, 0.06, 0.07, 0.08, 0.09, 0.09, 0.10, 0.10, 0.10)
-LOBES = 22
-#: The tissue a colony has spoilt round itself, blurred, once it is past its
-#: first step: rot stains the brain beyond the mould's own edge.
-BRUISE_K, BRUISE_ADD = 1.45, 0.2
-#: Spores show once a colony is clearly larger than an icon speck.
-SPORE_FROM_R, SPORE_EVERY_R, SPORE_MAX, SPORE_R = 1.2, 0.18, 5, 0.09
-SPORE_UNIT = ((0.05, -0.1), (0.45, 0.2), (-0.4, 0.28), (0.3, -0.45), (-0.32, -0.38))
 GOLDEN_DEG = 137.508
+#: A grown colony is a soft cartoon cloud: a ring of round, overlapping bumps
+#: joined by round valleys, nothing pointed. Below PUFF_FROM_R it is still a
+#: round seedling. Six bumps on small colonies, up to eight on big ones, so
+#: each bump stays about one size.
+PUFF_FROM_R = 0.7
+PUFF_SCALLOPS = (6, 8)
+#: How far neighbouring bumps overlap (bump radius over half the gap between
+#: bump centres): more is a rounder, shallower cloud.
+PUFF_OVERLAP = 1.75
+#: The round valley between two bumps, as a share of r.
+PUFF_FILLET = 0.15
+#: The bump tips reach this far past r and the valleys sit about as far inside
+#: it, so a puff covers about what a circle of r would: coverage, and so the
+#: level, reads as a circle's would.
+PUFF_REACH = 1.07
+#: Age tiers. 0: the icon's own flat speck (step 1 only). 1: a seedling, born at
+#: the drawn step, a shade paler than the speck. 2: a young puff. 3: a ripe puff, the
+#: palest. Ripening softens the colour, so the peak week is a soft mat.
+RIPE_FROM_AGE = 4
+#: One short curved highlight on each puff from this radius, upper left.
+SHINE_FROM_R = 0.6
+SHINE_ARC = (198, 246)          # degrees, y down: the upper-left shoulder
+SHINE_AT, SHINE_W = 0.6, 0.13   # of r: the arc's radius and its stroke width
+#: Drifting motes: one from each puff at least this big, the first few by
+#: seat order (so the same week always lets off the same ones). Motion only.
+MOTE_FROM_R, MOTE_MAX = 1.2, 4
+#: The pale fuzz round a grown puff thickens with its age (stroke width, brain
+#: units), so at the peak week the oldest growth knits into one soft mat.
+FUZZ_W, FUZZ_PER_AGE = 0.42, 0.06
 
 
 def _n(x: float) -> str:
@@ -462,27 +669,63 @@ def _n(x: float) -> str:
     return "0" if s in ("-0", "") else s
 
 
-def _blob(cx: float, cy: float, r: float, lump: float, phase: float) -> str:
-    """A closed lumpy outline round (cx, cy). lump 0 is a circle, drawn with arcs.
+def _circle(cx: float, cy: float, r: float) -> str:
+    return (f"M{_n(cx - r)} {_n(cy)}a{_n(r)} {_n(r)} 0 1 0 {_n(2 * r)} 0"
+            f"a{_n(r)} {_n(r)} 0 1 0 {_n(-2 * r)} 0Z")
 
-    A slow swell plus a fine scallop: a colony's edge, not a pebble's.
+
+def _puff(cx: float, cy: float, r: float, seat: int) -> str:
+    """A closed cartoon-cloud outline round (cx, cy): n round bumps on a ring,
+    joined by small round valleys, so nothing on it comes to a point.
+
+    Each bump is an arc of a circle (Cj, rb); each valley is a fillet, an arc of
+    a little circle touching both neighbouring bumps from outside. The ring
+    turns by the seat's golden angle and the bumps wobble a little by seat,
+    deterministically, so no two puffs are stamped from one mould.
     """
-    if lump == 0:
-        return (f"M{_n(cx - r)} {_n(cy)}a{_n(r)} {_n(r)} 0 1 0 {_n(2 * r)} 0"
-                f"a{_n(r)} {_n(r)} 0 1 0 {_n(-2 * r)} 0Z")
-    pts = []
-    for j in range(LOBES):
-        t = 2 * math.pi * j / LOBES
-        k = 1 + lump * (math.sin(3 * t + phase) + 0.6 * math.sin(5 * t + 1.7 * phase)
-                        + 0.35 * math.sin(11 * t + 2.3 * phase))
-        pts.append((cx + r * k * math.cos(t), cy + r * k * math.sin(t)))
-    d = [f"M{_n(pts[0][0])} {_n(pts[0][1])}"]
-    for i in range(LOBES):               # closed Catmull-Rom through the points, as cubics
-        p0, p1, p2, p3 = pts[i - 1], pts[i], pts[(i + 1) % LOBES], pts[(i + 2) % LOBES]
-        c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
-        c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
-        d.append(f"C{_n(c1[0])} {_n(c1[1])} {_n(c2[0])} {_n(c2[1])} {_n(p2[0])} {_n(p2[1])}")
+    n = max(PUFF_SCALLOPS[0], min(PUFF_SCALLOPS[1], round(4.2 + 2 * r)))
+    half = math.pi / n
+    k = PUFF_OVERLAP * math.sin(half)                  # bump radius over ring radius
+    ring = PUFF_REACH * r / (1 + k)
+    rot = seat * GOLDEN_DEG * math.pi / 180
+    bumps = []
+    for j in range(n):
+        t = rot + 2 * half * j + 0.16 * half * math.sin(seat * 1.3 + j * 2.1)
+        rc = ring * (1 + 0.04 * math.sin(seat * 0.7 + j * 1.9))
+        rb = k * ring * (1 + 0.07 * math.sin(seat * 1.1 + j * 2.9))
+        bumps.append((cx + rc * math.cos(t), cy + rc * math.sin(t), rb))
+    f = PUFF_FILLET * r
+    joins = []                                         # (on bump j, on bump j+1)
+    for j in range(n):
+        (x1, y1, r1), (x2, y2, r2) = bumps[j], bumps[(j + 1) % n]
+        a, b = r1 + f, r2 + f
+        dx, dy = x2 - x1, y2 - y1
+        d = math.hypot(dx, dy)
+        along = (a * a - b * b + d * d) / (2 * d)
+        h = math.sqrt(max(a * a - along * along, 0.0))
+        mx, my = x1 + along * dx / d, y1 + along * dy / d
+        cands = [(mx - h * dy / d, my + h * dx / d), (mx + h * dy / d, my - h * dx / d)]
+        fx, fy = max(cands, key=lambda p: (p[0] - cx) ** 2 + (p[1] - cy) ** 2)   # the outer one
+        joins.append(((x1 + r1 * (fx - x1) / a, y1 + r1 * (fy - y1) / a),
+                      (x2 + r2 * (fx - x2) / b, y2 + r2 * (fy - y2) / b)))
+    d = [f"M{_n(joins[-1][1][0])} {_n(joins[-1][1][1])}"]
+    for j in range(n):
+        x, y, rb = bumps[j]
+        (sx, sy), (ex, ey) = joins[j - 1][1], joins[j][0]
+        span = (math.atan2(ey - y, ex - x) - math.atan2(sy - y, sx - x)) % (2 * math.pi)
+        d.append(f"A{_n(rb)} {_n(rb)} 0 {int(span > math.pi)} 1 {_n(ex)} {_n(ey)}")
+        nx, ny = joins[j][1]
+        d.append(f"A{_n(f)} {_n(f)} 0 0 0 {_n(nx)} {_n(ny)}")
     return "".join(d) + "Z"
+
+
+def _shine(cx: float, cy: float, r: float) -> tuple[str, str]:
+    """A short arc on the upper-left shoulder: (stroke path, stroke width)."""
+    a1, a2 = (math.radians(a) for a in SHINE_ARC)
+    R = SHINE_AT * r
+    x1, y1 = cx + R * math.cos(a1), cy + R * math.sin(a1)
+    x2, y2 = cx + R * math.cos(a2), cy + R * math.sin(a2)
+    return f"M{_n(x1)} {_n(y1)}A{_n(R)} {_n(R)} 0 0 1 {_n(x2)} {_n(y2)}", _n(SHINE_W * r)
 
 
 @dataclass(frozen=True)
@@ -492,7 +735,9 @@ class Colony:
     cy: float
     r: float
     age: int
-    d: str                         # absolute path, computed at import
+    d: str                         # its outline: a cloud once grown, else a disc
+    disc: str                      # the disc of r, which undecided time is drawn as
+    shine: tuple[str, str] | None  # (d, w): a grown puff's highlight
 
 
 def _colonies_at(step: int) -> tuple[Colony, ...]:
@@ -503,8 +748,10 @@ def _colonies_at(step: int) -> tuple[Colony, ...]:
         age = step - born
         p = age / (STEPS - born) if born < STEPS else 0.0
         r = r0 + (rf - r0) * p ** GROWTH
-        lump = LUMP[age] if (age or born == 1) else LUMP[1]   # only the icon's specks are born round
-        out.append(Colony(i, cx, cy, round(r, 3), age, _blob(cx, cy, r, lump, i * 0.83)))
+        grown = age > 0 and r >= PUFF_FROM_R
+        out.append(Colony(i, cx, cy, round(r, 3), age,
+                          _puff(cx, cy, r, i) if grown else _circle(cx, cy, r), _circle(cx, cy, r),
+                          _shine(cx, cy, r) if grown and r >= SHINE_FROM_R else None))
     return tuple(out)
 
 
@@ -529,19 +776,28 @@ def drawn_step(ratio: float | None) -> int | None:
 
 @dataclass(frozen=True)
 class Specimen:
-    step: int | None               # 0..10; None draws the blank outline
-    spoil: float                   # fill-opacity of the spoilt-tissue layer: step / 10
-    mould: tuple[dict, ...]        # {ref, d, young, plain}: drawn twice (pale rim, then body),
-                                   # merged; young = born at the drawn step, in the speck green;
-                                   # plain = still the mark's own flat speck (step 1 only)
-    undecided: tuple[str, ...]     # path d's, drawn apart with the undecided band's tint and dashed edge
-    bruises: tuple[dict, ...]      # {cx, cy, r}: blurred stains round colonies past their first step
-    spores: tuple[dict, ...]       # {cx, cy, r}
+    step: int | None               # 0..10; None draws the blank, grey and unlit
+    mould: tuple[dict, ...]        # {ref, d, i, tier, plain, young, w, shine}: i is the seat,
+                                   # which staggers the motion; tier 0 is the mark's own flat
+                                   # speck (step 1 only), 1 a seedling born this step, a
+                                   # shade paler than the speck, 2 a young puff, 3 a ripe one, the palest
+    undecided: tuple[dict, ...]    # {d, i}: round, striped, dashed, amber, and still
+    spores: tuple[dict, ...]       # {cx, cy, r, i}: motes drifting up off big puffs, motion only
     uid: str
-    bloom: tuple[str, ...] = ()    # refs of the grown colonies that carry the pale, frayed rim
+    bloom: tuple[dict, ...] = ()   # {ref, i, w}: grown puffs, under a pale fuzz w wide
+    tiers: tuple[int, ...] = ()    # the puff tiers present (1-3), one gradient each
+    # The brain itself: the same on every week, blank included (the macro
+    # leaves the light off a blank brain).
     outline: str = BRAIN_OUTLINE
-    folds: str = BRAIN_FOLDS
     viewbox: str = BRAIN_VIEWBOX
+    halves: tuple[str, ...] = BRAIN_HALVES
+    rim: tuple[float, ...] = BRAIN_RIM
+    glow: tuple[str, ...] = BRAIN_GLOW
+    deep: str = BRAIN_DEEP
+    sulci: str = BRAIN_SULCI
+    fine: str = BRAIN_FINE
+    crest: str = BRAIN_CREST
+    lip: str = BRAIN_LIP
 
 
 def specimen(ratio: float | None, undecided_share: float = 0.0, uid: str = "rot") -> Specimen:
@@ -550,11 +806,11 @@ def specimen(ratio: float | None, undecided_share: float = 0.0, uid: str = "rot"
     `undecided_share` is undecided minutes over the compared minutes of the
     shown week. That share of the mould's area is drawn apart, youngest colonies
     first, a colony counting once at least half of it fits (so a small share
-    can draw nothing, and the page then says "too small a share to draw").
+    can draw nothing, and the page then says "too little to draw").
     """
     step = drawn_step(ratio)
     if step is None:
-        return Specimen(None, 0.0, (), (), (), (), uid)
+        return Specimen(None, (), (), (), uid)
     cols = STEP_COLONIES[step]
     total = sum(c.r * c.r for c in cols)
     target, taken, undecided = max(0.0, min(1.0, undecided_share)) * total, 0.0, set()
@@ -564,26 +820,26 @@ def specimen(ratio: float | None, undecided_share: float = 0.0, uid: str = "rot"
             break
         undecided.add(c.seat)
         taken += a
-    mould, und, bruises, spores = [], [], [], []
+    mould, und, spores = [], [], []
     for c in cols:
         if c.seat in undecided:
-            und.append(c.d)
+            und.append({"d": c.disc, "i": c.seat})
             continue
-        # plain: still exactly the mark's own speck (step 1), drawn flat and unfrayed.
-        mould.append({"ref": f"{uid}-c{c.seat}", "d": c.d, "young": c.age == 0,
-                      "plain": c.age == 0 and SEATS[c.seat][2] == 1})
-        if c.age >= 1:
-            bruises.append({"cx": _n(c.cx), "cy": _n(c.cy), "r": _n(c.r * BRUISE_K + BRUISE_ADD)})
-        if c.r >= SPORE_FROM_R:
-            k = min(SPORE_MAX, 1 + int((c.r - SPORE_FROM_R) / SPORE_EVERY_R))
+        # plain: still exactly the mark's own speck (step 1), drawn flat.
+        plain = c.age == 0 and SEATS[c.seat][2] == 1
+        tier = 0 if plain else 1 if c.age == 0 else 2 if c.age < RIPE_FROM_AGE else 3
+        mould.append({"ref": f"{uid}-c{c.seat}", "d": c.d, "i": c.seat, "tier": tier,
+                      "plain": plain, "young": c.age == 0,
+                      "w": _n(FUZZ_W + FUZZ_PER_AGE * c.age),
+                      "shine": {"d": c.shine[0], "w": c.shine[1]} if c.shine else None})
+        if c.age > 0 and c.r >= MOTE_FROM_R and len(spores) < MOTE_MAX:   # a grown puff, and big
             turn = math.radians(c.seat * GOLDEN_DEG)
-            for ux, uy in SPORE_UNIT[:k]:
-                x = ux * math.cos(turn) - uy * math.sin(turn)
-                y = ux * math.sin(turn) + uy * math.cos(turn)
-                spores.append({"cx": _n(c.cx + x * c.r * 0.8), "cy": _n(c.cy + y * c.r * 0.8),
-                               "r": _n(SPORE_R)})
-    return Specimen(step, step / STEPS, tuple(mould), tuple(und), tuple(bruises), tuple(spores), uid,
-                    bloom=tuple(m["ref"] for m in mould if not m["young"]))
+            spores.append({"cx": _n(c.cx + 0.35 * c.r * math.cos(turn)), "cy": _n(c.cy - 0.75 * c.r),
+                           "r": _n(0.24 + 0.05 * (c.seat % 3)), "i": len(spores)})
+    return Specimen(step, tuple(mould), tuple(und), tuple(spores), uid,
+                    bloom=tuple({"ref": m["ref"], "i": m["i"], "w": m["w"]}
+                                for m in mould if not m["young"]),
+                    tiers=tuple(sorted({m["tier"] for m in mould if not m["plain"]})))
 
 
 def _pct(x: float) -> str:

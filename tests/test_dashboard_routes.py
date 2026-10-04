@@ -553,8 +553,8 @@ def test_the_first_step_is_the_icon():
     assert [(c.cx, c.cy, c.r) for c in dashboard_app.STEP_COLONIES[1]] == [
         (8.2, 9.1, 1.15), (15.4, 12.4, 1.05), (10.9, 14.9, 0.9)]
     first = dashboard_app.specimen(0.1)
-    assert len(first.mould) == 3 and first.bruises == () and first.spores == ()
-    assert all(m["young"] for m in first.mould)           # the icon's own speck green
+    assert len(first.mould) == 3 and first.bloom == () and first.spores == ()
+    assert all(m["young"] and m["tier"] == 0 for m in first.mould)   # the icon's own flat speck
 
 
 def test_a_heavier_step_contains_every_colony_of_a_lighter_one():
@@ -596,6 +596,48 @@ def test_every_seat_sits_well_inside_the_brain():
         assert inside(cx, cy) and edge(cx, cy) >= 1.1, (cx, cy)
 
 
+def _pairs(d):
+    nums = [float(n) for n in re.findall(r"-?\d*\.?\d+", re.sub(r"A[^A-Za-z]*", "", d))]
+    return list(zip(nums[::2], nums[1::2]))
+
+
+def test_the_large_brain_is_the_mark_drawn_in_full():
+    """The same outline on every week, blank included, and its deepest grooves
+    are the mark's own midline and four folds. BRAIN_DEEP is a frozen copy:
+    this checks every fold's ends against BRAIN_FOLDS, so a moved fold fails
+    here, but a change to a fold's curve must be copied by hand."""
+    weeks = [dashboard_app.specimen(r, 0.1, "a") for r in (None, 0.0, 0.1, 0.67, 1.0)]
+    assert len({(s.outline, s.viewbox, s.deep, s.sulci, s.fine, s.crest) for s in weeks}) == 1
+    assert weeks[0].outline == dashboard_app.BRAIN_OUTLINE
+    deep = _pairs(dashboard_app.BRAIN_DEEP)
+    ends = [(12, 4.6), (12, 17.9)]                                 # the midline
+    for m in re.finditer(r"M([\d.]+) ([\d.]+)c([^M]*)", dashboard_app.BRAIN_FOLDS):
+        x, y = float(m.group(1)), float(m.group(2))
+        dx, dy = [float(n) for n in re.findall(r"-?\d*\.?\d+", m.group(3))][-2:]
+        ends += [(x, y), (x + dx, y + dy)]
+    assert len(ends) == 10
+    for ex, ey in ends:
+        assert min(((ex - x) ** 2 + (ey - y) ** 2) ** 0.5 for x, y in deep) < 0.35, (ex, ey)
+
+
+def test_every_groove_is_closed_and_inside_the_brain():
+    poly = _outline_polygon()
+
+    def near_or_inside(px, py):
+        hit, j = False, len(poly) - 1
+        for k, (xi, yi) in enumerate(poly):
+            xj, yj = poly[j]
+            if (yi > py) != (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi:
+                hit = not hit
+            j = k
+        return hit or min(((px - x) ** 2 + (py - y) ** 2) ** 0.5 for x, y in poly) < 0.3
+
+    for d in (dashboard_app.BRAIN_DEEP, dashboard_app.BRAIN_SULCI, dashboard_app.BRAIN_FINE,
+              dashboard_app.BRAIN_CREST):
+        assert d.count("M") == d.count("Z") and "nan" not in d
+        assert all(near_or_inside(x, y) for x, y in _pairs(d))
+
+
 def test_the_same_week_always_draws_the_same_brain():
     assert dashboard_app.specimen(0.67, 0.04, "a") == dashboard_app.specimen(0.67, 0.04, "a")
     assert dashboard_app.rot_view(None, []) == dashboard_app.rot_view(None, [])
@@ -605,7 +647,7 @@ def test_undecided_time_is_drawn_apart_and_only_when_a_patch_fits():
     assert dashboard_app.specimen(0.67, 0.0).undecided == ()
     everything = dashboard_app.specimen(0.67, 1.0)
     assert everything.mould == () and len(everything.undecided) == 18
-    assert dashboard_app.specimen(0.1, 0.01).undecided == ()        # too small a share to draw
+    assert dashboard_app.specimen(0.1, 0.01).undecided == ()        # too little to draw
 
 
 def test_nothing_measured_is_a_blank_brain_never_a_clean_one():

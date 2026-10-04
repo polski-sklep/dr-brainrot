@@ -16,7 +16,7 @@
       user's own consumption. The wasteful/worthwhile split uses a neutral
       lightness ramp, not hue, so the chart makes no judgement. One component
       reverses this at Jacob's request, and only that one: the brain beside
-      the summary, whose mould is coloured (DR5.20, the end of this file).
+      the summary, whose mould is coloured (DR5.20, DR5.21, the end of this file).
    ========================================================================== */
 
 :root {
@@ -1202,28 +1202,6 @@ ul.progress-aside { margin-bottom: 0; }
    and a peak that is his own benchmark, never a target.
    ========================================================================== */
 
-:root {
-  /* -- The brain: the wordmark's own colours, so the large brain is the mark. */
-  --rot-tissue:        #F4CFD3;   /* its surface. = the wordmark fill.               */
-  --rot-tissue-spoilt: #D8C9B4;   /* the surface at your peak week, laid over
-                                     --rot-tissue at the drawn level. Dulls toward
-                                     a sallow beige: decay, never red.              */
-  --rot-stain:         #B9A27A;   /* blurred stain round a grown colony, at 45%.     */
-  --rot-outline:       #A85964;   /* outline and folds. = the wordmark stroke.
-                                     4.9:1 on --surface.                            */
-  /* -- Mould: the one place on the page where a colour means brain rot. It
-        starts as the mark's own speck green (#46A46A) and greys as it ages,
-        dusty rather than leafy, so it is mould, not the --win green of a week
-        that went well: shape (frayed colonies on a brain) carries it too.     */
-  --rot-speck:         #46A46A;   /* the mark's own speck: the first step, flat.     */
-  --rot-young-0: #2F8150; --rot-young-1: #46A46A; --rot-young-2: #5DB07B; --rot-young-3: #86C597;
-  --rot-grown-0: #355F45; --rot-grown-1: #4E8A62; --rot-grown-2: #6FA580; --rot-grown-3: #A3C6A6;
-  --rot-bloom:         #F3F5EA;   /* the pale frayed rim of a grown colony.          */
-  --rot-spore:         #28452F;   /* spores on a large colony: maturity, not data.   */
-  /* Undecided patches reuse --series-undecided / --series-undecided-edge: the
-     same job as the chart's undecided band (counted, never called brain rot). */
-}
-
 /* -- The lead row: the summary and the brain -------------------------------- */
 /* Both stay bare, un-nested <section>s in a plain wrapper, so every section()
    regex in the tests is untouched. Wrapping them makes #progress main's first
@@ -1320,33 +1298,130 @@ ul.progress-aside { margin-bottom: 0; }
 #rot > .note { margin-top: var(--s2); max-width: var(--measure); }
 
 /* -- The brain -------------------------------------------------------------- */
+:root {
+  /* -- The brain: the wordmark's own colours, so the large brain is the mark. */
+  --rot-tissue:   #F4CFD3;   /* its surface. = the wordmark fill.                  */
+  --rot-outline:  #A85964;   /* outline, midline and the mark's four folds (at 75%,
+                                as the mark draws them). 4.9:1 on --surface.       */
+  /* -- Its detail (the large brain only), all in the mark's pink family. Light
+        comes from the upper left; depth is tone, not line, so the mould on top
+        always reads first. */
+  --rot-dome-lit:   #FBE3E6;   /* the lit crown of each hemisphere.                */
+  --rot-dome-shade: #EEC1C7;   /* where it turns away from the light.              */
+  --rot-shade:      #C9808C;   /* the soft shade each lobe and groove rolls into.  */
+  --rot-glow:       #FFFFFF;   /* the pool of light on each upper shoulder, crests. */
+  --rot-lip:        #FDF0F1;   /* the lit lip beside every groove.                 */
+  --rot-sulcus:     #D6939E;   /* a groove.                                        */
+  --rot-fine:       #E3AAB3;   /* the finest grooves, a shade lighter.             */
+  --rot-blank-groove: #CDD2DA; /* a blank brain's grooves: drawn, never lit.       */
+  /* -- Mould: the one place on the page where a colour means brain rot. It
+        starts as the mark's own flat specks; later colonies are born a shade
+        paler than the speck, in the same green, and soften toward a pale mint
+        as they ripen, so a heavy week reads as a soft mat, not a dark mass.
+        Three tiers, each a lit side, a body and a shaded edge. */
+  --rot-speck:    #46A46A;   /* the mark's speck: the first step, flat.           */
+  --rot-t1-0: #98D7B0; --rot-t1-1: #6CBD8B; --rot-t1-2: #58B07B;   /* seedling: born this week */
+  --rot-t2-0: #B8E5CB; --rot-t2-1: #73BF93; --rot-t2-2: #54B07A;   /* young puff */
+  --rot-t3-0: #CCEBDA; --rot-t3-1: #92C9AC; --rot-t3-2: #72B692;   /* ripe puff */
+  --rot-ink:      #4D8F6C;   /* one soft outline round touching colonies.         */
+  --rot-fuzz:     #E9F7ED;   /* the pale fuzz round grown puffs, thicker with age. */
+  --rot-shine:    #FFFFFF;
+  --rot-mote:     #F1FAF3;
+  /* Undecided patches: the chart's undecided tint (--series-undecided) with
+     soft stripes of this a shade deeper, and its dashed edge: still open, so
+     never a solid disc. */
+  --rot-open-line: #F3DC8E;
+  /* Motion. How many slow breaths each colony takes after the grow-in, then
+     it stays still. A count, not `infinite`: SVG motion is repainted on the
+     main thread every frame, so a loop would cost a share of a core for as long
+     as the Overview is open and visible. The motes drift twice, then stop. */
+  --rot-breaths:  3;
+}
+
 /* Large, and larger where the column allows: 260px up to 400px. Strokes are in
-   brain units, so the large brain keeps the mark's chunky outline and folds
+   brain units, so the large brain keeps the mark's chunky outline
    (.58 ~ 13px at 400px, about half the mark's own ratio, which would be a rope
    at this size). */
 .rot-brain { display: block; width: clamp(260px, 21vw, 400px); height: auto; }
 .rot-tissue { fill: var(--rot-tissue); }
-.rot-spoil { fill: var(--rot-tissue-spoilt); }
-.rot-folds { fill: none; stroke: var(--rot-outline); stroke-width: .42; stroke-linecap: round; opacity: .75; }
+.rot-dome-0 { stop-color: var(--rot-dome-lit); }
+.rot-dome-1 { stop-color: var(--rot-tissue); }
+.rot-dome-2 { stop-color: var(--rot-dome-shade); }
+.rot-rim { fill: none; stroke: var(--rot-shade); stroke-linejoin: round; opacity: .028; }
+.rot-glow-0 { stop-color: var(--rot-glow); stop-opacity: .7; }
+.rot-glow-1 { stop-color: var(--rot-glow); stop-opacity: 0; }
+/* Each groove sits in a soft valley: the tissue darkens a little as it rolls
+   down into it, which is what makes the ridges between look round. Then a pale
+   lip on its lit side, then the groove. */
+.rot-valley { fill: var(--rot-shade); stroke: var(--rot-shade); stroke-width: 1.05; stroke-linejoin: round; opacity: .03; }
+.rot-valley-2 { stroke-width: .72; }
+.rot-valley-3 { stroke-width: .44; }
+.rot-lip { fill: var(--rot-lip); opacity: .7; }
+.rot-fine { fill: var(--rot-fine); }
+.rot-sulcus { fill: var(--rot-sulcus); }
+.rot-fold { fill: var(--rot-outline); opacity: .75; }
+.rot-crest { fill: var(--rot-glow); opacity: .55; }
 .rot-outline { fill: none; stroke: var(--rot-outline); stroke-width: .58; stroke-linejoin: round; }
-.rot-stain { fill: var(--rot-stain); opacity: .45; }
-.rot-bloom { fill: var(--rot-bloom); stroke: var(--rot-bloom); stroke-width: .55; stroke-linejoin: round; }
-.rot-young-0 { stop-color: var(--rot-young-0); } .rot-young-1 { stop-color: var(--rot-young-1); }
-.rot-young-2 { stop-color: var(--rot-young-2); } .rot-young-3 { stop-color: var(--rot-young-3); }
-.rot-grown-0 { stop-color: var(--rot-grown-0); } .rot-grown-1 { stop-color: var(--rot-grown-1); }
-.rot-grown-2 { stop-color: var(--rot-grown-2); } .rot-grown-3 { stop-color: var(--rot-grown-3); }
-.rot-speck { fill: var(--rot-speck); }
-.rot-spores { fill: var(--rot-spore); }
-/* Undecided, apart: the chart's undecided band, dashed because the call is
-   still open, and never frayed, with no rim, stain or spores, so shape says it
-   as well as hue. The dash is long enough to read at the 240px phone size. */
-.rot-undecided { fill: var(--series-undecided); stroke: var(--series-undecided-edge); stroke-width: .13; stroke-dasharray: .3 .18; }
 
-/* Nothing to draw is not a clean brain: absence is not zero. Grey tissue and a
-   dashed grey outline (5.4:1), whatever the reason; the text says which. */
+.rot-fuzz { fill: var(--rot-fuzz); stroke: var(--rot-fuzz); stroke-linejoin: round; }
+/* The ink is drawn under the bodies, so only its outer half shows (.085, about
+   1.8px at 400px): one soft outline round each clump of touching colonies. */
+.rot-ink { fill: var(--rot-ink); stroke: var(--rot-ink); stroke-width: .17; stroke-linejoin: round; }
+.rot-t1-0 { stop-color: var(--rot-t1-0); } .rot-t1-1 { stop-color: var(--rot-t1-1); } .rot-t1-2 { stop-color: var(--rot-t1-2); }
+.rot-t2-0 { stop-color: var(--rot-t2-0); } .rot-t2-1 { stop-color: var(--rot-t2-1); } .rot-t2-2 { stop-color: var(--rot-t2-2); }
+.rot-t3-0 { stop-color: var(--rot-t3-0); } .rot-t3-1 { stop-color: var(--rot-t3-1); } .rot-t3-2 { stop-color: var(--rot-t3-2); }
+/* The mark's specks, with a hairline of tissue round them, so a groove stops
+   short of a speck instead of running into it. */
+.rot-speck { fill: var(--rot-speck); stroke: var(--rot-tissue); stroke-width: .24; paint-order: stroke; }
+/* One soft highlight per puff; a ripe puff's is fainter, so the heaviest weeks
+   read as a soft mat, not a bowl of sweets. */
+.rot-shine { fill: none; stroke: var(--rot-shine); stroke-linecap: round; opacity: .5; }
+.rot-shine-ripe { opacity: .28; }
+.rot-open-bg { fill: var(--series-undecided); }
+.rot-open-ln { fill: var(--rot-open-line); }
+/* Undecided, apart: round where mould is a cloud, striped where it is shaded,
+   edged in short round dashes, and never animated. */
+.rot-undecided { stroke: var(--series-undecided-edge); stroke-width: .13; stroke-linecap: round; stroke-dasharray: .14 .25; }
+.rot-mote { fill: var(--rot-mote); stroke: var(--rot-ink); stroke-width: .05; opacity: 0; }
+
+/* Nothing to draw is not a clean brain: absence is not zero. Grey tissue, the
+   same grooves flat and grey with no light, and a dashed grey outline (5.4:1),
+   whatever the reason; the text says which. */
 .rot-blank .rot-tissue { fill: var(--surface-sunk); }
-.rot-blank .rot-folds { stroke: var(--border-strong); opacity: 1; }
+.rot-blank .rot-fine { fill: var(--hairline); }
+.rot-blank .rot-sulcus { fill: var(--rot-blank-groove); }
+.rot-blank .rot-fold { fill: var(--border-strong); opacity: 1; }
 .rot-blank .rot-outline { stroke: var(--text-muted); stroke-width: .38; stroke-dasharray: .9 .6; }
+
+/* -- Motion: opt-in, on screen only. Under prefers-reduced-motion, and in
+      print, nothing below applies and the still drawing is the finished one
+      (the motes stay at opacity 0). Only transform and opacity move, each on
+      its own element: the outer .rot-b grows in once, the inner .rot-br
+      breathes. The brain itself and undecided time never move. */
+.rot-b, .rot-br, .rot-mote { transform-box: fill-box; transform-origin: center; }
+@media screen and (prefers-reduced-motion: no-preference) {
+  /* Grows in from the icon's specks outward, in seat order, with one soft
+     overshoot; then each colony breathes, slowly, on its own phase. */
+  .rot-b { animation: rot-grow .8s cubic-bezier(.34, 1.4, .64, 1) calc(120ms + var(--i) * 50ms) both; }
+  /* A positive stagger, never a negative delay: with a finite count a
+     negative delay would spend later colonies' breaths before the page shows. */
+  .rot-br { animation: rot-breathe 9s ease-in-out calc(1s + var(--i) * .7s) var(--rot-breaths); }
+  .rot-mote { animation: rot-drift 11s ease-out calc(2.4s + var(--i) * 2.7s) 2; }
+}
+@keyframes rot-grow {
+  from { transform: scale(0); }
+  to   { transform: scale(1); }
+}
+@keyframes rot-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035, 1.025); }
+}
+@keyframes rot-drift {
+  0%   { opacity: 0;   transform: translate(0, 0) scale(.4); }
+  10%  { opacity: .95; transform: translate(0, -.25px) scale(1); }
+  40%  { opacity: 0;   transform: translate(.15px, -1.3px) scale(.85); }
+  100% { opacity: 0;   transform: translate(.15px, -1.3px) scale(.85); }
+}
 
 /* A fixed length, not a percentage: inside the `flex: none` figure a
    percentage width is cyclic and the box falls back to 300px around it. */

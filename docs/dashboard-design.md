@@ -81,15 +81,29 @@ rather than "brain rot", and the name deserves the joke. The brain reads at
 all three sizes; at 21px the specks register as flecks rather than as dots,
 which is enough.
 
-**The large brain on the Overview is the same mark** — the same outline,
-folds and fill, from the same constants (`BRAIN_OUTLINE`, `BRAIN_FOLDS` in
-`app.py`, which `base.html` also draws from), with its first step of mould
-exactly the mark's three specks. Its strokes scale with it, at about half the
+**The large brain on the Overview is the same mark** — the same outline and
+fill (`BRAIN_OUTLINE` in `app.py`, which `base.html` also draws from) and the
+same midline and four folds, redrawn as tapered ribbons (`BRAIN_DEEP`, a frozen
+copy of the mark's `BRAIN_FOLDS`), with its first step of mould exactly the
+mark's three specks. Its outline stroke scales with it, at about half the
 mark's own ratio: at the mark's ratio a 400px brain has a 22px rope for an
 outline, and at a fixed 1.75px (the first prototype) it stopped looking like
 the mark at all. Mould grows from the specks through 25 fixed seats, so the
 same week always draws the same brain and a heavier week contains every
 colony of a lighter one.
+
+**Only the large brain is drawn in full** (DR5.21). Its deepest grooves are the
+mark's own midline and four folds, in the mark's colour at 75% (`BRAIN_DEEP`,
+whose fold ends a test checks against `BRAIN_FOLDS`; a change to a fold's
+curve must be copied by hand). Round them sit
+24 tapered grooves, rooted at every notch of the outline, and 9 finer dimples.
+Soft light from the upper left gives it volume: a dome per hemisphere, a rim
+fading in from the outline, a pool on each upper shoulder, a valley and a lit
+lip at every groove, and crest highlights on the outer lobes. Depth is tone,
+not line, so the mould on top always reads first. The detail is frozen path
+literals, placed by hand once; the 21px mark still draws only the outline,
+the folds and its three specks, and the tab icon only the outline and specks. A scaled-up icon read as "sloppy or lazily designed" at
+400px; the detail is what a large brain owes the eye.
 
 ## 1. Visual direction
 
@@ -265,21 +279,38 @@ against the page.
 | Token | Value | Role |
 |---|---|---|
 | `--rot-tissue` | `#F4CFD3` | the brain's surface; the mark's fill |
-| `--rot-tissue-spoilt` | `#D8C9B4` | laid over the tissue at the drawn share: decay toward sallow beige, never red |
-| `--rot-stain` | `#B9A27A` | blurred stain round a grown colony, at 45% |
-| `--rot-outline` | `#A85964` | outline and folds; the mark's stroke |
-| `--rot-speck` | `#46A46A` | the mark's own speck: the first step is drawn flat in it, unfrayed |
-| `--rot-young-0…3` | `#2F8150` → `#86C597` | colonies born at the drawn step, centred on the speck green |
-| `--rot-grown-0…3` | `#355F45` → `#A3C6A6` | older colonies: dustier, greyer, so mould is never the `--win` green |
-| `--rot-bloom` | `#F3F5EA` | the pale frayed rim round a grown colony |
-| `--rot-spore` | `#28452F` | spores on a large colony: texture, not data |
+| `--rot-outline` | `#A85964` | outline; midline and the four folds at 75%, as the mark draws them |
+| `--rot-dome-lit` / `--rot-dome-shade` | `#FBE3E6` / `#EEC1C7` | each hemisphere's lit crown and the side turning away |
+| `--rot-shade` | `#C9808C` | the rim and the valleys, at a few percent each |
+| `--rot-glow` | `#FFFFFF` | the shoulder pools and crest highlights |
+| `--rot-lip` | `#FDF0F1` | the lit lip beside every groove |
+| `--rot-sulcus` / `--rot-fine` | `#D6939E` / `#E3AAB3` | a groove; the finest grooves |
+| `--rot-blank-groove` | `#CDD2DA` | a blank brain's grooves: drawn, never lit |
+| `--rot-speck` | `#46A46A` | the mark's speck: step 1, flat, with a hairline of tissue round it |
+| `--rot-t1-*` | `#98D7B0` → `#58B07B` | a seedling, born this step |
+| `--rot-t2-*` | `#B8E5CB` → `#54B07A` | a young puff |
+| `--rot-t3-*` | `#CCEBDA` → `#72B692` | a ripe puff, the palest, so a heavy week is a soft mat |
+| `--rot-ink` | `#4D8F6C` | one soft outline round each clump of touching colonies |
+| `--rot-fuzz` | `#E9F7ED` | the pale fuzz round grown puffs, thicker with age |
+| `--rot-shine` | `#FFFFFF` | one highlight per puff (50%; 28% on ripe ones) |
+| `--rot-mote` | `#F1FAF3` | motes drifting up: motion only |
+| `--rot-open-line` | `#F3DC8E` | the stripes on undecided patches |
+| `--rot-breaths` | `3` | slow breaths each colony takes after the grow-in, then it is still |
 
-Undecided patches reuse `--series-undecided` and its edge, dashed: the same
-job as the chart's undecided band. Mould edges are frayed by an SVG turbulence
-filter with fixed seeds, in brain units, so they are identical at every size
-and on every render. Undecided patches are never frayed — displacement breaks
-a dash into speckle — so they keep a clean dashed edge, which also sets them
-apart from mould by shape.
+There are no filters. Mould colonies are soft cartoon clouds computed once at
+import. Mould starts as the mark's own flat specks; a colony born later is a
+seedling a shade paler than the speck, and each softens to a pale mint as it
+ripens. That mint is the same hue family as `--win-bg-solid` and
+`--series-worthwhile`: mould used to grey with age so it was never the `--win`
+green, and gave that up to lose the "medical" look, so the separation now rests
+on shape and component — soft clouds on the brain, never a bar, panel or chip
+(DR5.21). Undecided patches reuse `--series-undecided` with deeper stripes and a
+dashed edge, round where mould is a cloud, and never move. Motion — a grow-in
+from the specks outward, three slow breaths, motes drifting up twice, then
+stillness after under a minute — is transform and
+opacity only, under `screen and (prefers-reduced-motion: no-preference)`;
+reduced motion and print get the finished still drawing. The brain itself
+never moves.
 
 ### Copy
 
@@ -622,4 +653,5 @@ the summary keeps its narrow shape there (provenance under the paragraph, not
 in a 300px column beside it). With the provenance column the brain's figures
 dropped under the drawing and left a tall empty field beside a short summary;
 without it the two panels end level and any spare width falls at the page
-edge. Below 1440px the brain stacks under the summary.
+edge. Below 1440px the brain stacks under the summary. The brain is 260–400px
+wide (21vw), 240px under 760px.

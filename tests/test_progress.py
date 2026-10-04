@@ -466,6 +466,10 @@ def test_the_overview_draws_the_brain_beside_the_summary_naming_both_weeks(conn,
     assert "10 min of those 30 min is still undecided" in text
     label = re.search(r'<svg class="rot-brain[^"]*"[^>]*role="img" aria-label="([^"]+)"', part).group(1)
     assert "30 min" in label and "70 min" in label and "Sun 2026-09-13" in label
+    # Drawn and lit; undecided time is drawn apart and never inside a moving group.
+    assert 'class="rot-light"' in part and "rot-blank" not in part
+    undecided = re.search(r'<g class="rot-undecided"[^>]*>(.*?)</g>', part, re.S).group(1)
+    assert "<path" in undecided and "rot-b" not in undecided
     # Its own section, a sibling: never inside the summary or the panel.
     assert html.count('<section id="rot">') == 1
     assert 'id="rot"' not in _section(html, "progress")

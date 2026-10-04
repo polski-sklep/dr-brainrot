@@ -10,61 +10,81 @@
 
 {% macro rot_svg(sp, label) -%}
 {#- Named by aria-label alone: an identical <title> is read out a second time
-    as the description. -#}
-<svg class="rot-brain{% if sp.step is none %} rot-blank{% endif %}" viewBox="{{ sp.viewbox }}" role="img" aria-label="{{ label }}">
-  {%- if sp.mould or sp.undecided %}
+    as the description. Every figure comes from app.specimen(). The brain is a
+    soft volume lit from the upper left, all clipped to its outline: tissue,
+    light, then its grooves (the mark's four folds and midline deepest), then
+    the mould, then the outline. A blank brain keeps every groove, flat and
+    grey: drawn, never lit. Each colony is drawn in three layers (pale fuzz,
+    ink, body), so touching colonies share one soft outline; in every layer a
+    colony is an outer <g class="rot-b"> that grows in once and an inner
+    .rot-br that breathes, both reading the seat index `i`, so the same week
+    always moves the same way. -#}
+{%- set lit = sp.step is not none -%}
+<svg class="rot-brain{% if not lit %} rot-blank{% endif %}" viewBox="{{ sp.viewbox }}" role="img" aria-label="{{ label }}">
   <defs>
     <clipPath id="{{ sp.uid }}-clip"><path d="{{ sp.outline }}"/></clipPath>
-    {#- Fixed noise in brain units (fixed seeds), so the same week always frays
-        the same mould edges, at any size the brain is drawn. Undecided patches
-        are not frayed: their dashed edge is what sets them apart. -#}
-    <filter id="{{ sp.uid }}-rough" x="-30%" y="-30%" width="160%" height="160%">
-      <feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="3" seed="4" result="noise"/>
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale=".45" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-    <filter id="{{ sp.uid }}-bloom" x="-30%" y="-30%" width="160%" height="160%">
-      <feTurbulence type="fractalNoise" baseFrequency="2.6" numOctaves="2" seed="9" result="noise"/>
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale=".7" xChannelSelector="R" yChannelSelector="G" result="frayed"/>
-      <feGaussianBlur in="frayed" stdDeviation=".07"/>
-    </filter>
-    <filter id="{{ sp.uid }}-stain" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation=".35"/></filter>
-    <radialGradient id="{{ sp.uid }}-young" cx=".45" cy=".42" r=".6"><stop offset="0" class="rot-young-0"/><stop offset=".5" class="rot-young-1"/><stop offset=".85" class="rot-young-2"/><stop offset="1" class="rot-young-3"/></radialGradient>
-    <radialGradient id="{{ sp.uid }}-grown" cx=".45" cy=".42" r=".6"><stop offset="0" class="rot-grown-0"/><stop offset=".45" class="rot-grown-1"/><stop offset=".8" class="rot-grown-2"/><stop offset="1" class="rot-grown-3"/></radialGradient>
+    <path id="{{ sp.uid }}-sulci" d="{{ sp.sulci }}"/>
+    <path id="{{ sp.uid }}-deep" d="{{ sp.deep }}"/>
+    {%- if lit %}
+    <radialGradient id="{{ sp.uid }}-dome" cx=".46" cy=".42" r=".66" fx=".4" fy=".32"><stop offset="0" class="rot-dome-0"/><stop offset=".6" class="rot-dome-1"/><stop offset="1" class="rot-dome-2"/></radialGradient>
+    <radialGradient id="{{ sp.uid }}-glow"><stop offset="0" class="rot-glow-0"/><stop offset="1" class="rot-glow-1"/></radialGradient>
+    {%- endif %}
+    {%- for t in sp.tiers %}
+    <radialGradient id="{{ sp.uid }}-t{{ t }}" cx=".4" cy=".36" r=".7"><stop offset="0" class="rot-t{{ t }}-0"/><stop offset=".55" class="rot-t{{ t }}-1"/><stop offset="1" class="rot-t{{ t }}-2"/></radialGradient>
+    {%- endfor %}
+    {%- if sp.undecided %}
+    <pattern id="{{ sp.uid }}-open" patternUnits="userSpaceOnUse" width=".5" height=".5" patternTransform="rotate(45)"><rect class="rot-open-bg" width=".5" height=".5"/><rect class="rot-open-ln" width=".17" height=".5"/></pattern>
+    {%- endif %}
     {%- for m in sp.mould %}
     <path id="{{ m.ref }}" d="{{ m.d }}"/>
     {%- endfor %}
   </defs>
-  {%- endif %}
   <path class="rot-tissue" d="{{ sp.outline }}"/>
-  {%- if sp.spoil %}
-  <path class="rot-spoil" d="{{ sp.outline }}" fill-opacity="{{ sp.spoil }}"/>
-  {%- endif %}
-  <path class="rot-folds" d="{{ sp.folds }}"/>
-  {%- if sp.mould or sp.undecided %}
   <g clip-path="url(#{{ sp.uid }}-clip)">
-    {%- if sp.bruises %}
-    <g class="rot-stain" filter="url(#{{ sp.uid }}-stain)">{% for b in sp.bruises %}<circle cx="{{ b.cx }}" cy="{{ b.cy }}" r="{{ b.r }}"/>{% endfor %}</g>
+    {%- if lit %}
+    {#- The light: a dome on each hemisphere, a rim that fades inward from
+        the outline, a soft pool on each upper shoulder; then the valley
+        each groove sits in and its lit lip. -#}
+    <g class="rot-light">
+      {%- for h in sp.halves %}<path d="{{ h }}" fill="url(#{{ sp.uid }}-dome)"/>{% endfor %}
+      {%- for w in sp.rim %}<path class="rot-rim" d="{{ sp.outline }}" stroke-width="{{ w }}"/>{% endfor %}
+      {%- for g in sp.glow %}<path d="{{ g }}" fill="url(#{{ sp.uid }}-glow)"/>{% endfor %}
+    </g>
+    <g class="rot-valley"><use href="#{{ sp.uid }}-sulci"/><use href="#{{ sp.uid }}-deep"/></g>
+    <g class="rot-valley rot-valley-2"><use href="#{{ sp.uid }}-sulci"/><use href="#{{ sp.uid }}-deep"/></g>
+    <g class="rot-valley rot-valley-3"><use href="#{{ sp.uid }}-sulci"/><use href="#{{ sp.uid }}-deep"/></g>
+    <g class="rot-lip" transform="translate({{ sp.lip }})"><use href="#{{ sp.uid }}-sulci"/><use href="#{{ sp.uid }}-deep"/></g>
     {%- endif %}
-    {#- Mould is drawn twice, a pale frayed rim then the bodies, so touching
-        colonies merge into one growth instead of a pavement of tiles. Colonies
-        born at the drawn step are the speck green and have no rim yet; at the
-        first step they are still the mark's own flat specks, unfrayed. -#}
+    <path class="rot-fine" d="{{ sp.fine }}"/>
+    <use class="rot-sulcus" href="#{{ sp.uid }}-sulci"/>
+    <use class="rot-fold" href="#{{ sp.uid }}-deep"/>
+    {%- if lit %}
+    <path class="rot-crest" d="{{ sp.crest }}"/>
+    {%- endif %}
     {%- if sp.bloom %}
-    <g class="rot-bloom" filter="url(#{{ sp.uid }}-bloom)">{% for ref in sp.bloom %}<use href="#{{ ref }}"/>{% endfor %}</g>
+    <g class="rot-fuzz">{% for b in sp.bloom %}<g class="rot-b" style="--i:{{ b.i }}"><use class="rot-br" href="#{{ b.ref }}" stroke-width="{{ b.w }}"/></g>{% endfor %}</g>
     {%- endif %}
     {%- if sp.mould %}
-    <g filter="url(#{{ sp.uid }}-rough)">{% for m in sp.mould if not m.plain %}<use href="#{{ m.ref }}" fill="url(#{{ sp.uid }}-{{ 'young' if m.young else 'grown' }})"/>{% endfor %}</g>
-    <g class="rot-speck">{% for m in sp.mould if m.plain %}<use href="#{{ m.ref }}"/>{% endfor %}</g>
+    <g class="rot-ink">{% for m in sp.mould if not m.plain %}<g class="rot-b" style="--i:{{ m.i }}"><use class="rot-br" href="#{{ m.ref }}"/></g>{% endfor %}</g>
+    <g class="rot-mould">
+      {%- for m in sp.mould %}
+      <g class="rot-b" style="--i:{{ m.i }}"><g class="rot-br">
+        {%- if m.plain %}<use class="rot-speck" href="#{{ m.ref }}"/>{% else %}<use href="#{{ m.ref }}" fill="url(#{{ sp.uid }}-t{{ m.tier }})"/>{% endif %}
+        {%- if m.shine %}<path class="rot-shine{% if m.tier == 3 %} rot-shine-ripe{% endif %}" d="{{ m.shine.d }}" stroke-width="{{ m.shine.w }}"/>{% endif %}</g></g>
+      {%- endfor %}
+    </g>
     {%- endif %}
-    {%- if sp.spores %}
-    <g class="rot-spores">{% for s in sp.spores %}<circle cx="{{ s.cx }}" cy="{{ s.cy }}" r="{{ s.r }}"/>{% endfor %}</g>
-    {%- endif %}
+    {#- Undecided, apart: round, striped, dashed, amber, and still. Only brain rot moves. -#}
     {%- if sp.undecided %}
-    <g class="rot-undecided">{% for d in sp.undecided %}<path d="{{ d }}"/>{% endfor %}</g>
+    <g class="rot-undecided" fill="url(#{{ sp.uid }}-open)">{% for u in sp.undecided %}<path d="{{ u.d }}"/>{% endfor %}</g>
     {%- endif %}
   </g>
-  {%- endif %}
   <path class="rot-outline" d="{{ sp.outline }}"/>
+  {#- Motes drifting up off the larger puffs: motion only, invisible when
+      motion is reduced, so the still drawing is complete without them. -#}
+  {%- if sp.spores %}
+  <g class="rot-motes" aria-hidden="true">{% for s in sp.spores %}<circle class="rot-mote" style="--i:{{ s.i }}" cx="{{ s.cx }}" cy="{{ s.cy }}" r="{{ s.r }}"/>{% endfor %}</g>
+  {%- endif %}
 </svg>
 {%- endmacro %}
 

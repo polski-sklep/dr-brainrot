@@ -2165,3 +2165,39 @@ dozens of sources, and "2 phone apps below the end of a cut-off list" is one
 line for two. Both panels now say what was left out in the units it has: one
 channel by name, several by count, and sources counted apart ("the phone
 browser by site and 3 sources set aside").
+
+### DR5.21 — The brain gets friendlier, then more detailed
+
+**4 October 2026.** On the first version (DR5.20) Jacob said: "Make it a
+little more visually cute/animated; less medical, the rot really looks
+troublesome." Shown four directions — a face on the brain, mould critters, a
+moss-and-toadstool garden, a lighter-touch polish — he chose the last:
+"rounder, friendlier shapes with subtle motion and no faces".
+
+- Mould became soft cartoon clouds that ripen to a pale mint. The spoilt-tissue
+  tint, the stains round colonies, the dark spores and the turbulence filters
+  are gone: they read as a lesion, which is the "medical" he meant.
+- It moves a little: colonies grow in from the specks outward when the page
+  loads, take three slow breaths, and a few motes drift up twice; then it is
+  still. Not a loop: SVG motion is repainted on the main thread every frame,
+  and an endless breath cost about half a core for as long as the Overview was
+  open and visible. All of it is opt-in
+  under `prefers-reduced-motion: no-preference`, on screen only; the still
+  drawing is the finished one. The brain and undecided time never move.
+
+Then: "the brain itself looks sloppy or lazily designed. I want to see more
+details on the brain." The large brain was the 21px icon scaled up — an
+outline, a midline and four arcs. It is now drawn in full: grooves, lobes and
+soft light, built round the mark's own outline, midline and folds (now its
+deepest grooves, tested against the mark's), so it is still the mark. The
+21px mark and the tab icon are unchanged.
+
+This amends DR5.20's "Mould is coloured, here only": mould no longer greys as
+it ages under a frayed rim and a stain; it softens to a pale mint under a pale
+fuzz. That gives up DR5.20's reason for the greying: the mint tiers and the
+fuzz now sit in the same hue band as `--win` and the worthwhile series (a young
+puff's #B8E5CB against `--win-bg-solid` #BFE6CE). Mould and a good week are told
+apart by shape and placement, not hue — soft clouds on the brain inside #rot,
+never a bar, panel or chip — accepted because the greyed, stained mould was the
+"medical" look he asked to lose. The rest of DR5.20 stands: no red, no score, no named levels, and
+the figures always printed beside the drawing.

@@ -643,6 +643,23 @@ def test_the_brain_renders_on_an_empty_database_as_not_measured(client):
     assert "Not measured yet" in flat(part)
     assert 'role="img"' in part and 'aria-label="Grey brain outline, nothing drawn' in part
     assert "rot-blank" in part                         # never a clean, healthy brain
+    # The same brain, every groove of it, but grey and unlit: drawn, never lit.
+    assert 'class="rot-sulcus"' in part and "rot-light" not in part and "Gradient" not in part
+
+
+def test_the_brain_only_moves_when_motion_is_welcome():
+    """Every animation sits inside screen and prefers-reduced-motion:
+    no-preference, so the still drawing (reduced motion, print) is the whole
+    drawing, and only transform and opacity move."""
+    css = (pathlib.Path(dashboard_app.__file__).parent / "static/dashboard.css").read_text()
+    rot = css[css.index("The brain against your peak week (#rot)"):]
+    motion = re.search(r"@media screen and \(prefers-reduced-motion: no-preference\) \{(.*?)\n\}",
+                       rot, re.S).group(1)
+    assert "animation:" in motion and "animation:" not in rot.replace(motion, "")
+    frames = re.findall(r"@keyframes ([\w-]+) \{(.*?)\n\}", rot, re.S)
+    assert {name for name, _ in frames} == {"rot-grow", "rot-breathe", "rot-drift"}
+    for _, body in frames:
+        assert set(re.findall(r"([a-z-]+)\s*:", body)) <= {"transform", "opacity"}
 
 
 def test_the_brain_never_names_the_product_or_borrows_another_components_classes(
