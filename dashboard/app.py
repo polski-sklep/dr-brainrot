@@ -846,6 +846,30 @@ def _pct(x: float) -> str:
     return f"{x * 100:.0f}%"
 
 
+#: A public host name: dotted labels and a letter TLD. Rules out what the web
+#: channels also record but nobody can open from here: 127.0.0.1, localhost,
+#: browser-extension ids, `file:`.
+_HOST = re.compile(r"(?=.{4,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z")
+#: A YouTube channel id, as the history import stores it.
+_CHANNEL = re.compile(r"UC[A-Za-z0-9_-]{22}\Z")
+
+
+def source_url(kind: str | None, key: str | None) -> str | None:
+    """Where a source can be looked at: a site's home page, a channel's page, X.
+
+    None for anything with no page to open — apps, podcasts, and any key that
+    isn't a plain public host or channel id — so the page never links a guess.
+    """
+    key = (key or "").strip()
+    if kind == T.KIND_WEB_DOMAIN and _HOST.match(key.lower()):
+        return f"https://{key.lower()}"
+    if kind == T.KIND_YOUTUBE_CHANNEL and _CHANNEL.match(key):
+        return f"https://www.youtube.com/channel/{key}"
+    if kind == T.KIND_X:
+        return "https://x.com"
+    return None
+
+
 def _share(x: float) -> str:
     """_pct for a share of the peak week. Any brain rot at all draws mould, so a
     share above zero never prints as 0%."""
@@ -1129,7 +1153,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         UNKNOWN_CHANNEL_REASON=UNKNOWN_CHANNEL_REASON, WASTEFUL=T.WASTEFUL, WORTHWHILE=T.WORTHWHILE,
         TOOL=T.TOOL, TOOL_TEXT=TOOL_TEXT,
         BRAIN={"outline": BRAIN_OUTLINE, "folds": BRAIN_FOLDS},
-        progress_set_aside=progress_set_aside,
+        progress_set_aside=progress_set_aside, source_url=source_url,
     )
 
     @app.context_processor

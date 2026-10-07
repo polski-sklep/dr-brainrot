@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import badge, caveat, hint %}
+{% from "_macros.html" import badge, caveat, hint, source_link %}
 {% from "_rot.html" import rot_section %}
 {% block title %}Overview{% endblock %}
 {% block content %}
@@ -230,7 +230,7 @@
     <tbody>
     {% for r in top_sources %}
       <tr{% if r.label is none %} class="undecided-row"{% endif %}>
-        <td class="col-flex"><span class="clamp" title="{{ r.display_name }}">{{ r.display_name }}</span><span class="sub">{{ GROUP_NAMES.get(r.group, r.group) }}</span></td>
+        <td class="col-flex"><span class="clamp" title="{{ r.display_name }}">{{ source_link(r.display_name, source_url(r.kind, r.source_key)) }}</span><span class="sub">{{ GROUP_NAMES.get(r.group, r.group) }}</span></td>
         <td class="num">{{ r.minutes|min }}</td>
         <td class="cell-nowrap">
           {% if r.label is none %}<span class="state state-unlabelled">undecided</span> <a class="decide" href="{{ url_for('labels_page') }}#source-{{ r.source_id }}">decide</a>

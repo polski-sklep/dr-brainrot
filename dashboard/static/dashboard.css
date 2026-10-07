@@ -476,6 +476,20 @@ td.part-undecided { color: var(--warn); }
 tr.undecided-row td { background: var(--warn-bg); }
 tr.undecided-row:hover td { background: #FDF3BF; }
 a.decide { font-size: var(--fs-micro); font-weight: 600; margin-left: var(--s1); }
+/* A source's name, linked to its own page (a site, a channel, X). It keeps the
+   text colour, so a table of names doesn't turn into a wall of blue; the small
+   arrow says it opens elsewhere, and hover takes the accent. The arrow is
+   decoration (empty alt text): the link's title says "in a new tab". */
+.source-link { color: inherit; }
+.source-link::after {
+  content: "\2197";
+  content: "\2197" / "";
+  margin-left: .3em;
+  font-size: .8em;
+  color: var(--text-muted);
+}
+.source-link:hover, .source-link:focus-visible { color: var(--accent); text-underline-offset: 2px; }
+.source-link:hover::after, .source-link:focus-visible::after { color: var(--accent); }
 
 .all-in { font-size: var(--fs-table); color: var(--ok); font-weight: 550; margin: 0; }
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import badge, caveat, label_chip, hint %}
+{% from "_macros.html" import badge, caveat, label_chip, hint, source_link %}
 {#- The chip carries the label, so the basis states only the reason. -#}
 {% set BASIS_SHORT = {"item_override": "item override", "source_label": "source label", "default_unlabelled": "unlabelled"} %}
 {% block title %}Records{% endblock %}
@@ -43,7 +43,7 @@
     <tr class="record{% if r.covered_elsewhere %} covered{% endif %}">
       <td class="cell-day">{{ r.day }}</td>
       <td class="cell-nowrap">{{ GROUP_NAMES.get(r.group, r.group) }}</td>
-      <td class="cell-source"><span class="clamp" title="{{ r.source }}">{{ r.source }}</span><span class="sub clamp">{{ KIND_NAMES.get(r.source_kind, r.source_kind) }}</span></td>
+      <td class="cell-source"><span class="clamp" title="{{ r.source }}">{{ source_link(r.source, source_url(r.source_kind, r.source_key)) }}</span><span class="sub clamp">{{ KIND_NAMES.get(r.source_kind, r.source_kind) }}</span></td>
       <td class="cell-item"><span class="clamp" title="{{ r.item or '' }}">{{ r.item or "" }}</span></td>
       <td class="num cell-minutes">{% if r.minutes is none %}<span class="absent">unmeasured</span>{% else %}{{ r.minutes|min }}{{ caveat(r.provenance) }}{% endif %}</td>
       <td class="cell-status">{{ r.status }}{% if r.covered_elsewhere %}<span class="excluded sub clamp" title="excluded: already measured by {{ r.covered_elsewhere }}">excluded: already measured by {{ r.covered_elsewhere }}</span>{% endif %}</td>

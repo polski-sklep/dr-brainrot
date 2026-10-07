@@ -783,3 +783,26 @@ def test_a_week_just_above_the_peak_is_the_benchmark_it_is_about_to_become():
                                   [peak, shown])
     assert view["above_peak"] and not view["is_new_peak"]
     assert not view["peak_not_tallest"]         # the shown week is the tallest, and the benchmark
+
+
+@pytest.mark.parametrize("kind,key,url", [
+    (T.KIND_WEB_DOMAIN, "reddit.com", "https://reddit.com"),
+    (T.KIND_WEB_DOMAIN, "Artlectics.com", "https://artlectics.com"),
+    (T.KIND_WEB_DOMAIN, "m.youtube.com", "https://m.youtube.com"),
+    (T.KIND_WEB_DOMAIN, "127.0.0.1", None),                       # nothing to open from here
+    (T.KIND_WEB_DOMAIN, "localhost", None),
+    (T.KIND_WEB_DOMAIN, "fcoeoabgfenejglbffodgkkbkcdhcgfn", None),  # a browser extension
+    (T.KIND_WEB_DOMAIN, "file:", None),
+    (T.KIND_WEB_DOMAIN, "javascript:alert(1)", None),
+    (T.KIND_WEB_DOMAIN, 'evil.com/"><script>', None),
+    (T.KIND_YOUTUBE_CHANNEL, "UC0Cyf-sOPE0AGY41I6andkQ",
+     "https://www.youtube.com/channel/UC0Cyf-sOPE0AGY41I6andkQ"),
+    (T.KIND_YOUTUBE_CHANNEL, "UCgood", None),                      # not a channel id
+    (T.KIND_X, "x", "https://x.com"),
+    (T.KIND_IPHONE_APP, "facebook", None),
+    (T.KIND_DESKTOP_APP, "com.apple.notes", None),
+    (T.KIND_PODCAST_SHOW, "triggernometry", None),
+    (None, None, None),
+])
+def test_a_source_links_to_its_own_page_only_when_it_has_one(kind, key, url):
+    assert dashboard_app.source_url(kind, key) == url

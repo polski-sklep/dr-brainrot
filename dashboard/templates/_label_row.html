@@ -1,7 +1,8 @@
+{% from "_macros.html" import source_link -%}
 <tr id="source-{{ s.id }}" class="label-row">
   <td>{{ KIND_NAMES.get(s.kind, s.kind) }}</td>
   <td>
-    {{ s.display_name }}
+    {{ source_link(s.display_name, source_url(s.kind, s.source_key)) }}
     {% if s.display_name != s.source_key %}<span class="sub">{{ s.source_key }}</span>{% endif %}
   </td>
   <td class="label-current col-flex">

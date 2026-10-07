@@ -23,6 +23,13 @@
 
 {#- A jargon term with its plain-English meaning on hover. Marked with a
     dotted underline so it is visibly explainable rather than silently so. -#}
+{#- A source's name, linked to its own page when it has one (app.source_url):
+    a new tab, and no referrer, so the site never learns about this dashboard. -#}
+{% macro source_link(name, url) -%}
+{%- if url %}<a class="source-link" href="{{ url }}" target="_blank" rel="noopener noreferrer" title="Open {{ name }} in a new tab">{{ name }}</a>
+{%- else %}{{ name }}{% endif %}
+{%- endmacro %}
+
 {% macro hint(text, tip) -%}
 <span class="hint" title="{{ tip }}">{{ text }}</span>
 {%- endmacro %}

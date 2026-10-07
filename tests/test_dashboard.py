@@ -681,3 +681,17 @@ def test_the_lead_row_gives_the_panel_below_its_margin_back():
     first_of_type = css.index("section:first-of-type")
     for rule in (".lead + section { margin-top: var(--s8); }", ".lead > section { margin-top: 0; }"):
         assert css.index(rule) > first_of_type        # same specificity: source order decides
+
+
+LINK = '<a class="source-link" href="https://x.com" target="_blank" rel="noopener noreferrer"'
+
+
+def test_a_sites_name_opens_the_site_wherever_it_is_listed(client, conn, clk, settings):
+    """x.com is a web domain in the seed week: its name links out, in a new tab,
+    with no referrer; a channel key that isn't a channel id stays plain text."""
+    populate(conn, clk, settings)
+    overview = section(text(client.get(f"/?week={WEEK_SUNDAY}")), "top-sources")
+    assert LINK in overview and "Good" in flat(overview)
+    assert 'href="https://www.youtube.com/channel/UCgood"' not in overview
+    assert LINK in text(client.get("/records"))
+    assert LINK in text(client.get("/labels"))

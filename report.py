@@ -310,6 +310,7 @@ class RecordRow:
     device: str
     covered_elsewhere: str | None
     import_id: int | None
+    source_key: str | None = None     # so the page can link a site or channel to its own page
 
 
 # --------------------------------------------------------------------------
@@ -501,6 +502,9 @@ class SourceLine:
     #: `minutes` split by the provenance that measured it, sorted, so a source
     #: can be compared across weeks only on channels both weeks had (DR5.17).
     by_provenance: tuple = ()
+    #: What the source is, so the page can link a site or channel to its own page.
+    kind: str | None = None
+    source_key: str | None = None
 
     @property
     def all_reflex(self) -> bool:
@@ -561,8 +565,8 @@ def top_sources(conn: sqlite3.Connection, clk: Clock, settings: Settings,
 
     out = [SourceLine(v["source_id"], v["display_name"], v["group"], v["minutes"], v["label"],
                       v["reflex_min"], frozenset(v["provenances"]),
-                      tuple(sorted(v["by_prov"].items())))
-           for v in acc.values() if v["minutes"] > 0]
+                      tuple(sorted(v["by_prov"].items())), kind=k[0], source_key=k[1])
+           for k, v in acc.items() if v["minutes"] > 0]
     # Biggest first; name breaks ties so two equal rows never swap between runs.
     out.sort(key=lambda r: (-r.minutes, r.display_name))
     return out if limit is None else out[:limit]
@@ -984,7 +988,7 @@ def records(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, group: 
             minutes=None if r["minutes"] is None else float(r["minutes"]), status=r["status"],
             label=resolved.label, label_basis=resolved.basis, provenance=r["provenance"],
             device=r["device"], covered_elsewhere=T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"])),
-            import_id=r["import_id"],
+            import_id=r["import_id"], source_key=r["source_key"],
         ))
 
     if label is not None:
