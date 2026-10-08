@@ -933,16 +933,55 @@ def test_a_failed_send_leaves_the_deadline_notice_for_tomorrow(conn, settings):
     item = seed_deadline(conn, clk, settings, MEDIUM, TUESDAY_EVENT)
 
     clk.set(TUESDAY)
-    with pytest.raises(RuntimeError):
-        poll.run_poll(conn, clk, settings, fake_spotify(), BrokenBot())
+    failed = poll.run_poll(conn, clk, settings, fake_spotify(), BrokenBot())
+    assert "deadlines" in failed
     assert notices(conn) == set()
 
     retry = FakeBot()
     clk.set(WEDNESDAY)
-    poll.run_poll(conn, clk, settings, fake_spotify(), retry)
+    assert poll.run_poll(conn, clk, settings, fake_spotify(), retry) == []
 
     assert len(deadline_posts(retry)) == 1
     assert notices(conn) == {item.id}
+
+
+def test_listening_is_recorded_although_every_send_fails(conn, settings):
+    """27–28 Sep: no internet. The data step must not wait on Telegram (DR5.25)."""
+    class BrokenBot:
+        def send_message(self, **kwargs):
+            raise RuntimeError("telegram is down")
+
+    clk = clock.FrozenClock(MONDAY)
+    seed(conn, clk, settings, LONG)
+    item = seed_deadline(conn, clk, settings, MEDIUM, TUESDAY_EVENT)   # a deadline post that can't go
+    use_minutes(conn, clk, 200)                                        # and two alerts that can't go
+    spot = fake_spotify()
+    spot.set_position(LONG.spotify_id, 20 * MIN)
+
+    clk.set(TUESDAY)
+    assert poll.run_poll(conn, clk, settings, spot, BrokenBot()) == ["deadlines", "alerts"]
+    assert rows(conn, LONG.spotify_id) == [(20 * MIN, 20 * MIN)]       # the listening is in
+    assert notices(conn) == set() and alerts(conn) == set()           # nothing recorded as sent
+
+    retry = FakeBot()                                                  # online again the next morning
+    clk.set(WEDNESDAY)
+    assert poll.run_poll(conn, clk, settings, spot, retry) == []
+    assert len(deadline_posts(retry)) == 1 and notices(conn) == {item.id}
+    assert alerts(conn) == {(WEEK_START, "approaching"), (WEEK_START, "exceeded")}
+
+
+def test_a_spotify_outage_no_longer_costs_the_deadline_post(conn, settings):
+    class DownSpotify:
+        def get_episodes(self, ids):
+            raise spotify_module.SpotifyError("Spotify is unreachable")
+
+    clk = clock.FrozenClock(MONDAY)
+    item = seed_deadline(conn, clk, settings, MEDIUM, TUESDAY_EVENT)
+
+    clk.set(TUESDAY)
+    bot = FakeBot()
+    assert poll.run_poll(conn, clk, settings, DownSpotify(), bot) == ["positions"]
+    assert len(deadline_posts(bot)) == 1 and notices(conn) == {item.id}
 
 
 def test_the_deadline_post_goes_to_the_authorised_user(conn, settings):

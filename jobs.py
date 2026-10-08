@@ -10,15 +10,18 @@ the functions each source owns:
 2. `coldturkey_local.sync` — this Mac's Cold Turkey statistics, hostnames only
    (DR5.1), before the check-in so a week it covers is never asked for.
 3. `qbserve.sync` — desktop app minutes from Qbserve, browsers skipped
-   (DR5.3), with a once-a-day Telegram warning while Qbserve has not
-   recorded for more than 36 hours.
-4. `checklist.send_due` — the Sunday check-in for the week just finished
+   (DR5.3); then `brave_history.sync`, the phone browser's sites (DR5.13).
+4. The Qbserve warning — one Telegram message a day while Qbserve has not
+   recorded for more than 36 hours. Its own step, after every read, so it
+   still goes out when today's Qbserve read failed: an earlier import is
+   still the last word.
+5. `checklist.send_due` — the Sunday check-in for the week just finished
    (Screen Time, YouTube, Cold Turkey only as a fallback, readings to settle,
    labels), and its one Monday reminder while evidence is still missing
    (DR5.24). The only thing that asks the user for anything.
-5. One diagnostic-end notice, ever, once the final week's evidence is in (or
+6. One diagnostic-end notice, ever, once the final week's evidence is in (or
    from the Tuesday after it).
-6. `insights.write_summary` — the Overview's weekly written summary (DR5.8),
+7. `insights.write_summary` — the Overview's weekly written summary (DR5.8),
    which writes at most one row a week and never fails the run.
 
 Steps 1-3 are the *data-fetching* half and are also callable on their own as
@@ -29,6 +32,12 @@ Each step is isolated: a vault failure must not cost the user their Sunday
 check-in, and a Telegram outage must not stop the scan. Every failure is logged
 and makes the process exit non-zero, so launchd's log shows it; none is
 swallowed into a success.
+
+**Reads first, sends after, and Telegram is best-effort** (DR5.25). On
+27–28 Sep the Mac had no internet and this job died connecting to Telegram
+before reading anything. Now nothing touches Telegram until a step sends; a
+failed send fails only its own step, writes no marker, and is retried on a
+later run.
 """
 from __future__ import annotations
 
@@ -90,23 +99,21 @@ def _run_step(conn, name: str, fn: Callable[[], object]) -> StepResult:
         return StepResult(name, False, f"{name} failed", f"{type(exc).__name__}: {exc}")
 
 
-def run_sync(conn, clk: Clock, settings: Settings, bot=None) -> dict[str, StepResult]:
+def run_sync(conn, clk: Clock, settings: Settings) -> dict[str, StepResult]:
     """Fetch everything DRBR can fetch by itself. -> one StepResult per step.
 
     The half of the daily run that only *reads* sources: the capture outbox,
-    the vault scan, Cold Turkey's own statistics and Qbserve. It sends no
-    check-in and no reminder, so it is safe to run on demand — a dashboard "Sync
-    now" button is exactly this function — and `run_daily` calls it rather than
-    keeping a second copy of the order. `bot` is optional: given one, the
-    Qbserve step may also send its once-a-day staleness warning (the warning is
-    about the tool having stopped, which a manual sync should not hide);
-    without one, nothing is sent at all.
+    the vault scan, Cold Turkey's own statistics, Qbserve and the phone
+    browser. It sends nothing at all, so it is safe to run on demand — a
+    dashboard "Sync now" button is exactly this function — and `run_daily`
+    calls it rather than keeping a second copy of the order. Nothing here can
+    wait on Telegram (DR5.25).
     """
     return {
         "read_outbox": _run_step(conn, "read_outbox", lambda: _outbox(conn, clk, settings)),
         "vault_scan": _run_step(conn, "vault_scan", lambda: _scan(conn, clk, settings)),
         "coldturkey_local": _run_step(conn, "coldturkey_local", lambda: _coldturkey(conn, clk, settings)),
-        "qbserve": _run_step(conn, "qbserve", lambda: _qbserve(conn, clk, settings, bot)),
+        "qbserve": _run_step(conn, "qbserve", lambda: _qbserve(conn, clk, settings)),
         "phone_browser": _run_step(conn, "phone_browser", lambda: _phone_browser(conn, clk, settings)),
     }
 
@@ -119,10 +126,15 @@ def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
     no call). A summary that could not be written is recorded in the `insights`
     table and logged; making the morning job exit non-zero over it would turn a
     missing paragraph into a red launchd log next to real data failures.
+
+    Every read comes before every send (DR5.25). The sends are their own
+    steps, so Telegram being unreachable fails those steps and nothing else.
     """
-    results = run_sync(conn, clk, settings, bot)
+    results = run_sync(conn, clk, settings)
     failed = [name for name, result in results.items() if not result.ok]
     for name, fn in (
+        # After every read, and whether or not today's Qbserve read worked.
+        ("qbserve_warning", lambda: _qbserve_stale_warning(conn, clk, settings, bot)),
         ("checklist", lambda: checklist.send_due(conn, clk, settings, bot)),
         ("diagnostic_end", lambda: send_end_notice(conn, clk, settings, bot)),
     ):
@@ -190,40 +202,28 @@ def _coldturkey(conn, clk: Clock, settings: Settings) -> str:
     return f"import {outcome.import_id} {outcome.status}, {outcome.measurements_written} domain-day figures"
 
 
-def _qbserve(conn, clk: Clock, settings: Settings, bot) -> str:
+def _qbserve(conn, clk: Clock, settings: Settings) -> str:
+    """Read Qbserve's database. Reads only: the warning is its own step."""
     if settings.qbserve_db is None:
         return "not configured (DRBR_QBSERVE_DB unset): desktop apps not measured"
-    try:
-        outcome = qbserve.sync(conn, clk, settings)
-        if outcome is None:
-            result = "no finished days to read yet"
-        elif outcome.duplicate_of is not None:
-            result = f"unchanged since import {outcome.duplicate_of}"
-        else:
-            for warning in outcome.warnings:
-                log.warning("qbserve: %s", warning)
-            if outcome.status == "failed":
-                raise RuntimeError(f"qbserve import failed: {outcome.error}")
-            result = f"import {outcome.import_id} {outcome.status}, {outcome.measurements_written} app-day figures"
-    except Exception:
-        # Warn even when this read failed: a stale earlier import is still the last
-        # word. Roll back first so the warning's commit can't carry half a write.
-        conn.rollback()
-        try:
-            _qbserve_stale_warning(conn, clk, settings, bot)
-        except Exception:  # noqa: BLE001 — the read failure is the error to report
-            log.exception("qbserve stale warning failed")
-        raise
-    return f"{result}; {_qbserve_stale_warning(conn, clk, settings, bot)}"
+    outcome = qbserve.sync(conn, clk, settings)
+    if outcome is None:
+        return "no finished days to read yet"
+    if outcome.duplicate_of is not None:
+        return f"unchanged since import {outcome.duplicate_of}"
+    for warning in outcome.warnings:
+        log.warning("qbserve: %s", warning)
+    if outcome.status == "failed":
+        raise RuntimeError(f"qbserve import failed: {outcome.error}")
+    return f"import {outcome.import_id} {outcome.status}, {outcome.measurements_written} app-day figures"
 
 
 def _qbserve_stale_warning(conn, clk: Clock, settings: Settings, bot) -> str:
-    """One Telegram message a day while Qbserve has not recorded for over 36 hours (DR5.3)."""
-    if bot is None:
-        # `run_sync` called without a bot (a dashboard "Sync now"). The read
-        # still happened; the warning is the daily job's to send, and skipping
-        # it here must not consume today's slot.
-        return "no bot to warn with"
+    """One Telegram message a day while Qbserve has not recorded for over 36 hours (DR5.3).
+
+    The day's `prompts_sent` row is written only after the send, so a failed
+    send is tried again by the next run.
+    """
     hours = qbserve.staleness_hours(conn, clk)
     if hours is None or hours <= QBSERVE_STALE_HOURS:
         return "qbserve recording is current" if hours is not None else "no qbserve record to judge staleness"
@@ -295,7 +295,7 @@ def main(argv: list[str]) -> int:  # pragma: no cover — production only
     conn = db.connect(settings)
     db.init_db(conn)
     db.migrate(conn)
-    telegram_bot = SyncBot(settings.telegram_bot_token)
+    telegram_bot = SyncBot(settings.telegram_bot_token)    # opens nothing until it sends
     try:
         failed = run_daily(conn, clock.RealClock(), settings, telegram_bot)
     finally:

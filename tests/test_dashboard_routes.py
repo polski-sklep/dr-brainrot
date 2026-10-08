@@ -191,7 +191,7 @@ def test_a_refused_correction_changes_nothing(client, conn, clk, settings, value
 def test_sync_now_runs_the_fetching_steps_and_reports_back(client, settings, monkeypatch):
     calls = {}
 
-    def fake_run_sync(conn, clk, settings, bot=None):
+    def fake_run_sync(conn, clk, settings):
         calls["ran"] = True
         import jobs
 

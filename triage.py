@@ -7,9 +7,9 @@ Three things in this module are load-bearing and easy to get silently wrong.
 1. **The order of operations in `run_triage()`.** Rollover happens *before*
    locks are lifted. Reverse them and an item whose lock lifts this minute is
    swept into the lapse pass and charged against the week that is being
-   closed, not the one being opened. Expiry happens *before* the cycle bump,
-   so an item at its lifespan is removed rather than shown a third time and
-   then removed.
+   closed, not the one being opened. Expiry happens *before* the post and
+   its cycle bump, so an item at its lifespan is removed rather than shown a
+   third time and then removed.
 
 2. **The why-note sits directly under the duration.** That juxtaposition is
    the entire mechanism the brief describes: "'Looked good' next to a
@@ -27,12 +27,19 @@ across sources. The order of operations in `run_triage` is unchanged, and the
 label line sits *below* the why-note so the note stays directly under the
 duration.
 
+Telegram is best-effort for every scheduled entry point (DR5.25): `SyncBot`
+opens nothing until it sends, and `try_send` turns a failed send into a logged
+False. Telegram being unreachable never stops the week rolling over, and an
+item is bumped a cycle only once its post went out.
+
 No live call is made from anywhere in this file except `main()`, which is the
 production cron path and is never executed by the test suite.
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import dataclasses
 import datetime as _dt
 import inspect
 import logging
@@ -103,29 +110,84 @@ def _resolve(awaitable):
     )
 
 
-class SyncBot:  # pragma: no cover — production glue, never exercised by tests
-    """A synchronous facade over a real `telegram.Bot`.
+def try_send(bot, settings: Settings, text: str, reply_markup=None) -> bool:
+    """`send`, for a message whose failure must not stop the run (DR5.25).
+
+    -> True when the message went out. On any failure it logs one line, saying
+    which message didn't go and why, and returns False; the caller decides
+    what not to record. `send` itself stays strict, for callers that record
+    after sending and want the exception.
+
+    The token is scrubbed from that line: `InvalidToken`'s own message
+    contains it, and the log is a file that gets tailed and copied.
+    """
+    try:
+        send(bot, settings, text, reply_markup)
+        return True
+    except Exception as exc:  # noqa: BLE001 — reported to the caller, never swallowed
+        reason = f"{type(exc).__name__}: {exc}"
+        if settings.telegram_bot_token:
+            reason = reason.replace(settings.telegram_bot_token, "<TOKEN>")
+        log.error("couldn't send %r: %s", text.split("\n", 1)[0][:60], reason)
+        return False
+
+
+class SyncBot:
+    """A synchronous facade over a real `telegram.Bot`, opened on first send.
 
     python-telegram-bot's `Bot` is async and refuses to send until
     `initialize()` has been awaited. Cron entry points are synchronous, so the
     loop is owned here rather than smeared through `run_triage`/`run_poll`.
+
+    **Nothing goes to the network until something is sent** (DR5.25).
+    `initialize()` asks Telegram who the bot is, and it used to run in this
+    constructor, before any data step. On 27–28 Sep the Mac had no internet:
+    the morning job, the podcast poll and Sunday's triage all died right there
+    without reading anything. Now a failed connection fails only the send that
+    needed it, and the next send tries again from scratch.
     """
 
     def __init__(self, token: str) -> None:
+        self._token = token
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._bot = None
+
+    def _ready(self):
+        if self._bot is not None:
+            return self._bot
         from telegram import Bot
 
-        self._loop = asyncio.new_event_loop()
-        self._bot = Bot(token)
-        self._loop.run_until_complete(self._bot.initialize())
+        bot = Bot(self._token)
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(bot.initialize())
+        except BaseException:
+            # Free what initialize() opened before it failed, so nothing is
+            # left half-open and the next send starts clean.
+            with contextlib.suppress(Exception):
+                loop.run_until_complete(bot.shutdown())
+            loop.close()
+            raise
+        self._loop, self._bot = loop, bot
+        return bot
 
     def send_message(self, **kwargs):
-        return self._loop.run_until_complete(self._bot.send_message(**kwargs))
+        bot = self._ready()
+        return self._loop.run_until_complete(bot.send_message(**kwargs))
 
     def close(self) -> None:
+        """Shut the connection, if one was ever opened. Never raises: closing
+        must not turn a run whose data steps finished into a crash."""
+        if self._bot is None:
+            return
+        loop, bot = self._loop, self._bot
+        self._loop, self._bot = None, None
         try:
-            self._loop.run_until_complete(self._bot.shutdown())
+            loop.run_until_complete(bot.shutdown())
+        except Exception as exc:  # noqa: BLE001 — logged; the run's own result stands
+            log.warning("closing the Telegram connection failed: %s", type(exc).__name__)
         finally:
-            self._loop.close()
+            loop.close()
 
     def __enter__(self) -> "SyncBot":
         return self
@@ -319,8 +381,11 @@ def _will_expire_next_cycle(item: QueueItem, now: _dt.datetime, settings: Settin
     return item.cycles_seen >= settings.lifespan_cycles
 
 
-def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
+def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> list[str]:
     """The Sunday 18:00 cron entry. CONTRACTS.md §5, in that exact order.
+
+    -> what couldn't be posted (`"item <id>"`, `"header"`); empty when every
+    message went out.
 
     1. `roll_over_week()` — lapse unlistened promotions, compute debt, open
        the week. First, because it is what defines which week everything
@@ -330,20 +395,31 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
        than swept into the lapse pass of the week that is closing.
     3. Expire anything at or past its lifespan, and anything whose deadline
        has passed. Soft deletes, via `db.set_state`.
-    4. `bump_cycle()` on each survivor, then post it. After the bump,
-       `cycles_seen == settings.lifespan_cycles` is the last-cycle warning.
-    5. Post the week header — only when step 4 posted something. An empty
-       queue posts nothing at all (DR5.24): "Nothing to triage this week" every
-       Sunday evening was one more message on a different day, with nothing to
-       do. Steps 1–3 and the marker still run, so the week rolls over and its
-       overage is recorded either way.
+    4. Post each survivor, then `bump_cycle()` it — only once its post went
+       out (DR5.25), the same send-then-record order as D3.5. The post shows
+       the cycle it is about to be bumped to, so the cycle age is the cycle
+       the user is looking at, and a cycle equal to `settings.lifespan_cycles`
+       carries the last-cycle warning. An item whose post failed keeps its
+       cycle and comes back next Sunday: it is never aged without being seen.
+    5. Post the week header — only when step 4 had something to post. An
+       empty queue posts nothing at all (DR5.24): "Nothing to triage this
+       week" every Sunday evening was one more message on a different day,
+       with nothing to do.
+
+    **Steps 1–3 never wait on Telegram** (DR5.25). On 27 Sep the Mac had no
+    internet and this run died connecting to Telegram before step 1, so that
+    week was never rolled over by triage. Now the rollover, the lock lift and
+    expiry always happen, and a post that fails is logged and returned.
 
     **Idempotent.** Cron retries happen, and steps 3 and 4 are not naturally
     repeatable — a second run in the same week would bump every cycle again
     and expire a whole generation of items early. The week whose triage has
-    completed is therefore recorded in `meta`, and a repeat run for the same
-    week returns without touching anything. The marker is written last, so a
-    run that dies partway is retried rather than skipped.
+    run is therefore recorded in `meta`, and a repeat run for the same week
+    returns without touching anything. The marker is written after step 3 and
+    before any post: a run that dies during steps 1–3 is retried, and one that
+    fails to post is not, so no cycle is ever bumped twice. A post lost to an
+    outage is not re-sent; `/queue` still lists the items, and they come back
+    next Sunday at the same cycle.
 
     `spotify` is accepted for interface symmetry with `run_poll` and is
     deliberately unused: positions are `poll.py`'s job, and the weekly triage
@@ -354,7 +430,7 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
     week_start = clock.iso(clock.week_start_for(now, settings.tz))
     if _last_triage_week(conn) == week_start:
         log.info("triage for %s already ran; nothing to do", week_start)
-        return
+        return []
 
     # 1. Close the outgoing week, lapse its promotions, open this one.
     closed, week = db.roll_over_week(conn, clk, settings)
@@ -364,35 +440,50 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
 
     # 3. Expire, as soft deletes.
     survivors: list[QueueItem] = []
+    expired = 0
     for item in db.triage_items(conn, clk, settings):
         if _should_expire(item, now, settings):
             db.set_state(conn, clk, item.id, "expired")
+            expired += 1
         else:
             survivors.append(item)
 
-    # 4. Bump, then post. The bump comes first so the posted cycle age is the
-    #    cycle the user is looking at, not the one before it.
+    # The week is closed and its items settled. Mark it before posting, so a
+    # retry can never bump a cycle twice (see the idempotence note).
+    _mark_triaged(conn, week_start)
+
+    # 4. Post, then bump. The post shows the cycle the item is about to reach;
+    #    the bump is recorded only once the user has actually been shown it.
+    unsent: list[str] = []
+    posted = 0
     for item in survivors:
-        bumped = db.bump_cycle(conn, item.id)
-        warning = _will_expire_next_cycle(bumped, now, settings)
+        shown = dataclasses.replace(item, cycles_seen=item.cycles_seen + 1)
+        warning = _will_expire_next_cycle(shown, now, settings)
         # The label is read fresh, per item, at the moment it is shown.
-        text, markup = render_item(bumped, week, warning,
-                                   label=allowance.item_label(conn, bumped), tz=settings.tz)
-        send(bot, settings, text, markup)
+        text, markup = render_item(shown, week, warning,
+                                   label=allowance.item_label(conn, shown), tz=settings.tz)
+        if try_send(bot, settings, text, markup):
+            db.bump_cycle(conn, item.id)
+            posted += 1
+        else:
+            unsent.append(f"item {item.id}")
 
     # 5. The week header, last: it describes the state everything above left.
     #    Only beside a post: an empty queue sends nothing (DR5.24).
     if survivors:
         current = db.current_week(conn, clk, settings)
-        send(bot, settings, render_week_header(
+        if not try_send(bot, settings, render_week_header(
             current,
             spent_wasteful_min=allowance.pooled_minutes(conn, settings, current.week_start).charged_min,
             last_week_wasteful_min=allowance.pooled_minutes(conn, settings, closed.week_start).charged_min,
             last_week_overage_min=closed.overage_min,
             tz=settings.tz,
-        ))
+        )):
+            unsent.append("header")
 
-    _mark_triaged(conn, week_start)
+    log.info("week %s rolled over: %d expired, %d of %d item(s) posted",
+             week_start, expired, posted, len(survivors))
+    return unsent
 
 
 # --------------------------------------------------------------------------
@@ -465,8 +556,12 @@ def render_stats(conn, clk: Clock, settings: Settings) -> str:
 # Cron entry point
 # --------------------------------------------------------------------------
 
-def main() -> None:  # pragma: no cover — production only, never run by tests
-    """Sunday 18:00 cron. The only place real credentials are touched."""
+def main() -> int:  # pragma: no cover — production only, never run by tests
+    """Sunday 18:00 cron. The only place real credentials are touched.
+
+    Exits 1 when a post didn't go, so launchd's log shows it; the week has
+    rolled over either way (DR5.25).
+    """
     import config
     from spotify import SpotifyClient
 
@@ -482,14 +577,18 @@ def main() -> None:  # pragma: no cover — production only, never run by tests
     db.migrate(conn)
 
     spotify = SpotifyClient(settings)
-    telegram_bot = SyncBot(settings.telegram_bot_token)
+    telegram_bot = SyncBot(settings.telegram_bot_token)    # opens nothing until it sends
     try:
-        run_triage(conn, clock.RealClock(), settings, spotify, telegram_bot)
+        unsent = run_triage(conn, clock.RealClock(), settings, spotify, telegram_bot)
     finally:
         telegram_bot.close()
         spotify.close()
         conn.close()
+    if unsent:
+        log.error("triage finished, but these weren't posted: %s", ", ".join(unsent))
+        return 1
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    raise SystemExit(main())

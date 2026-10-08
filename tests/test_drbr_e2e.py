@@ -53,6 +53,7 @@ import asyncio
 import dataclasses
 import importlib.util
 import json
+import logging
 import pathlib
 import re
 import shutil
@@ -390,7 +391,7 @@ def build_pop_v1(path: pathlib.Path) -> dict[str, list[tuple]]:
 # The scenario
 # ==========================================================================
 
-def test_drbr_end_to_end(tmp_path, monkeypatch):
+def test_drbr_end_to_end(tmp_path, monkeypatch, caplog):
     vault_root = tmp_path / "vault"
     (vault_root / "01-Inbox" / "Read").mkdir(parents=True)
     outbox = tmp_path / "data" / "vault_captures.jsonl"
@@ -585,7 +586,8 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert pooled.charged_min == pytest.approx(100)                                # 30 + 50 + 20
     assert pooled.worthwhile_min == pytest.approx(100)                              # counted, never charged
 
-    # [17] Spotify: a token that lost its scope must fail loudly, never read as zero.
+    # [17] Spotify: a token that lost its scope must fail loudly, never read as zero. The poll's
+    #      positions step fails (logged, exit 1) and the rest of the poll still runs (DR5.25).
     def no_resume_point(request: httpx.Request) -> httpx.Response:
         if "accounts.spotify.com" in str(request.url):
             return httpx.Response(200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600,
@@ -595,8 +597,10 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
             for sid in db.polling_targets(conn)]})
     scoped_out = spotify.SpotifyClient(settings, transport=httpx.MockTransport(no_resume_point))
     fake_spotify.set_position(W, 85 * MIN)
-    with pytest.raises(spotify.SpotifyError, match="resume_point"):
-        poll.run_poll(conn, clk, settings, scoped_out, tg)
+    with caplog.at_level(logging.ERROR, logger="pop.poll"):
+        assert poll.run_poll(conn, clk, settings, scoped_out, tg) == ["positions"]
+    assert any(isinstance(r.exc_info[1], spotify.SpotifyError) and "resume_point" in str(r.exc_info[1])
+               for r in caplog.records if r.exc_info)
     scoped_out.close()
     assert count(conn, "listening") == listening_rows
 

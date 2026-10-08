@@ -2365,3 +2365,58 @@ Gone: `handlers_imports.send_due_prompts` and its texts, the DR5.19 label
 digest, and "Nothing to triage this week". `prompts_sent` keeps its old rows
 and still records the Qbserve warning and the end notice. The bot keeps the
 old Screen Time reply until it is restarted.
+
+### DR5.25 — Data first, Telegram after: an outage never stops a read
+
+**8 October 2026.** Jacob approved "keep reading data when Telegram is
+unreachable", third in his order for the Sunday session.
+
+On 27–28 Sep the Mac had no internet. `jobs.log`, `poll.log` and `triage.log`
+all end in the same traceback: `httpx.ConnectError: [Errno 8] nodename nor
+servname provided`, raised from `triage.SyncBot.__init__`, which asked
+Telegram who the bot was before anything else ran. So each scheduled run died
+before its first data step:
+
+* the morning job read no vault, Cold Turkey or Qbserve that day;
+* the poll recorded no listening;
+* Sunday's 18:00 triage never rolled the week over.
+
+None of those steps needs Telegram. Only the messages do.
+
+**`SyncBot` opens nothing until it sends.** Building it is free; the first
+`send_message` connects. A failed connection fails that send only, and the
+next send starts afresh. Closing a bot that never connected does nothing, and
+closing never raises.
+
+**Every entry point reads first and sends after.**
+
+* **Morning job:** every read runs first (it already did). The Qbserve
+  warning is now its own step after them, instead of riding inside the
+  Qbserve read, so `run_sync` (and the dashboard's Sync now) sends nothing at
+  all. Each send is its own step: a failure fails that step, writes no marker,
+  and is retried on a later run (the Sunday list then goes on Monday, DR5.24).
+* **Poll:** the bookkeeping (week, lock lift, sources), then three isolated
+  steps: positions, deadline posts, alerts. A Spotify outage no longer costs
+  the deadline post either.
+* **Triage:** the rollover, lock lift and expiry always run, then the week is
+  marked triaged, then the items are posted. An item's cycle is bumped only
+  after its post went out (send-then-record, like D3.5), and the post shows
+  the cycle it is about to reach. So in an outage no item ages without being
+  seen: it keeps its cycle and comes back next Sunday.
+
+**The triage marker moved before the posts.** It used to be written last, so
+a run that died was retried. Bumps now happen during the posts, so a retry
+after a partial failure would bump the items that did go out a second time.
+With the marker first, a retry is a no-op. The price: a post lost to an outage
+is not re-sent that week. `/queue` still lists the items, and they return the
+next Sunday at the same cycle. If a re-send is ever wanted, the poll could
+re-post when the week's posts are recorded as missing.
+
+**A failure is loud, never silent.** `triage.try_send` logs one ERROR line
+saying which message didn't go and why, with the bot token scrubbed (an
+`InvalidToken` message contains it). Each run exits 1 when anything failed,
+and a successful triage now logs one line too. `triage.log` has not been
+written since 27 Sep, so there was no way to tell whether later Sundays ran.
+
+`bot.py` is unchanged: it is not scheduled, and launchd's KeepAlive restarts
+it until the network is back.

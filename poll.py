@@ -41,6 +41,9 @@ DRBR (CONTRACTS.md Part II §7, Agent D) changes three things and nothing else:
 * **Sources are backfilled** for active queue items, so a show captured before
   DRBR existed can still be offered for labelling. Identity only, never a label.
 
+Positions, deadline posts and alerts run as three isolated steps (DR5.25), so
+neither a Spotify nor a Telegram outage stops the others or the bookkeeping.
+
 No live call is made from anywhere in this file except `main()`, which is the
 production cron path and is never executed by the test suite.
 """
@@ -102,8 +105,17 @@ def _clamped_delta(spotify, previous_position_ms: int, current_position_ms: int)
 # The run
 # --------------------------------------------------------------------------
 
-def run_poll(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
+def run_poll(conn, clk: Clock, settings: Settings, spotify, bot) -> list[str]:
     """The daily cron entry. Read positions, write clamped deltas, then alert.
+
+    -> the names of the steps that failed (`positions`, `deadlines`,
+    `alerts`); empty when everything ran.
+
+    The local bookkeeping runs first and always. The three steps after it each
+    run on their own (DR5.25): a Spotify outage no longer costs the deadline
+    post its turn, and a Telegram outage never stops the listening rows being
+    written. A failed step is rolled back, logged, and returned; the sends
+    inside it record nothing, so tomorrow's poll retries them (D3.5).
 
     Idempotent: a second run in the same minute sees the same positions,
     computes a zero delta against its own previous observation, records
@@ -127,32 +139,46 @@ def run_poll(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
     for item in db.active_items(conn):
         allowance.ensure_item_source(conn, clk, item)
 
+    failed: list[str] = []
+    for name, step in (
+        ("positions", lambda: _read_positions(conn, clk, spotify)),
+        # Before the alerts: a deadline is time-critical and an allowance
+        # alert is not.
+        ("deadlines", lambda: surface_deadlines(conn, clk, settings, bot)),
+        ("alerts", lambda: check_alerts(conn, clk, settings, bot)),
+    ):
+        try:
+            step()
+        except Exception:  # noqa: BLE001 — isolate steps; returned to the caller, never swallowed
+            conn.rollback()
+            log.exception("%s failed", name)
+            failed.append(name)
+    return failed
+
+
+def _read_positions(conn, clk: Clock, spotify) -> None:
+    """Spotify's positions for every polling target, recorded as clamped deltas."""
     # YouTube rows are already excluded by `polling_targets`.
     targets = db.polling_targets(conn)
-    if targets:
-        episodes = spotify.get_episodes(targets)
+    if not targets:
+        return
+    episodes = spotify.get_episodes(targets)
 
-        # KEYED BY spotify_id. `get_episodes` skips nulls for unavailable or
-        # unknown ids, so this list can be shorter than `targets` and in a
-        # different order. Zipping by index would credit one episode's
-        # listening time to another episode, silently and permanently.
-        by_id = {ep.spotify_id: ep for ep in episodes}
+    # KEYED BY spotify_id. `get_episodes` skips nulls for unavailable or
+    # unknown ids, so this list can be shorter than `targets` and in a
+    # different order. Zipping by index would credit one episode's
+    # listening time to another episode, silently and permanently.
+    by_id = {ep.spotify_id: ep for ep in episodes}
 
-        missing = [sid for sid in targets if sid not in by_id]
-        if missing:
-            log.warning("no episode returned for %d target(s): %s", len(missing), missing)
+    missing = [sid for sid in targets if sid not in by_id]
+    if missing:
+        log.warning("no episode returned for %d target(s): %s", len(missing), missing)
 
-        for spotify_id in targets:
-            episode = by_id.get(spotify_id)
-            if episode is None:
-                continue
-            _record(conn, clk, spotify, spotify_id, episode)
-
-    # Before the alerts: a deadline is time-critical and an allowance alert is
-    # not, so a Telegram failure must not cost the deadline post its turn.
-    surface_deadlines(conn, clk, settings, bot)
-
-    check_alerts(conn, clk, settings, bot)
+    for spotify_id in targets:
+        episode = by_id.get(spotify_id)
+        if episode is None:
+            continue
+        _record(conn, clk, spotify, spotify_id, episode)
 
 
 def _record(conn, clk: Clock, spotify, spotify_id: str, episode) -> None:
@@ -351,8 +377,11 @@ def _exceeded_text(week, used: int) -> str:
 # Cron entry point
 # --------------------------------------------------------------------------
 
-def main() -> None:  # pragma: no cover — production only, never run by tests
-    """Daily cron. The only place real credentials are touched."""
+def main() -> int:  # pragma: no cover — production only, never run by tests
+    """Daily cron. The only place real credentials are touched.
+
+    Exits 1 when a step failed, so launchd's log shows it (DR5.25).
+    """
     import config
     from spotify import SpotifyClient
 
@@ -368,14 +397,18 @@ def main() -> None:  # pragma: no cover — production only, never run by tests
     db.migrate(conn)
 
     spotify = SpotifyClient(settings)
-    telegram_bot = SyncBot(settings.telegram_bot_token)
+    telegram_bot = SyncBot(settings.telegram_bot_token)    # opens nothing until it sends
     try:
-        run_poll(conn, clock.RealClock(), settings, spotify, telegram_bot)
+        failed = run_poll(conn, clock.RealClock(), settings, spotify, telegram_bot)
     finally:
         telegram_bot.close()
         spotify.close()
         conn.close()
+    if failed:
+        log.error("poll finished with failures: %s", ", ".join(failed))
+        return 1
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    raise SystemExit(main())

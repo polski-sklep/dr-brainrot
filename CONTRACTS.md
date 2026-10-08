@@ -437,13 +437,13 @@ rather than raising.
 
 ```python
 # triage.py
-def run_triage(conn, clk, settings, spotify, bot) -> None
+def run_triage(conn, clk, settings, spotify, bot) -> list[str]   # what couldn't be posted (DR5.25)
 def render_item(item: QueueItem, week: Week, warning: bool) -> tuple[str, InlineKeyboardMarkup]
 def render_deadline_notice(item: QueueItem, week: Week) -> tuple[str, InlineKeyboardMarkup]
 def render_stats(conn, clk, settings) -> str
 
 # poll.py
-def run_poll(conn, clk, settings, spotify, bot) -> None
+def run_poll(conn, clk, settings, spotify, bot) -> list[str]     # the steps that failed (DR5.25)
 def surface_deadlines(conn, clk, settings, bot) -> None
 def check_alerts(conn, clk, settings, bot) -> None
 ```
@@ -454,16 +454,21 @@ def check_alerts(conn, clk, settings, bot) -> None
 2. `lift_expired_locks()` — `locked → queued`.
 3. Expire anything at or past its lifespan (`cycles_seen >= lifespan_cycles`)
    and anything whose deadline has passed, both as soft deletes.
-4. `bump_cycle()` on each survivor, then post it with title, show, duration,
-   why-note and cycle age. `cycles_seen == lifespan_cycles` after the bump gets
-   the "last cycle" warning.
-5. Post the week's header: allowance, debt carried, remaining.
+   Then the week is marked triaged (`meta.last_triage_week`), before any post
+   (DR5.25), so a retry never bumps a cycle twice.
+4. Post each survivor with title, show, duration, why-note and the cycle it is
+   about to reach, then `bump_cycle()` it — only if the post went out
+   (DR5.25). `cycles_seen + 1 == lifespan_cycles` gets the "last cycle"
+   warning. An item whose post failed keeps its cycle and comes back next week.
+5. Post the week's header: allowance, debt carried, remaining. Only when step 4
+   had something to post (DR5.24).
 
-`run_poll()` calls `lift_expired_locks()`, fetches positions for
-`polling_targets()`, computes `clamped_delta` per episode, writes `listening`
-rows, updates `weeks.listened_min`, flips `fully_played` episodes to the
-`played` state, and then calls `surface_deadlines()` followed by
-`check_alerts()`.
+`run_poll()` calls `lift_expired_locks()`, then runs three isolated steps
+(DR5.25): `positions` fetches positions for `polling_targets()`, computes
+`clamped_delta` per episode, writes `listening` rows, updates
+`weeks.listened_min` and flips `fully_played` episodes to the `played` state;
+then `deadlines` (`surface_deadlines()`) and `alerts` (`check_alerts()`). A
+failed step is rolled back, logged and returned; the others still run.
 
 `surface_deadlines()` posts each `queued` item whose deadline falls at or
 before `clock.next_week_start(now)` — i.e. one the weekly triage would expire
@@ -1259,8 +1264,8 @@ None.
 
 ### `jobs.py`
 
-`run_daily` = `run_sync` + `checklist`, `diagnostic_end` (+ `insights`, not
-counted as a failure). `send_end_notice` waits while the final week's evidence
+`run_daily` = `run_sync` + `qbserve_warning` (DR5.25), `checklist`,
+`diagnostic_end` (+ `insights`, not counted as a failure). `send_end_notice` waits while the final week's evidence
 is missing, until `final.saturday + 3 days`; its last sentence is "Nothing
 more will be asked for."
 
@@ -1269,6 +1274,39 @@ more will be asked for."
 `NOTHING_LINE` is removed. `run_triage` posts nothing at all for an empty
 queue: the week header goes out only when at least one item was posted. Steps
 1–3 and the marker are unchanged.
+
+### Telegram unreachable (DR5.25)
+
+```python
+# triage.py
+def try_send(bot, settings, text, reply_markup=None) -> bool
+    # `send`, but a failure is logged at ERROR (which message, why, token
+    # scrubbed) and returns False. `send` stays strict.
+class SyncBot:   # opens nothing until the first send_message; a failed
+                 # connection fails that send only, the next one starts afresh;
+                 # close() is a no-op if never opened and never raises
+def run_triage(conn, clk, settings, spotify, bot) -> list[str]   # "item <id>", "header"
+def main() -> int                                                 # 1 when something wasn't posted
+
+# poll.py
+def run_poll(conn, clk, settings, spotify, bot) -> list[str]     # "positions", "deadlines", "alerts"
+def main() -> int
+
+# jobs.py
+def run_sync(conn, clk, settings) -> dict[str, StepResult]       # no bot: sends nothing
+```
+
+* Every scheduled entry point reads and records before it sends, and builds
+  its `SyncBot` without touching the network.
+* `run_triage`: steps 1–3, then the marker, then per survivor post-then-bump
+  through `try_send`, then the header through `try_send` if there were
+  survivors. A lost post is not re-sent.
+* `run_poll`: bookkeeping (week, lock lift, sources), then `positions`,
+  `deadlines`, `alerts`, each isolated. `surface_deadlines` and `check_alerts`
+  are unchanged: they raise on a failed send and record only after one.
+* `run_daily` = `run_sync`, then `qbserve_warning`, `checklist`,
+  `diagnostic_end` as separate steps (+ `insights`). `_qbserve` only reads;
+  the warning runs whether or not the read worked.
 
 ### `report.py`
 

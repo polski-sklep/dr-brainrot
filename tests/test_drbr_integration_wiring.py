@@ -85,6 +85,29 @@ def test_daily_job_isolates_a_failing_step(conn, clk, settings, tmp_path):
     assert "checklist" not in failed
 
 
+def test_daily_job_reads_everything_when_telegram_is_down(conn, clk, settings):
+    """27–28 Sep: no internet, and the morning job died before reading anything (DR5.25).
+
+    Now every read happens and the summary is written. Only the step that
+    sends fails, and it records nothing, so Monday sends the whole list.
+    """
+    clk.set("2026-09-20T08:00:00+00:00")        # Sunday 10:00 in Warsaw: the check-in is due
+    failed = jobs.run_daily(conn, clk, settings, RecordingBot(fail=True))
+    assert failed == ["checklist"]
+    assert conn.execute("SELECT status FROM imports WHERE kind = 'vault_scan'").fetchone()[0] in ("ok", "partial")
+    assert evidence.get_meta(conn, checklist.CHECKLIST_KEY) is None
+    assert conn.execute("SELECT COUNT(*) FROM insights").fetchone()[0] == 1
+
+    clk.set("2026-09-21T08:00:00+00:00")        # Monday, online again
+    bot = RecordingBot()
+    assert jobs.run_daily(conn, clk, settings, bot) == []
+    assert len(bot.sent) == 1
+    text = bot.sent[0]["text"]
+    assert text.startswith("Check-in for last week, Sun 13 – Sat 19 Sep. In this order:")
+    assert "\n\n1. Screen Time. " in text and "\n\n2. YouTube. " in text
+    assert evidence.get_meta(conn, checklist.NUDGE_KEY) == "2026-09-13"
+
+
 def test_no_prompt_for_a_week_before_go_live(conn, clk, settings):
     clk.set("2026-09-13T08:00:00+00:00")        # Sunday: the week just ended, 6–12 Sep, is before go-live
     assert checklist.send_due(conn, clk, settings, RecordingBot()) == []

@@ -126,8 +126,12 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 | `com.jacob.pop.bot` | always on | Telegram: capture, triage buttons, screenshot/export imports, labels |
 | `com.jacob.pop.poll` | daily 09:17 | Spotify positions, lock lifts, deadline posts, allowance alerts |
 | `com.jacob.pop.triage` | Sunday 18:00 | Week rollover (records last week's overage), expiry, the triage post, only when the queue has something |
-| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read (and its stale warning), the Sunday check-in and its one Monday reminder, end notice |
+| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read; then, as separate steps, Qbserve's stale warning, the Sunday check-in and its one Monday reminder, end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
+
+Telegram being unreachable never stops a data step. Each scheduled run reads
+and records first and sends after; a message that can't go is logged, the run
+exits 1, and the log says which message didn't go (DR5.25).
 
 launchd, not cron, because macOS cron skips runs missed while the Mac sleeps.
 launchd catches up at the next wake. The system timezone and `POP_TZ` must
@@ -151,7 +155,9 @@ One bot (POP's), commands `/start`, `/queue`, `/stats`, `/labels`. Only
 - **Triage** (Sunday 18:00): each unlocked item comes with Promote / Drop /
   Still holds?, then the week's header. A wasteful promotion costs its
   remaining minutes. A worthwhile one costs 0, but still waits out the lock
-  (DR1.3). An empty queue posts nothing; the week still rolls over.
+  (DR1.3). An empty queue posts nothing; the week still rolls over. It also
+  rolls over when Telegram can't be reached: an item whose post didn't go
+  keeps its cycle and comes back next Sunday, and `/queue` still lists it.
 - **Imports:** send the Screen Time screenshots (and a Cold Turkey JSON export only if its automatic read fails)
   straight to the bot (below). It replies with what it stored, what it couldn't
   read, or why it failed.

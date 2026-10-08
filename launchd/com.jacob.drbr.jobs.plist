@@ -11,7 +11,9 @@
   the two do not run at once, and off the hour to avoid piling onto :00.
 
   Unlike cron, launchd runs a MISSED calendar job at the next wake. Each step
-  is isolated; any failed step makes the run exit 1 (see logs/jobs.log).
+  is isolated, and every read comes before any send, so Telegram being
+  unreachable fails only the sending steps (DR5.25). Any failed step makes the
+  run exit 1 (see logs/jobs.log).
 
   Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.drbr.jobs.plist
   Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.drbr.jobs

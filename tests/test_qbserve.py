@@ -320,7 +320,7 @@ def test_unconfigured_never_reads_anything(conn, clk, tmp_path):
     plain = config.test_settings(tz=TZ, raw_dir=tmp_path / "raw", go_live="2026-09-13")
     assert plain.qbserve_db is None
     assert qb.sync(conn, clk, plain) is None
-    assert jobs._qbserve(conn, clk, plain, Bot()).startswith("not configured")
+    assert jobs._qbserve(conn, clk, plain).startswith("not configured")
     assert conn.execute("SELECT COUNT(*) FROM imports").fetchone()[0] == 0
 
 
@@ -454,6 +454,23 @@ def test_unreadable_database_fails_the_step_and_still_warns_when_stale(conn, clk
     bot = Bot()
     failed = jobs.run_daily(conn, clock.FrozenClock("2026-09-18T09:00:00+00:00"), gone, bot)
     assert "qbserve" in failed
+    assert len([m for m in bot.sent if "Qbserve" in m["text"]]) == 1
+
+
+def test_telegram_down_still_reads_qbserve_and_retries_the_warning(conn, clk, settings):
+    """DR5.25: the read and the warning are separate steps, the read first."""
+    class DownBot:
+        def send_message(self, **kw):
+            raise RuntimeError("telegram is down")
+
+    jobs.run_daily(conn, clk, settings, Bot())
+    later = clock.FrozenClock("2026-09-18T09:00:00+00:00")                # stale, and offline
+    failed = jobs.run_daily(conn, later, settings, DownBot())
+    assert "qbserve" not in failed and "qbserve_warning" in failed
+    assert not conn.execute("SELECT 1 FROM prompts_sent WHERE kind = 'qbserve_stale'").fetchone()
+
+    bot = Bot()
+    assert "qbserve_warning" not in jobs.run_daily(conn, later, settings, bot)   # online again
     assert len([m for m in bot.sent if "Qbserve" in m["text"]]) == 1
 
 

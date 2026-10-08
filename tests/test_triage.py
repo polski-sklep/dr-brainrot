@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import asyncio
 import datetime as _dt
+import logging
 import pathlib
 import sys
 
+import httpx
 import pytest
+import telegram
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
@@ -304,12 +307,14 @@ def test_render_stats_points_to_the_dashboard(conn, settings):
 # ==========================================================================
 
 def test_run_triage_call_order(conn, settings, spotify, monkeypatch):
-    """CONTRACTS.md §5: rollover, lift, expire, bump+post, header. In order.
+    """CONTRACTS.md §5: rollover, lift, expire, marker, post+bump, header. In order.
 
     Rollover must precede the lock lift, or an item whose lock lifts this
     minute is accounted against the week being closed rather than the one
-    being opened. Expiry must precede the bump, or an item at its lifespan is
-    shown a third time before it is removed.
+    being opened. Expiry must precede the post, or an item at its lifespan is
+    shown a third time before it is removed. The marker precedes the posts
+    and each bump follows its post (DR5.25): a retry can never bump twice, and
+    an item is never aged without having been shown.
     """
     clk = clock.FrozenClock(CAPTURED)
     live = seed(conn, clk, settings, SHORT)                 # will be lifted
@@ -338,6 +343,7 @@ def test_run_triage_call_order(conn, settings, spotify, monkeypatch):
 
     monkeypatch.setattr(db, "set_state", tracked_set_state)
     monkeypatch.setattr(db, "bump_cycle", record("bump_cycle", db.bump_cycle))
+    monkeypatch.setattr(triage, "_mark_triaged", record("mark", triage._mark_triaged))
 
     bot = FakeBot()
     real_send = triage.send
@@ -355,8 +361,9 @@ def test_run_triage_call_order(conn, settings, spotify, monkeypatch):
         "roll_over_week",
         "lift_expired_locks",
         "expire",
-        "bump_cycle",
+        "mark",
         "post",
+        "bump_cycle",
         "header",
     ]
     assert live.id in cycles(conn) and cycles(conn)[live.id] == 1
@@ -730,6 +737,148 @@ def test_send_omits_reply_markup_when_there_is_none(settings):
     bot = FakeBot()
     triage.send(bot, settings, "hello")
     assert "reply_markup" not in bot.sent[0]
+
+
+# ==========================================================================
+# Telegram unreachable (DR5.25)
+# ==========================================================================
+
+#: What 27 Sep's logs show: no internet, so no name resolution.
+OFFLINE = "[Errno 8] nodename nor servname provided, or not known"
+
+
+class DownBot:
+    """Telegram unreachable: every send raises, the way python-telegram-bot does."""
+
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    def send_message(self, **kwargs):
+        self.attempts += 1
+        raise telegram.error.NetworkError(f"httpx.ConnectError: {OFFLINE}")
+
+
+class FlakyBot(FakeBot):
+    """Records every send except those whose text contains `fail_on`."""
+
+    def __init__(self, fail_on: str) -> None:
+        super().__init__()
+        self.fail_on = fail_on
+
+    def send_message(self, **kwargs):
+        if self.fail_on in kwargs["text"]:
+            raise telegram.error.NetworkError("Timed out")
+        return super().send_message(**kwargs)
+
+
+def test_sync_bot_opens_no_connection_until_it_sends():
+    """Building and closing the real bot touches nothing.
+
+    The conftest guard fails any network attempt. Before DR5.25 the
+    constructor asked Telegram who the bot was, so on 27 Sep every scheduled
+    run died here, before reading any data.
+    """
+    bot = triage.SyncBot("0000000000:TEST-TOKEN-NOT-REAL-DO-NOT-USE-EVER")
+    bot.close()
+    with triage.SyncBot("0000000000:TEST-TOKEN-NOT-REAL-DO-NOT-USE-EVER"):
+        pass
+
+
+def test_try_send_reports_a_failed_send_without_raising(settings, caplog, monkeypatch):
+    caplog.set_level(logging.ERROR, logger="pop.triage")
+
+    down = DownBot()
+    assert triage.try_send(down, settings, "Sunday check-in for last week\nmore") is False
+    assert down.attempts == 1
+    line = caplog.records[-1].getMessage()
+    assert caplog.records[-1].levelno == logging.ERROR
+    assert "Sunday check-in for last week" in line and "more" not in line   # which message, first line only
+    assert "NetworkError" in line and OFFLINE in line                       # and why
+
+    class Rejected:
+        def send_message(self, **kwargs):
+            raise telegram.error.InvalidToken(
+                f"The token `{settings.telegram_bot_token}` was rejected by the server.")
+
+    assert triage.try_send(Rejected(), settings, "hello") is False
+    assert settings.telegram_bot_token not in caplog.text                   # the token never reaches the log
+    assert "<TOKEN>" in caplog.records[-1].getMessage()
+
+    assert triage.try_send(FakeBot(), settings, "hello") is True
+
+    # The real bot, offline: the connection fails at the send, which reports
+    # False; the next send tries again from scratch; closing never raises.
+    attempts = []
+
+    async def offline(self, request):
+        attempts.append(str(request.url))
+        raise httpx.ConnectError(OFFLINE)
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", offline)
+    real = triage.SyncBot(settings.telegram_bot_token)
+    assert triage.try_send(real, settings, "hello") is False
+    assert triage.try_send(real, settings, "hello again") is False
+    assert len(attempts) == 2 and all(a.endswith("/getMe") for a in attempts)
+    real.close()
+    assert settings.telegram_bot_token not in caplog.text
+
+
+def test_triage_rolls_the_week_over_when_telegram_is_down(conn, settings, spotify):
+    """27 Sep: no internet at 18:00. The week must still close.
+
+    The lapse, the overage, the lock lift and expiry all happen and the marker
+    is written. Survivors are not bumped, because nobody saw them: next week
+    they are posted at the cycle they would have shown this week.
+    """
+    clk = clock.FrozenClock(CAPTURED)
+    shown_later = seed(conn, clk, settings, SHORT)              # locked: lifted, then posted
+    doomed = seed(conn, clk, settings, MEDIUM)                  # at its lifespan: expired
+    lapsing = seed(conn, clk, settings, LONG)                   # promoted, never played: lapses
+    conn.execute("UPDATE queue SET state = 'queued', cycles_seen = 2 WHERE id = ?", (doomed.id,))
+    conn.execute("UPDATE queue SET state = 'promoted', promoted_at = ? WHERE id = ?",
+                 (CAPTURED, lapsing.id))
+    conn.commit()
+    clk.set("2026-08-24T10:00:00+00:00")                        # blow the outgoing week: 240 of 180
+    db.current_week(conn, clk, settings)
+    db.record_listening(conn, clk, SHORT.spotify_id, 240 * 60_000, 240 * 60_000, False)
+
+    clk.set(WEEK_1)
+    down = DownBot()
+    unsent = triage.run_triage(conn, clk, settings, spotify, down)
+
+    assert sorted(unsent) == sorted([f"item {shown_later.id}", f"item {lapsing.id}", "header"])
+    assert down.attempts == 3
+    assert states(conn) == {shown_later.id: "queued", doomed.id: "expired", lapsing.id: "queued"}
+    closed = conn.execute("SELECT overage_min FROM weeks WHERE week_start < ? "
+                          "ORDER BY week_start DESC LIMIT 1", (WEEK_1,)).fetchone()
+    assert closed["overage_min"] == 60
+    assert triage._last_triage_week(conn) == WEEK_1
+    assert cycles(conn)[shown_later.id] == 0 and cycles(conn)[lapsing.id] == 0
+
+    retry = FakeBot()                                           # back online the same evening
+    assert triage.run_triage(conn, clk, settings, spotify, retry) == []
+    assert retry.sent == [] and cycles(conn)[shown_later.id] == 0
+
+    clk.set(WEEK_2)
+    bot = FakeBot()
+    assert triage.run_triage(conn, clk, settings, spotify, bot) == []
+    post = next(t for t in bot.texts if SHORT.title in t)
+    assert "Cycle 1" in post and triage.WARNING_LINE not in post
+    assert cycles(conn)[shown_later.id] == 1
+
+
+def test_a_post_that_fails_leaves_only_its_own_item_unbumped(conn, settings, spotify):
+    clk = clock.FrozenClock(CAPTURED)
+    lost = seed(conn, clk, settings, SHORT)
+    seen = seed(conn, clk, settings, MEDIUM)
+
+    clk.set(WEEK_1)
+    bot = FlakyBot(fail_on=SHORT.title)
+    assert triage.run_triage(conn, clk, settings, spotify, bot) == [f"item {lost.id}"]
+
+    assert cycles(conn) == {lost.id: 0, seen.id: 1}
+    assert any(MEDIUM.title in t for t in bot.texts)
+    assert bot.texts[-1].startswith("Week of")                  # the header still goes
 
 
 # ==========================================================================

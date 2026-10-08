@@ -19,6 +19,10 @@
   skip the week, leaving the week unrolled, debt uncomputed and promotions
   un-lapsed until someone noticed.
 
+  The rollover never waits on Telegram (DR5.25): if the posts can't go, the
+  week still closes, the items keep their cycle, and the run exits 1 (see
+  logs/triage.log).
+
   Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.pop.triage.plist
   Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.pop.triage
   Stop:     launchctl bootout   gui/$(id -u)/com.jacob.pop.triage
