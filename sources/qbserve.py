@@ -24,7 +24,7 @@ What is used, and what is deliberately not:
   (`Activities.source = 222`, observed on 2026-09-17 as the website type).
   There is no hard-coded list to go stale.
 * **Qbserve's productivity ratings and categories are never read.** They are
-  an automatic judgement of value, the thing DRBR exists not to do. You label
+  an automatic judgement of value, the thing dr-brainrot exists not to do. You label
   apps like any other source.
 
 Only finished local days are read, from the later of go-live and
@@ -54,7 +54,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 from clock import Clock

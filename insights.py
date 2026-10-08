@@ -17,7 +17,7 @@ Five rules this module exists to enforce.
    asserts none of them appears. The payload is stored verbatim beside the
    summary so what was sent can always be checked.
 
-2. **It describes; it does not judge.** DRBR's rule is that the system counts
+2. **It describes; it does not judge.** dr-brainrot's rule is that the system counts
    and the person labels (DR5.5, DR5.6). The prompt says so explicitly: name
    the measured trend, do not say whether any of it was worth the time, do
    not suggest relabelling anything, give no advice and no praise. Every
@@ -48,13 +48,13 @@ from dataclasses import dataclass
 
 import allowance
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import report
 from clock import Clock
 from config import Settings
 
-log = logging.getLogger("drbr.insights")
+log = logging.getLogger("dr-brainrot.insights")
 
 #: The model the user chose for this. Opus 5.
 MODEL = "claude-opus-5"
@@ -83,7 +83,7 @@ FLAT_PCT = 5.0
 STATUS_OK = "ok"
 STATUS_FAILED = "failed"
 
-#: Why a summary is DRBR's own sentences rather than a model's, in the words
+#: Why a summary is dr-brainrot's own sentences rather than a model's, in the words
 #: the dashboard prints. A failed import shows its real error everywhere else
 #: on this dashboard; this panel is not the one place that shows a code.
 REASON_NO_KEY = ("No ANTHROPIC_API_KEY is set, so these sentences were written from the stored "
@@ -167,7 +167,7 @@ markdown, no bold. Do not include internal or system XML tags in your response. 
 summary itself and nothing else."""
 
 USER_PROMPT_HEADER = (
-    "These are DRBR's own figures for the complete weeks so far. Write the summary.\n\n"
+    "These are dr-brainrot's own figures for the complete weeks so far. Write the summary.\n\n"
 )
 
 
@@ -181,7 +181,7 @@ class Insight:
     """One stored summary, as the dashboard renders it.
 
     One fact, one field. **`model is None` is the fallback**: a model run
-    always names its model, DRBR's own sentences never do, so there is no
+    always names its model, dr-brainrot's own sentences never do, so there is no
     second flag that could disagree with it.
 
     `fallback_reason` is the reason in the words to print — "No
@@ -360,7 +360,7 @@ def build_payload(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> d
     What it contains, and nothing else: report **group** names, minutes by
     label per group per week, week-on-week changes, allowance and overage,
     reflex (ungated wasteful) minutes and share, gated vs ungated per group,
-    cost per keeper per group, the POP and vault funnel counts and rates, and
+    cost per keeper per group, the queue and vault funnel counts and rates, and
     per-week coverage gaps. No source name, item title, note title, path,
     video id or anything else from the vault ever reaches it.
     """
@@ -410,16 +410,16 @@ def build_payload(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> d
             for k in report.cost_per_keeper(conn, clk, settings)
         ],
         "funnels": {
-            "pop": {
-                "captured": funnels.pop.captured,
-                "survived_lock": funnels.pop.survived_lock,
-                "promoted": funnels.pop.promoted,
-                "played": funnels.pop.played,
-                "fully_played": funnels.pop.fully_played,
-                "survived_rate": _r(funnels.pop.survived_rate),
-                "promoted_rate": _r(funnels.pop.promoted_rate),
-                "played_rate": _r(funnels.pop.played_rate),
-                "fully_played_rate": _r(funnels.pop.fully_played_rate),
+            "queue": {
+                "captured": funnels.queue.captured,
+                "survived_lock": funnels.queue.survived_lock,
+                "promoted": funnels.queue.promoted,
+                "played": funnels.queue.played,
+                "fully_played": funnels.queue.fully_played,
+                "survived_rate": _r(funnels.queue.survived_rate),
+                "promoted_rate": _r(funnels.queue.promoted_rate),
+                "played_rate": _r(funnels.queue.played_rate),
+                "fully_played_rate": _r(funnels.queue.fully_played_rate),
             },
             "vault": {
                 "captured": funnels.vault.captured,
@@ -443,7 +443,7 @@ def _min(value: float | None) -> str:
 
 
 def fallback_summary(payload: dict) -> str:
-    """DRBR's own sentences, computed from the payload with no model involved.
+    """dr-brainrot's own sentences, computed from the payload with no model involved.
 
     Used when there is no API key, when the call fails, and whenever the
     stored row is `failed`. It says outright when there is too little data to
@@ -544,7 +544,7 @@ def _row_to_insight(row: sqlite3.Row) -> Insight:
     is_fallback = row["status"] != STATUS_OK
     summary = row["summary"] or ""
     if is_fallback and payload:
-        # A fallback's text is DRBR's own; recompute it so it always matches
+        # A fallback's text is dr-brainrot's own; recompute it so it always matches
         # the payload stored beside it.
         summary = fallback_summary(payload)
     return Insight(
@@ -567,7 +567,7 @@ def _existing(conn: sqlite3.Connection, week_start: str) -> sqlite3.Row | None:
 def latest(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Insight | None:
     """The newest stored summary, whatever week it was written in, or None.
 
-    A fallback row still returns an `Insight`: its text is DRBR's own computed
+    A fallback row still returns an `Insight`: its text is dr-brainrot's own computed
     sentences, `model` is None and `fallback_reason` says why, so the panel
     shows honest sentences and the reason rather than nothing at all.
     """
@@ -643,7 +643,7 @@ def write_summary(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
     A fallback row is retried by the next daily run, because the failure that
     produced it is usually a passing one — a network blip, a rate limit, a
     balance that is topped up an hour later — and without a retry a single bad
-    morning leaves the whole week showing DRBR's own sentences until someone
+    morning leaves the whole week showing dr-brainrot's own sentences until someone
     notices the panel and presses refresh.
 
     That retry cannot become a daily API call for the reasons that would

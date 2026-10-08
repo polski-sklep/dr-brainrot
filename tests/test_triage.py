@@ -231,10 +231,10 @@ def test_render_item_carries_the_week_remaining(conn):
 
 
 # ==========================================================================
-# DRBR — labels on the triage post, pooled spend in the header
+# dr-brainrot — labels on the triage post, pooled spend in the header
 # ==========================================================================
 
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import labels  # noqa: E402
 
 
@@ -785,7 +785,7 @@ def test_sync_bot_opens_no_connection_until_it_sends():
 
 
 def test_try_send_reports_a_failed_send_without_raising(settings, caplog, monkeypatch):
-    caplog.set_level(logging.ERROR, logger="pop.triage")
+    caplog.set_level(logging.ERROR, logger="dr-brainrot.triage")
 
     down = DownBot()
     assert triage.try_send(down, settings, "Sunday check-in for last week\nmore") is False
@@ -966,7 +966,7 @@ def test_stats_since_is_eight_weeks_back(settings):
 
 def test_deadline_and_week_header_render_in_the_configured_zone_not_lisbon(conn):
     """Phase 4 regression: triage posts rendered times in clock.fmt_local's
-    Lisbon default, so with POP_TZ=Europe/Warsaw an 18:00 deadline and the
+    Lisbon default, so with DR_BRAINROT_TZ=Europe/Warsaw an 18:00 deadline and the
     Sunday 18:00 week start read as 17:00."""
     settings = config.test_settings(tz="Europe/Warsaw")
     clk = clock.FrozenClock("2026-09-16T08:00:00+00:00")
@@ -982,7 +982,7 @@ def test_deadline_and_week_header_render_in_the_configured_zone_not_lisbon(conn)
 
 
 def test_label_line_for_a_tool_source_says_not_counted():
-    import drbr_types as T  # noqa: PLC0415
+    import dr_brainrot_types as T  # noqa: PLC0415
     import labels  # noqa: PLC0415
 
     line = triage.label_line(labels.ResolvedLabel(T.TOOL, T.BASIS_SOURCE_LABEL))

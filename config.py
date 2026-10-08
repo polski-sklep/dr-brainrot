@@ -38,7 +38,7 @@ class Settings:
     lock_hours: int
     lifespan_cycles: int
     db_path: pathlib.Path
-    # --- DRBR (Part II). Defaults keep every POP call site and test valid. ---
+    # --- dr-brainrot (Part II). Defaults keep every call site and test from before Part II valid. ---
     youtube_api_key: str = ""
     vault_path: pathlib.Path | None = None
     vault_inbox: str = "01-Inbox"
@@ -56,9 +56,9 @@ class Settings:
     #: `audible_store.json` naming the store that holds the books. None, or a
     #: file that isn't there, means audiobooks are not measured. Tests keep None.
     audible_auth: pathlib.Path | None = None
-    go_live: str = ""              # local date DRBR measurement starts; earlier data is not counted
+    go_live: str = ""              # local date dr-brainrot measurement starts; earlier data is not counted
     #: Optional. Only the weekly insights summary uses it (DR5.8); empty means the
-    #: Overview shows DRBR's own computed sentences instead. Never logged, never stored.
+    #: Overview shows dr-brainrot's own computed sentences instead. Never logged, never stored.
     anthropic_api_key: str = ""
 
     @property
@@ -77,7 +77,7 @@ def load(env_path: pathlib.Path | None = None, **overrides) -> Settings:
     def get(key: str, default: str = "") -> str:
         return str(overrides.get(key.lower(), raw.get(key, default)))
 
-    db = get("POP_DB_PATH", "data/pop.db")
+    db = get("DR_BRAINROT_DB_PATH", "data/dr-brainrot.db")
     db_path = pathlib.Path(db)
     if not db_path.is_absolute():
         db_path = ROOT / db_path
@@ -89,35 +89,35 @@ def load(env_path: pathlib.Path | None = None, **overrides) -> Settings:
         telegram_bot_token=get("TELEGRAM_BOT_TOKEN"),
         telegram_user_id=int(get("TELEGRAM_USER_ID", "0") or 0),
         weekly_allowance_min=int(get("WEEKLY_ALLOWANCE_MIN", "180")),
-        # POP_TZ, never TZ. `TZ` is the POSIX *system* timezone variable, so a
+        # DR_BRAINROT_TZ, never TZ. `TZ` is the POSIX *system* timezone variable, so a
         # cron or systemd unit exporting `TZ=UTC` would silently move the
         # triage boundary off Lisbon local time — the exact drift D1.3 exists
         # to prevent, arriving through config instead of the arithmetic. It is
         # absent from `_KEYS` as well, so it cannot reach Settings at all.
-        tz=get("POP_TZ", "Europe/Lisbon"),
+        tz=get("DR_BRAINROT_TZ", "Europe/Lisbon"),
         lock_hours=int(get("LOCK_HOURS", "48")),
         lifespan_cycles=int(get("LIFESPAN_CYCLES", "2")),
         db_path=db_path,
         youtube_api_key=get("YOUTUBE_API_KEY"),
-        vault_path=_path_or_none(get("DRBR_VAULT_PATH")),
-        vault_inbox=get("DRBR_VAULT_INBOX", "01-Inbox"),
-        capture_outbox=_resolve(get("DRBR_CAPTURE_OUTBOX", "data/vault_captures.jsonl")),
-        raw_dir=_resolve(get("DRBR_RAW_DIR", "data/raw")),
-        diagnostic_weeks=int(get("DRBR_DIAGNOSTIC_WEEKS", "8")),
-        dashboard_port=int(get("DRBR_DASHBOARD_PORT", "8750")),
-        ingest_token=get("DRBR_INGEST_TOKEN"),
-        go_live=get("DRBR_GO_LIVE"),
-        coldturkey_db=_path_or_none(get("DRBR_COLDTURKEY_DB")),
+        vault_path=_path_or_none(get("DR_BRAINROT_VAULT_PATH")),
+        vault_inbox=get("DR_BRAINROT_VAULT_INBOX", "01-Inbox"),
+        capture_outbox=_resolve(get("DR_BRAINROT_CAPTURE_OUTBOX", "data/vault_captures.jsonl")),
+        raw_dir=_resolve(get("DR_BRAINROT_RAW_DIR", "data/raw")),
+        diagnostic_weeks=int(get("DR_BRAINROT_DIAGNOSTIC_WEEKS", "8")),
+        dashboard_port=int(get("DR_BRAINROT_DASHBOARD_PORT", "8750")),
+        ingest_token=get("DR_BRAINROT_INGEST_TOKEN"),
+        go_live=get("DR_BRAINROT_GO_LIVE"),
+        coldturkey_db=_path_or_none(get("DR_BRAINROT_COLDTURKEY_DB")),
         anthropic_api_key=get("ANTHROPIC_API_KEY"),
-        qbserve_db=_path_or_none(get("DRBR_QBSERVE_DB")),
-        brave_history_db=_path_or_none(get("DRBR_BRAVE_HISTORY_DB")),
+        qbserve_db=_path_or_none(get("DR_BRAINROT_QBSERVE_DB")),
+        brave_history_db=_path_or_none(get("DR_BRAINROT_BRAVE_HISTORY_DB")),
         # Set but empty turns audiobooks off, the same as no sign-in file (DR5.28).
-        audible_auth=_resolve(auth) if (auth := get("DRBR_AUDIBLE_AUTH", "data/audible_auth.json")) else None,
+        audible_auth=_resolve(auth) if (auth := get("DR_BRAINROT_AUDIBLE_AUTH", "data/audible_auth.json")) else None,
     )
 
 
 def _resolve(value: str) -> pathlib.Path:
-    """Relative paths are relative to the repo root, as POP_DB_PATH is."""
+    """Relative paths are relative to the repo root, as DR_BRAINROT_DB_PATH is."""
     path = pathlib.Path(value).expanduser()
     return path if path.is_absolute() else ROOT / path
 
@@ -128,15 +128,15 @@ def _path_or_none(value: str) -> pathlib.Path | None:
 
 #: Environment variables allowed to override `.env`. Deliberately does **not**
 #: contain `TZ`: that name belongs to POSIX, not to this application, and any
-#: ambient `TZ` must be ignored here (D5.2). POP's own setting is `POP_TZ`.
+#: ambient `TZ` must be ignored here (D5.2). The application's own setting is `DR_BRAINROT_TZ`.
 _KEYS = {
     "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN",
     "TELEGRAM_BOT_TOKEN", "TELEGRAM_USER_ID", "WEEKLY_ALLOWANCE_MIN",
-    "POP_TZ", "LOCK_HOURS", "LIFESPAN_CYCLES", "POP_DB_PATH",
-    "YOUTUBE_API_KEY", "DRBR_VAULT_PATH", "DRBR_VAULT_INBOX", "DRBR_CAPTURE_OUTBOX",
-    "DRBR_RAW_DIR", "DRBR_DIAGNOSTIC_WEEKS", "DRBR_DASHBOARD_PORT", "DRBR_INGEST_TOKEN",
-    "DRBR_GO_LIVE", "DRBR_COLDTURKEY_DB", "DRBR_QBSERVE_DB", "DRBR_BRAVE_HISTORY_DB",
-    "DRBR_AUDIBLE_AUTH", "ANTHROPIC_API_KEY",
+    "DR_BRAINROT_TZ", "LOCK_HOURS", "LIFESPAN_CYCLES", "DR_BRAINROT_DB_PATH",
+    "YOUTUBE_API_KEY", "DR_BRAINROT_VAULT_PATH", "DR_BRAINROT_VAULT_INBOX", "DR_BRAINROT_CAPTURE_OUTBOX",
+    "DR_BRAINROT_RAW_DIR", "DR_BRAINROT_DIAGNOSTIC_WEEKS", "DR_BRAINROT_DASHBOARD_PORT", "DR_BRAINROT_INGEST_TOKEN",
+    "DR_BRAINROT_GO_LIVE", "DR_BRAINROT_COLDTURKEY_DB", "DR_BRAINROT_QBSERVE_DB", "DR_BRAINROT_BRAVE_HISTORY_DB",
+    "DR_BRAINROT_AUDIBLE_AUTH", "ANTHROPIC_API_KEY",
 }
 
 

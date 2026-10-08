@@ -21,24 +21,24 @@
   Like the morning job it runs whatever is checked out (DR5.14): never leave
   the tree uncommitted at the end of a day.
 
-  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.drbr.nightly.plist
-  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.drbr.nightly
-  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.drbr.nightly
+  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.dr-brainrot.nightly.plist
+  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.dr-brainrot.nightly
+  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.dr-brainrot.nightly
 -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.jacob.drbr.nightly</string>
+    <string>com.jacob.dr-brainrot.nightly</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Jacob/Projects/drbr/.venv/bin/python</string>
-        <string>/Users/Jacob/Projects/drbr/jobs.py</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/.venv/bin/python</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/jobs.py</string>
         <string>sync</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Jacob/Projects/drbr</string>
+    <string>/Users/Jacob/Projects/dr-brainrot</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -52,8 +52,8 @@
     <false/>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/jobs.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/jobs.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/jobs.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/jobs.log</string>
 </dict>
 </plist>

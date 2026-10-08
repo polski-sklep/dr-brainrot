@@ -1,4 +1,4 @@
-"""report.py — funnels, allowance status, cost per keeper. DRBR Phase 2, Agent D.
+"""report.py — funnels, allowance status, cost per keeper. dr-brainrot Phase 2, Agent D.
 
 Implements CONTRACTS.md Part II §9. The dashboard (Phase 3) renders these and
 computes nothing of its own.
@@ -10,7 +10,7 @@ Five rules this module exists to enforce.
    report that wrote while it read could change the figure it was reporting.
 
 2. **Provenance travels with every number.** Every row names where its
-   minutes came from (`drbr_types.PROV_*`). A parsed screenshot stays
+   minutes came from (`dr_brainrot_types.PROV_*`). A parsed screenshot stays
    `screenshot_ocr` all the way to the page; it is never merged into a row
    that would let it borrow an API figure's confidence.
 
@@ -29,7 +29,7 @@ Five rules this module exists to enforce.
 Labels are read through `labels.resolve` via `allowance` on every call, like
 everywhere else. Nothing is cached.
 
-DRBR measures brain-rot content only (DECISIONS DR5.5). Minutes on sources
+dr-brainrot measures brain-rot content only (DECISIONS DR5.5). Minutes on sources
 labelled `tool` (not content) are kept out of wasteful/worthwhile totals, the
 label split, allowance status and cost per keeper, and are reported on their
 own (`WeekSplit.tool_min`, `SourceTotal.tool_min`) so the label can never hide
@@ -46,7 +46,7 @@ from zoneinfo import ZoneInfo
 import allowance
 import clock
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 from clock import Clock
 from config import Settings
@@ -69,7 +69,7 @@ EXPECTED_WEEKLY = (
     ("youtube_history", T.GROUP_YOUTUBE, T.PROV_PAGE, T.DEVICE_ACCOUNT, "YouTube history"),
     ("screentime", T.GROUP_IPHONE, T.PROV_SCREENSHOT, T.DEVICE_IPHONE, "Screen Time"),
     ("coldturkey", T.GROUP_DESKTOP, T.PROV_EXPORT, T.DEVICE_DESKTOP, "Cold Turkey"),
-    # Expected only while DRBR_QBSERVE_DB is configured (see weekly_totals): unconfigured,
+    # Expected only while DR_BRAINROT_QBSERVE_DB is configured (see weekly_totals): unconfigured,
     # desktop apps are deliberately unmeasured, not an import the user owes.
     ("qbserve", T.GROUP_DESKTOP_APPS, T.PROV_APP_TRACKER, T.DEVICE_DESKTOP, "Qbserve"),
     # Expected only while he is signed in to Audible (DR5.28): signed out,
@@ -81,7 +81,7 @@ EXPECTED_WEEKLY = (
 def expects(kind: str, settings: Settings) -> bool:
     """Is an import of `kind` expected at all, given how this Mac is set up?
 
-    Qbserve only while `DRBR_QBSERVE_DB` is configured, Audible only while he
+    Qbserve only while `DR_BRAINROT_QBSERVE_DB` is configured, Audible only while he
     is signed in (DR5.28). Without them those groups are unmeasured by choice,
     so their absence is not an import he owes. Every other kind always is.
     """
@@ -265,7 +265,7 @@ class AllowanceStatus:
     `spent_wasteful_min` is pooled wasteful consumption across sources and
     `remaining_min` is what is left of the allowance after it. `overage_min` is
     how far past the allowance it has gone: recorded, never carried into the
-    next week (DR5.2). `promoted_min` is POP's promoted commitment, reported
+    next week (DR5.2). `promoted_min` is the queue's promoted commitment, reported
     alongside and never mixed in.
     """
 
@@ -340,7 +340,7 @@ class VaultFunnel:
 
 @dataclass(frozen=True)
 class Funnels:
-    pop: db.FunnelStats
+    queue: db.FunnelStats
     vault: VaultFunnel
 
 
@@ -862,7 +862,7 @@ def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
 
 
 def funnels(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Funnels:
-    """POP's capture funnel, and capture → kept in the vault (excluded out of the denominator).
+    """The queue's capture funnel, and capture → kept in the vault (excluded out of the denominator).
 
     Both count captures made from the diagnostic window start onwards.
     """
@@ -881,7 +881,7 @@ def funnels(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Funnels
         else:
             excluded += 1
     return Funnels(
-        pop=db.funnel_stats(conn, clk, settings, since=since),
+        queue=db.funnel_stats(conn, clk, settings, since=since),
         vault=VaultFunnel(unprocessed + kept, unprocessed, kept, excluded, edited_kept),
     )
 
@@ -1337,7 +1337,7 @@ GROUP_TEXT = {
 }
 
 #: When each source actually produces data. Plain language, no cron syntax:
-#: the daily job runs 09:30 local and POP's Spotify poll 09:17 (launchd/).
+#: the daily job runs 09:30 local and the Spotify poll 09:17 (launchd/).
 SCHEDULE_DAILY_JOB = "every morning 09:30"
 SCHEDULE_SPOTIFY_POLL = "every morning 09:17"
 SCHEDULE_MANUAL_WEEKLY = "weekly, you run it"
@@ -1400,7 +1400,7 @@ class ProvenanceRow:
 
 
 #: Said in full on the provenance table, because "X" being one row while two
-#: different tools measure it is the single most confusing thing in DRBR.
+#: different tools measure it is the single most confusing thing in dr-brainrot.
 X_FOLD_NOTE = ("X is measured twice and counted once: desktop x.com/twitter.com through Cold Turkey, "
                "the X iPhone app through Screen Time. Both are folded into one X source, so you label X "
                "once and the minutes add up rather than competing.")
@@ -1455,7 +1455,7 @@ def _weekly_manual_state(conn: sqlite3.Connection, clk: Clock, settings: Setting
 
 def _automatic_state(conn: sqlite3.Connection, clk: Clock, kind: str, *, what: str, tz: str,
                      never_action: str, stale_action: str) -> tuple[str, str, str, str | None]:
-    """-> (state, action_text, detail, last_data_at) for a source DRBR reads itself.
+    """-> (state, action_text, detail, last_data_at) for a source dr-brainrot reads itself.
 
     Answers "is the read happening". Whether the tool itself is still
     recording is a separate question, asked only of Qbserve
@@ -1501,11 +1501,11 @@ COLDTURKEY_EXPORT_ACTION = ("Cold Turkey Blocker → Statistics → Websites usa
 COLDTURKEY_READ_ACTION = ("Cold Turkey's own statistics are read on this Mac; check logs/jobs.log, and "
                           "export last week by hand meanwhile.")
 QBSERVE_ACTION = "Open Qbserve and check it's recording; it is reopened automatically every 10 minutes."
-QBSERVE_UNCONFIGURED_ACTION = ("Desktop app time is not measured: set DRBR_QBSERVE_DB in .env and let the "
+QBSERVE_UNCONFIGURED_ACTION = ("Desktop app time is not measured: set DR_BRAINROT_QBSERVE_DB in .env and let the "
                                "next daily run pick it up.")
-VAULT_ACTION = "Check DRBR_VAULT_PATH and logs/jobs.log: the vault has not been scanned."
+VAULT_ACTION = "Check DR_BRAINROT_VAULT_PATH and logs/jobs.log: the vault has not been scanned."
 AUDIBLE_SIGNIN_ACTION = ("Sign in to Audible again, in Terminal: "
-                         "cd ~/Projects/drbr && .venv/bin/python audible_login.py --again")
+                         "cd ~/Projects/dr-brainrot && .venv/bin/python audible_login.py --again")
 AUDIBLE_NOT_SET_UP = "Not set up, so audiobook listening isn't measured. That's optional."
 
 
@@ -1547,7 +1547,7 @@ def needs_attention(conn: sqlite3.Connection, clk: Clock, settings: Settings) ->
     ended = evidence.diagnostic(conn, clk, settings).ended
     rows: list[NeedsRow] = []
 
-    # --- Podcasts: POP's Spotify poll, already running for the queue.
+    # --- Podcasts: the Spotify poll, already running for the queue.
     last_poll = conn.execute("SELECT MAX(polled_at) FROM listening WHERE delta_ms > 0").fetchone()[0]
     if last_poll is None:
         podcast_state, podcast_detail = STATE_WAITING, ("Nothing has been polled yet. Only episodes you "
@@ -1596,7 +1596,7 @@ def needs_attention(conn: sqlite3.Connection, clk: Clock, settings: Settings) ->
                                                      action=COLDTURKEY_EXPORT_ACTION)
         rows.append(NeedsRow(T.GROUP_DESKTOP, GROUP_TEXT[T.GROUP_DESKTOP], MODE_MANUAL, SCHEDULE_MANUAL_WEEKLY,
                              ct_import["received_at"] if ct_import else None, ct_covered, state, action,
-                             f"{detail} DRBR_COLDTURKEY_DB is unset, so this Mac is not read automatically."))
+                             f"{detail} DR_BRAINROT_COLDTURKEY_DB is unset, so this Mac is not read automatically."))
 
     # --- Desktop apps: Qbserve, or nothing at all.
     qb_covered = _covering_import(conn, settings, "qbserve", this_week) is not None

@@ -1,8 +1,8 @@
-"""allowance.py — the label-aware pooled allowance. DRBR Phase 2, Agent D.
+"""allowance.py — the label-aware pooled allowance. dr-brainrot Phase 2, Agent D.
 
-Implements CONTRACTS.md Part II §7. POP's gate (db.promote), rollover
+Implements CONTRACTS.md Part II §7. The queue's gate (db.promote), rollover
 (db.roll_over_week) and alerts (poll.check_alerts) call into this module for
-the two things DRBR changes about them: *what an item is labelled* and *which
+the two things dr-brainrot changes about them: *what an item is labelled* and *which
 minutes count against the allowance*.
 
 Five rules this module exists to enforce.
@@ -22,14 +22,14 @@ Five rules this module exists to enforce.
    untouched for every label (DECISIONS.md DR1.3).
 
 3. **One pooled allowance across sources.** A week's wasteful minutes are
-   Spotify's clamped deltas (POP's instant-based week attribution) plus every
+   Spotify's clamped deltas (the queue's instant-based week attribution) plus every
    ok `measurements` row whose local day maps to that allowance week
-   (`drbr_types.allowance_week_start_for_day`, DR1.7). Rows a better source
+   (`dr_brainrot_types.allowance_week_start_for_day`, DR1.7). Rows a better source
    already measures (`COVERED_ELSEWHERE`, DR1.9) are reported separately and
    never pooled, or the same viewing would be charged twice.
 
-4. **Tool is not content (DR5.5).** DRBR measures brain-rot content only. A
-   source labelled `tool` (a shop, email, banking, DRBR's own dashboard) is
+4. **Tool is not content (DR5.5).** dr-brainrot measures brain-rot content only. A
+   source labelled `tool` (a shop, email, banking, dr-brainrot's own dashboard) is
    out of scope: its minutes go to `tool_min` and never into wasteful,
    worthwhile, the allowance, overage, alerts or the gated split. They are
    still counted and shown, so "tool" cannot become a place to hide content.
@@ -46,7 +46,7 @@ from dataclasses import dataclass, field
 
 import clock
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import labels
 from clock import Clock
 from config import Settings
@@ -152,10 +152,10 @@ class GatedSplit:
 # --------------------------------------------------------------------------
 
 def whole_minutes(minutes: float) -> int:
-    """Float minutes to whole minutes, ties DOWN — POP's `ms_to_min` rule.
+    """Float minutes to whole minutes, ties DOWN — the queue's `ms_to_min` rule.
 
     For Spotify-only weeks this reproduces `ms_to_min(sum(delta_ms))` exactly,
-    so debt and alerts agree with POP to the minute wherever POP had an
+    so debt and alerts agree with the original queue code to the minute wherever it had an
     opinion.
     """
     if minutes <= 0:
@@ -171,7 +171,7 @@ def week_end(settings: Settings, week_start: str) -> str:
 def _item_source_key(item) -> tuple[str, str, str] | None:
     """(kind, raw key, display name) for a queue item's labelled source, or None.
 
-    Spotify rows belong to the podcast show, keyed by the show name POP
+    Spotify rows belong to the podcast show, keyed by the show name the queue
     stores (EXISTING.md discrepancy 7). YouTube rows belong to the channel,
     keyed by the channel id captured from the Data API.
     """
@@ -231,7 +231,7 @@ def ensure_item_source(conn: sqlite3.Connection, clk: Clock, item) -> labels.Sou
     """Make sure the item's source exists so the user can be asked to label it.
 
     Identity only — never a label. Commits. Called at capture and by the
-    daily poll (which backfills items captured before DRBR existed); without a
+    daily poll (which backfills items captured before dr-brainrot existed); without a
     `sources` row `labels.sources_needing_label` could never offer the show.
     """
     found = _item_source_key(item)
@@ -249,7 +249,7 @@ def promotion_cost(conn: sqlite3.Connection, item) -> tuple[int, labels.Resolved
     Worthwhile costs 0 and is therefore never refused. So does tool (only
     possible if the item's source was labelled tool; not content, never charged,
     DR5.5), unless an item override says otherwise. Wasteful — including
-    an unlabelled source resolving to the default — costs POP's remaining
+    an unlabelled source resolving to the default — costs the queue's remaining
     minutes, `db.promotion_cost_min`, unchanged.
     """
     resolved = item_label(conn, item)
@@ -301,7 +301,7 @@ def _measurement_rows(conn: sqlite3.Connection, settings: Settings, week_start: 
 
 
 #: The YouTube source for videos whose channel could not be identified
-#: (drbr_types.UNKNOWN_YOUTUBE_CHANNEL_KEY on branch drbr). It is a bucket,
+#: (dr_brainrot_types.UNKNOWN_YOUTUBE_CHANNEL_KEY on branch dr-brainrot). It is a bucket,
 #: not a channel, so a label on it would label unrelated channels at once.
 UNKNOWN_YOUTUBE_CHANNEL_KEY = getattr(T, "UNKNOWN_YOUTUBE_CHANNEL_KEY", "unknown")
 
@@ -379,13 +379,13 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
     go_live = getattr(settings, "go_live", "") or ""
     for row in _measurement_rows(conn, settings, week_start):
         if go_live and row["period_end"] < go_live:
-            # Evidence from before DRBR went live is kept and shown, but it is
+            # Evidence from before dr-brainrot went live is kept and shown, but it is
             # not diagnostic data and must not charge the allowance: a first
             # Cold Turkey export or "Last Week" screenshot reaching back past
             # go-live would otherwise hand the first diagnostic week a debt
-            # built from pre-DRBR days. YouTube already skips these at ingest
-            # (DR2.2); this applies the same rule to every DRBR source.
-            # Spotify is POP's own allowance and predates DRBR, so it is not
+            # built from pre-dr-brainrot days. YouTube already skips these at ingest
+            # (DR2.2); this applies the same rule to every dr-brainrot source.
+            # Spotify is the queue's own allowance and predates dr-brainrot, so it is not
             # affected.
             continue
         group = T.report_group(row["kind"], row["device"])
@@ -509,7 +509,7 @@ def overage_for(week: db.Week, pooled: PooledMinutes) -> int:
 
     The user's rule: how far a week goes over is recorded, in full and
     unclamped, and never reduces any other week's allowance. This replaces
-    POP's carried debt (D1.5/D1.6).
+    the queue's carried debt (D1.5/D1.6).
     """
     return max(0, whole_minutes(pooled.charged_min) - week.allowance_min)
 

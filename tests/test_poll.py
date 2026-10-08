@@ -117,8 +117,8 @@ def listened_min(conn, week_start: str = WEEK_START) -> int:
 def use_minutes(conn, clk, total_min: int) -> None:
     """Bring this week's wasteful consumption to `total_min` with real evidence.
 
-    DRBR: alerts read pooled wasteful minutes computed from `listening` (and
-    `measurements`), not the stored `weeks.listened_min`, so the POP tests that
+    dr-brainrot: alerts read pooled wasteful minutes computed from `listening` (and
+    `measurements`), not the stored `weeks.listened_min`, so the queue tests that
     hand-set that column now record the equivalent listening instead. The
     filler episode's show is unlabelled, so it resolves to wasteful.
     """
@@ -1051,10 +1051,10 @@ def test_no_deadline_items_means_no_deadline_traffic(conn, settings):
 
 
 # ==========================================================================
-# DRBR — YouTube rows, pooled alerts, labels on deadline posts
+# dr-brainrot — YouTube rows, pooled alerts, labels on deadline posts
 # ==========================================================================
 
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import labels  # noqa: E402
 
 
@@ -1118,7 +1118,7 @@ def test_worthwhile_listening_never_trips_an_alert(conn, settings):
     poll.run_poll(conn, clk, settings, spot, bot)
 
     assert bot.sent == []
-    assert listened_min(conn) == 170          # POP's raw Spotify figure is unchanged
+    assert listened_min(conn) == 170          # the queue's raw Spotify figure is unchanged
     assert alerts(conn) == set()
 
 

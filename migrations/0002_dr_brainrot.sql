@@ -1,27 +1,27 @@
--- DRBR migration: schema_version 1 -> 2. Applied by db.migrate() exactly once.
+-- dr-brainrot migration: schema_version 1 -> 2. Applied by db.migrate() exactly once.
 --
--- Additive only. No existing POP row is rewritten; no POP column is dropped or
+-- Additive only. No existing queue row is rewritten; no queue column is dropped or
 -- retyped. Every new column on an existing table has a default that reproduces
--- pre-DRBR behaviour for the rows already there.
+-- pre-dr-brainrot behaviour for the rows already there.
 --
 -- Conventions (CONTRACTS.md Part II §1):
---   * instants are ISO-8601 UTC strings (clock.iso), as in POP;
---   * calendar days are local dates 'YYYY-MM-DD' in POP_TZ;
+--   * instants are ISO-8601 UTC strings (clock.iso), as in the queue;
+--   * calendar days are local dates 'YYYY-MM-DD' in DR_BRAINROT_TZ;
 --   * JSON columns hold text produced by json.dumps(..., sort_keys=True).
 
 -- ---------------------------------------------------------------------------
--- Existing POP tables, extended
+-- Existing queue tables, extended
 -- ---------------------------------------------------------------------------
 
--- The queue can now hold YouTube videos as well as Spotify episodes. POP's
--- column name `spotify_id` is kept (renaming would break every POP query);
+-- The queue can now hold YouTube videos as well as Spotify episodes. The
+-- column name `spotify_id` is kept (renaming would break every queue query);
 -- for a YouTube row it holds 'youtube:<videoId>'. Spotify rows keep their bare
 -- 22-char ids and default to platform 'spotify'.
 ALTER TABLE episodes ADD COLUMN platform TEXT NOT NULL DEFAULT 'spotify'
     CHECK (platform IN ('spotify', 'youtube'));
 
 -- The labelled source this row belongs to. NULL for Spotify (the source is the
--- normalised show name, which POP already stores in `show`); the YouTube
+-- normalised show name, which the queue already stores in `show`); the YouTube
 -- channel id for YouTube rows.
 ALTER TABLE episodes ADD COLUMN source_key TEXT;
 
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS imports (
 CREATE INDEX IF NOT EXISTS idx_imports_kind ON imports(kind, received_at);
 CREATE INDEX IF NOT EXISTS idx_imports_sha  ON imports(raw_sha256);
 
--- Minutes from every non-Spotify source. Spotify stays in POP's `listening`.
+-- Minutes from every non-Spotify source. Spotify stays in the queue's `listening`.
 --
 -- minutes is NULL whenever the value could not be measured (status != 'ok').
 -- It is never defaulted to 0: a zero is a measurement, a NULL is an absence.
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS vault_observations (
 CREATE INDEX IF NOT EXISTS idx_vault_obs_capture ON vault_observations(capture_id, scanned_at);
 
 -- ---------------------------------------------------------------------------
--- Prompt bookkeeping (same idea as POP's alerts_sent: dedup state, not input)
+-- Prompt bookkeeping (same idea as the queue's alerts_sent: dedup state, not input)
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS prompts_sent (

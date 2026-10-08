@@ -288,11 +288,11 @@ def fake_db():
 
 @pytest.fixture
 def label_conn():
-    """DRBR: a real, empty, migrated schema for the label tables only.
+    """dr-brainrot: a real, empty, migrated schema for the label tables only.
 
     Queue writes still go to FakeDB. The capture path now resolves the item's
     label and records its source (`labels`, `allowance`), which needs the
-    `sources`/`item_labels` tables; before DRBR this fixture passed `object()`.
+    `sources`/`item_labels` tables; before dr-brainrot this fixture passed `object()`.
     Built from the SQL files directly, so this module still imports no db.py.
     """
     import sqlite3
@@ -710,8 +710,8 @@ def test_build_app_registers_handlers_without_touching_the_network(settings, clk
     assert app.bot_data["spotify"] is spotify
 
     registered = [h for group in app.handlers.values() for h in group]
-    pop_handlers = [h for h in registered if getattr(h.callback, "__module__", "") == "bot"]
-    assert len(pop_handlers) == 5
+    queue_handlers = [h for h in registered if getattr(h.callback, "__module__", "") == "bot"]
+    assert len(queue_handlers) == 5
     callbacks = {h.callback for h in registered}
     assert {bot.cmd_start, bot.cmd_queue, bot.cmd_stats, bot.on_callback, bot.on_message} <= callbacks
 
@@ -774,7 +774,7 @@ def test_the_logged_traceback_has_the_token_scrubbed(ctx, settings, caplog):
     """D5.5 closed this on the happy path; the error path must not reopen it."""
     token = settings.telegram_bot_token
     ctx.error = _boom(f"POST https://api.telegram.org/bot{token}/getUpdates blew up")
-    with caplog.at_level(logging.ERROR, logger="pop.bot"):
+    with caplog.at_level(logging.ERROR, logger="dr-brainrot.bot"):
         run(bot.on_error(FakeUpdate(text="x"), ctx))
     logged = "\n".join(r.getMessage() for r in caplog.records)
     assert token not in logged
@@ -830,7 +830,7 @@ def test_a_rejected_token_is_scrubbed_from_a_failed_steps_traceback(settings, lo
     assert "Traceback" in written and "InvalidToken" in written    # still a useful log
     assert token not in written and "The token `<TOKEN>` was rejected" in written
     # A plain message with the token in its arguments is cleaned too, and %-formatting still works.
-    logging.getLogger("drbr.jobs").error("send to %s failed (%d%%)", f"bot{token}/sendMessage", 50)
+    logging.getLogger("dr-brainrot.jobs").error("send to %s failed (%d%%)", f"bot{token}/sendMessage", 50)
     assert token not in stream.getvalue() and "send to bot<TOKEN>/sendMessage failed (50%)" in stream.getvalue()
 
 
@@ -843,7 +843,7 @@ def test_silencing_installs_the_scrubber_on_the_root_handlers_once(settings, log
     try:
         raise RuntimeError(f"https://api.telegram.org/bot{settings.telegram_bot_token}/getMe")
     except RuntimeError:
-        logging.getLogger("pop.poll").exception("alerts failed")
+        logging.getLogger("dr-brainrot.poll").exception("alerts failed")
     assert settings.telegram_bot_token not in stream.getvalue()
     assert "bot<TOKEN>/getMe" in stream.getvalue()
     bot._silence_token_logging()                       # no token: the httpx levels only, as before
@@ -854,7 +854,7 @@ def test_a_record_that_cannot_be_formatted_still_reaches_the_handler(settings, l
     """A filter that raised would turn a bad log call into a crash of the step that made it."""
     handler, stream = log_file
     bot.scrub_token_from_logs(settings.telegram_bot_token, [handler])
-    record = logging.LogRecord("drbr.jobs", logging.ERROR, __file__, 1, "%d", ("not a number",), None)
+    record = logging.LogRecord("dr-brainrot.jobs", logging.ERROR, __file__, 1, "%d", ("not a number",), None)
     assert handler.filters[0].filter(record) is True
 
 
@@ -887,7 +887,7 @@ def test_build_app_registers_the_error_handler(settings, clk, spotify):
 
 
 # ==========================================================================
-# 10. DRBR — YouTube capture and the label override (Part II §7)
+# 10. dr-brainrot — YouTube capture and the label override (Part II §7)
 #
 # These drive the REAL db.py against a migrated in-memory database: db.py
 # exists now, and the properties under test (nothing written until the note,
@@ -895,7 +895,7 @@ def test_build_app_registers_the_error_handler(settings, clk, spotify):
 # the database, not in a double. The YouTube client is always a fake.
 # ==========================================================================
 
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 
 VIDEO_ID = "dQw4w9WgXcQ"
 CHANNEL_ID = "UCuAXFkgsw1L7xaCfnd5JJOw"

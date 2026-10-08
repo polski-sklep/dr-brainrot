@@ -20,7 +20,7 @@ import checklist
 import clock
 import config
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import jobs
 import labels
@@ -278,7 +278,7 @@ def test_everything_in_sends_nothing_and_no_reminder_follows(conn, clk, settings
     clk.set("2026-10-11T06:00:00+00:00")
     everything_in(conn, clk, settings)
     bot = RecordingBot()
-    with caplog.at_level("INFO", logger="drbr.checklist"):
+    with caplog.at_level("INFO", logger="dr-brainrot.checklist"):
         assert run(conn, clk, settings, bot, at=SUNDAY) == []
     assert bot.sent == []
     assert f"week {W} is all in; nothing sent" in caplog.text
@@ -363,7 +363,7 @@ def test_merging_mid_week_sends_nothing_off_schedule(conn, clk, settings, caplog
     """No markers yet on a Friday: the week before was never asked through this, so nothing goes."""
     screen_time(conn, clk, settings, "2026-09-27", complete=False)      # like the live import #80
     bot = RecordingBot()
-    with caplog.at_level("INFO", logger="drbr.checklist"):
+    with caplog.at_level("INFO", logger="dr-brainrot.checklist"):
         assert run(conn, clk, settings, bot, at="2026-10-09T07:30:00+00:00") == []
     assert bot.sent == [] and evidence.get_meta(conn, checklist.NUDGE_KEY) is None
     # Not silent: the log says the week went unasked, and why.
@@ -380,7 +380,7 @@ def test_a_mac_asleep_sunday_and_monday_gets_the_whole_list_late_once(conn, clk,
     run(conn, clk, settings, bot, at="2026-10-04T07:30:00+00:00")      # the week before was asked as usual
     assert evidence.get_meta(conn, checklist.CHECKLIST_KEY) == "2026-09-27"
     unlabelled(conn, clk, settings, 2, 3)
-    with caplog.at_level("INFO", logger="drbr.checklist"):
+    with caplog.at_level("INFO", logger="dr-brainrot.checklist"):
         assert run(conn, clk, settings, bot, at=TUESDAY) == [
             f"tuesday checklist for week {W}: screentime, youtube, labels"]
     assert f"week {W}: Sunday's and Monday's runs didn't send the check-in; sending it late" in caplog.text
@@ -508,7 +508,7 @@ def test_cold_turkey_is_asked_for_by_hand_when_its_read_is_failing(conn, clk, se
             "the JSON file here.\n\n") in text
     assert "4. Label any new sources the steps above bring" in text
     assert "Everything else (Mac apps, podcasts, your vault) collects itself." in text
-    assert "DRBR" not in text
+    assert "dr-brainrot" not in text
 
 
 def test_cold_turkey_unconfigured_is_a_plain_manual_export(conn, clk, tmp_path):
@@ -519,7 +519,7 @@ def test_cold_turkey_unconfigured_is_a_plain_manual_export(conn, clk, tmp_path):
     (text,) = bot.texts()
     assert "3. Cold Turkey. Export last week by hand: Cold Turkey Blocker → Statistics" in text
     assert "Everything else (podcasts, your vault) collects itself." in text
-    assert "DRBR" not in text and "COLDTURKEY" not in text
+    assert "dr-brainrot" not in text and "COLDTURKEY" not in text
     # A read made before the week ended is not in, though it overlaps it; one sent after it is.
     clk.set("2026-10-09T07:30:00+00:00")
     _import(conn, clk, plain, "coldturkey", "2026-10-04", "2026-10-08")

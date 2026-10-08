@@ -9,10 +9,10 @@ this module may derive a label from behaviour, duration, folder, or any other
 indirect signal. A label is read from explicit stored state or it is the
 documented default.
 
-**Content only (DECISIONS DR5.5).** DRBR measures brain-rot *content*, not time
+**Content only (DECISIONS DR5.5).** dr-brainrot measures brain-rot *content*, not time
 in general. wasteful/worthwhile are value judgements about content. A source
 that is not content at all (a shop, email, banking, a todo app, the weather,
-DRBR's own dashboard) is labelled `tool`: out of scope. `resolve` returns
+dr-brainrot's own dashboard) is labelled `tool`: out of scope. `resolve` returns
 `tool` for it and every consumer keeps those minutes out of wasteful,
 worthwhile, the allowance and cost per keeper, while still showing them
 separately. `tool` is a *source* label only: per-item overrides stay binary,
@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 from clock import Clock
 from config import Settings
 

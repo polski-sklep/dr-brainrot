@@ -1,4 +1,4 @@
-"""Tests for report.py — DRBR Phase 2, Agent D.
+"""Tests for report.py — dr-brainrot Phase 2, Agent D.
 
 Every function in CONTRACTS.md Part II §9, against one migrated database per
 test with evidence written the way source modules write it. No network, frozen
@@ -22,7 +22,7 @@ import allowance  # noqa: E402
 import clock  # noqa: E402
 import db  # noqa: E402
 import labels  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import evidence  # noqa: E402
 import report  # noqa: E402
 from tests.test_allowance import (  # noqa: E402
@@ -213,7 +213,7 @@ def test_report_windows_start_at_the_diagnostic_start(conn, clk, settings):
     assert [s.week_start for s in report.label_split(conn, clk, settings, weeks=4)] == [WEEK]
     assert {r.day for r in report.records(conn, clk, settings)} == {"2026-09-09"}
     f = report.funnels(conn, clk, settings)
-    assert f.vault.kept == 1 and f.pop.captured == 0                    # captured before go-live
+    assert f.vault.kept == 1 and f.queue.captured == 0                    # captured before go-live
 
 
 def test_weekly_totals_mark_missing_evidence_as_none_not_zero(conn, clk, settings):
@@ -498,10 +498,10 @@ def test_vault_funnel_leaves_excluded_out_of_the_denominator(conn, clk, settings
 
     f = report.funnels(conn, clk, settings)
     assert f.vault == report.VaultFunnel(captured=4, unprocessed=1, kept=3, excluded=1, edited_kept=2)
-    assert isinstance(f.pop, db.FunnelStats)
+    assert isinstance(f.queue, db.FunnelStats)
 
 
-def test_pop_funnel_counts_youtube_played_as_measured_watching(conn, clk, settings):
+def test_queue_funnel_counts_youtube_played_as_measured_watching(conn, clk, settings):
     evidence.ensure_diagnostic_start(conn, "2026-08-30")         # go-live before the captures
     watched = youtube_item(conn, clk, settings, "WatchedVid1", channel="UCw")
     unwatched = youtube_item(conn, clk, settings, "SkippedVid1", channel="UCw")
@@ -513,7 +513,7 @@ def test_pop_funnel_counts_youtube_played_as_measured_watching(conn, clk, settin
             minutes=12.0, item_key="WatchedVid1")
     measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCw", day="2026-09-06",
             minutes=12.0, item_key="EarlyVideo1")                # before promotion: not "played"
-    stats = report.funnels(conn, clk, settings).pop
+    stats = report.funnels(conn, clk, settings).queue
     assert stats.promoted == 3
     assert stats.played == 1
     assert stats.fully_played == 0

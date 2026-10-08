@@ -18,7 +18,7 @@ import allowance
 import clock
 import config
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import jobs
 import labels
@@ -126,7 +126,7 @@ def settings(tmp_path, qb_db):
     (vault / "01-Inbox").mkdir()
     return config.test_settings(tz=TZ, raw_dir=tmp_path / "raw", go_live="2026-09-13", qbserve_db=qb_db,
                                 vault_path=vault, capture_outbox=tmp_path / "o.jsonl",
-                                db_path=tmp_path / "drbr.db")
+                                db_path=tmp_path / "dr-brainrot.db")
 
 
 @pytest.fixture
@@ -697,22 +697,22 @@ def test_check_env_qbserve_step(tmp_path, qb_db, capsys, monkeypatch):
     out, failed = _check({}, capsys)
     assert "[9/10]" in out and "desktop apps not measured" in out and not failed
 
-    out, failed = _check({"DRBR_QBSERVE_DB": str(tmp_path / "nope.sqlite")}, capsys)
+    out, failed = _check({"DR_BRAINROT_QBSERVE_DB": str(tmp_path / "nope.sqlite")}, capsys)
     assert failed and "does not exist" in out
 
     bad = tmp_path / "bad.sqlite"
     c = sqlite3.connect(str(bad))
     c.execute("CREATE TABLE Apps (_id INTEGER, name TEXT)")
     c.close()
-    out, failed = _check({"DRBR_QBSERVE_DB": str(bad)}, capsys)
+    out, failed = _check({"DR_BRAINROT_QBSERVE_DB": str(bad)}, capsys)
     assert failed and "changed shape" in out
 
-    out, failed = _check({"DRBR_QBSERVE_DB": str(qb_db)}, capsys)
+    out, failed = _check({"DR_BRAINROT_QBSERVE_DB": str(qb_db)}, capsys)
     assert not failed and "OK" in out and f"{len(APPS)} apps" in out and "2026-09-16T08:00+00:00" in out
     assert SECRET not in out and "Slack" not in out and "Inbox" not in out
 
     old = make_qb_db(tmp_path / "old.sqlite", rows=[("2026-01-05T08:00:00", 3, 60)])
-    out, failed = _check({"DRBR_QBSERVE_DB": str(old)}, capsys)
+    out, failed = _check({"DR_BRAINROT_QBSERVE_DB": str(old)}, capsys)
     assert not failed and "WARN" in out and "reopens it within 10 minutes" in out   # a note, never a failure
     assert "open at login" not in out
 

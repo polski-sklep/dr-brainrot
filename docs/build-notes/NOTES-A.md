@@ -224,7 +224,7 @@ app.register_blueprint(ingest_api.make_blueprint(
   afterwards.
 - If the app sets `MAX_CONTENT_LENGTH`, it must be ≥ 25 MB, or Flask rejects
   captures before the blueprint's own limit applies.
-- The endpoint is protected by `DRBR_INGEST_TOKEN`. An empty token refuses
+- The endpoint is protected by `DR_BRAINROT_INGEST_TOKEN`. An empty token refuses
   every request, so `check_env.py` should require it, along with
   `YOUTUBE_API_KEY`.
 
@@ -233,7 +233,7 @@ app.register_blueprint(ingest_api.make_blueprint(
 - Construct the client with
   `context.bot_data["youtube"] = youtube.DataApiClient(settings)`.
 - `video_info(video_id)` returns `VideoInfo | None` and raises
-  `drbr_types.VideoLookupError`.
+  `dr_brainrot_types.VideoLookupError`.
 - `duration_s` is None for live, upcoming or removed videos. Refuse capture in
   that case, as §7 says.
 - Close the client on shutdown.
@@ -267,6 +267,6 @@ or after the Monday following the week), not by period coverage.
   from the *whole* page survives.
 - It prints only counts.
 
-**Environment.** `.env` needs `YOUTUBE_API_KEY` and `DRBR_INGEST_TOKEN`.
-`DRBR_DASHBOARD_PORT` defaults to 8750, which is also the extension's default
+**Environment.** `.env` needs `YOUTUBE_API_KEY` and `DR_BRAINROT_INGEST_TOKEN`.
+`DR_BRAINROT_DASHBOARD_PORT` defaults to 8750, which is also the extension's default
 backend URL.

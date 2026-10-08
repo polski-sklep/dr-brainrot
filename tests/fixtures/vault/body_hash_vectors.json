@@ -1,5 +1,5 @@
 {
-  "description": "Shared DRBR body-hash test vectors. Byte-identical copies live in drbr (tests/fixtures/vault/body_hash_vectors.json) and obsidian-ingest (tests/body_hash_vectors.json). body_sha256(note_text) = SHA-256 of the text after the first frontmatter block's closing '---' line, .strip()ped, UTF-8. A frontmatter block exists only when the first line (after an optional BOM) is '---' and a later line is '---' (trailing whitespace ignored); otherwise the whole text is body.",
+  "description": "Shared dr-brainrot body-hash test vectors. Byte-identical copies live in dr-brainrot (tests/fixtures/vault/body_hash_vectors.json) and obsidian-ingest (tests/body_hash_vectors.json). body_sha256(note_text) = SHA-256 of the text after the first frontmatter block's closing '---' line, .strip()ped, UTF-8. A frontmatter block exists only when the first line (after an optional BOM) is '---' and a later line is '---' (trailing whitespace ignored); otherwise the whole text is body.",
   "cases": [
     {
       "name": "standard_capture",

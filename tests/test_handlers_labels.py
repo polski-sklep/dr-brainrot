@@ -16,7 +16,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler
 import clock
 import config
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import handlers_labels as H
 import labels

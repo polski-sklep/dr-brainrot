@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 from clock import Clock
 from config import Settings
 

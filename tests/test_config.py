@@ -9,7 +9,7 @@ computed in local time so a DST change shifts the UTC instant correctly. D5.2
 protects the same boundary in the config layer, which is where it used to be
 reachable: `TZ` is the standard POSIX *system* timezone variable, and while
 `config.load()` overlaid it, any cron or systemd unit exporting `TZ=UTC` would
-have silently moved triage an hour for half the year. The setting is `POP_TZ`
+have silently moved triage an hour for half the year. The setting is `DR_BRAINROT_TZ`
 and nothing named `TZ` reaches `Settings`.
 
 No test here reads the real `.env`; the root conftest raises if one tries.
@@ -37,11 +37,11 @@ def env_file(tmp_path):
 
 
 # ==========================================================================
-# POP_TZ is the setting
+# DR_BRAINROT_TZ is the setting
 # ==========================================================================
 
 def test_pop_tz_is_read_from_the_env_file(env_file):
-    settings = config.load(env_file(POP_TZ="Atlantic/Azores"))
+    settings = config.load(env_file(DR_BRAINROT_TZ="Atlantic/Azores"))
     assert settings.tz == "Atlantic/Azores"
 
 
@@ -51,13 +51,13 @@ def test_pop_tz_defaults_to_lisbon_when_nothing_sets_it(env_file):
 
 def test_pop_tz_from_the_environment_overrides_the_env_file(env_file, monkeypatch):
     """Deployment override, the same as every other key in `_KEYS`."""
-    monkeypatch.setenv("POP_TZ", "Atlantic/Azores")
-    assert config.load(env_file(POP_TZ="Europe/Lisbon")).tz == "Atlantic/Azores"
+    monkeypatch.setenv("DR_BRAINROT_TZ", "Atlantic/Azores")
+    assert config.load(env_file(DR_BRAINROT_TZ="Europe/Lisbon")).tz == "Atlantic/Azores"
 
 
 def test_an_explicit_override_still_wins(env_file, monkeypatch):
-    monkeypatch.setenv("POP_TZ", "Atlantic/Azores")
-    assert config.load(env_file(), pop_tz="Europe/Madrid").tz == "Europe/Madrid"
+    monkeypatch.setenv("DR_BRAINROT_TZ", "Atlantic/Azores")
+    assert config.load(env_file(), dr_brainrot_tz="Europe/Madrid").tz == "Europe/Madrid"
 
 
 # ==========================================================================
@@ -67,7 +67,7 @@ def test_an_explicit_override_still_wins(env_file, monkeypatch):
 def test_an_ambient_posix_tz_does_not_change_settings_tz(env_file, monkeypatch):
     """The regression. `TZ=UTC` in a cron environment moved triage an hour."""
     monkeypatch.setenv("TZ", "UTC")
-    assert config.load(env_file(POP_TZ="Europe/Lisbon")).tz == "Europe/Lisbon"
+    assert config.load(env_file(DR_BRAINROT_TZ="Europe/Lisbon")).tz == "Europe/Lisbon"
 
 
 def test_an_ambient_posix_tz_cannot_supply_the_default_either(env_file, monkeypatch):
@@ -83,21 +83,21 @@ def test_a_tz_line_in_the_env_file_is_ignored(env_file, monkeypatch):
     of the rename: `check_env.py` fails such a file loudly instead.
     """
     monkeypatch.delenv("TZ", raising=False)
-    monkeypatch.delenv("POP_TZ", raising=False)
+    monkeypatch.delenv("DR_BRAINROT_TZ", raising=False)
     assert config.load(env_file(TZ="UTC")).tz == "Europe/Lisbon"
 
 
 def test_tz_is_not_in_the_environment_override_key_set():
     """The structural guarantee, so no future key list quietly re-adds it."""
     assert "TZ" not in config._KEYS
-    assert "POP_TZ" in config._KEYS
+    assert "DR_BRAINROT_TZ" in config._KEYS
 
 
 def test_check_env_validates_pop_tz_and_not_tz():
     """The Phase 0 gate has to ask for the key the app actually reads."""
     import check_env
 
-    assert "POP_TZ" in check_env.REQUIRED
+    assert "DR_BRAINROT_TZ" in check_env.REQUIRED
     assert "TZ" not in check_env.REQUIRED
 
 
@@ -121,7 +121,7 @@ def test_the_other_settings_still_load(env_file):
 
 def test_test_settings_is_unaffected_by_the_environment(monkeypatch):
     monkeypatch.setenv("TZ", "UTC")
-    monkeypatch.setenv("POP_TZ", "UTC")
+    monkeypatch.setenv("DR_BRAINROT_TZ", "UTC")
     assert config.test_settings().tz == "Europe/Lisbon"
 
 
@@ -131,6 +131,6 @@ def test_test_settings_is_unaffected_by_the_environment(monkeypatch):
 
 def test_the_audible_sign_in_defaults_beside_the_database_and_empty_turns_it_off(env_file, tmp_path):
     assert config.load(env_file()).audible_auth == config.ROOT / "data" / "audible_auth.json"
-    assert config.load(env_file(DRBR_AUDIBLE_AUTH=str(tmp_path / "a.json"))).audible_auth == tmp_path / "a.json"
-    assert config.load(env_file(DRBR_AUDIBLE_AUTH="")).audible_auth is None
+    assert config.load(env_file(DR_BRAINROT_AUDIBLE_AUTH=str(tmp_path / "a.json"))).audible_auth == tmp_path / "a.json"
+    assert config.load(env_file(DR_BRAINROT_AUDIBLE_AUTH="")).audible_auth is None
     assert config.test_settings().audible_auth is None              # tests are never signed in

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  POP daily poll — resume_point deltas, deadline surfacing, allowance alerts.
+  Daily poll — resume_point deltas, deadline surfacing, allowance alerts.
 
   TIMEZONE. launchd's StartCalendarInterval fires in SYSTEM local time
-  (Europe/Warsaw), which now matches POP_TZ. The exact hour does not matter
+  (Europe/Warsaw), which now matches DR_BRAINROT_TZ. The exact hour does not matter
   for the poll — only that it runs once a day.
   It is off the hour deliberately, to avoid piling onto :00.
 
@@ -12,23 +12,23 @@
   that sleeps, this is the difference between losing a day of measurement and
   not losing it.
 
-  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.pop.poll.plist
-  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.pop.poll
-  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.pop.poll
+  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.dr-brainrot.poll.plist
+  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.dr-brainrot.poll
+  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.dr-brainrot.poll
 -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.jacob.pop.poll</string>
+    <string>com.jacob.dr-brainrot.poll</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Jacob/Projects/drbr/.venv/bin/python</string>
-        <string>/Users/Jacob/Projects/drbr/poll.py</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/.venv/bin/python</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/poll.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Jacob/Projects/drbr</string>
+    <string>/Users/Jacob/Projects/dr-brainrot</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -42,8 +42,8 @@
     <false/>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/poll.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/poll.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/poll.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/poll.log</string>
 </dict>
 </plist>

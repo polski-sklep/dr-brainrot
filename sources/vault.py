@@ -41,7 +41,7 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 from clock import Clock

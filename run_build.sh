@@ -1,5 +1,5 @@
 #!/bin/zsh
-# POP — unattended build runner. Invoked by launchd at 09:00 Saturday.
+# dr-brainrot — unattended build runner. Invoked by launchd at 09:00 Saturday.
 # The machine's system timezone is Europe/Lisbon, so launchd local time IS Lisbon time.
 # Runs Phases 1-5. Phase 0 is already complete and is only re-validated, never redone.
 #
@@ -10,7 +10,7 @@
 # before arming the launchd job.
 
 set -u
-PROJECT=/Users/Jacob/Projects/drbr
+PROJECT=/Users/Jacob/Projects/dr-brainrot
 CLAUDE=/Users/Jacob/.local/bin/claude
 export PATH="/Users/Jacob/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
@@ -20,7 +20,7 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 LOG="logs/build-$STAMP.log"
 exec > "$LOG" 2>&1
 
-echo "=== POP unattended build ==="
+echo "=== dr-brainrot unattended build ==="
 echo "started: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "cwd:     $PROJECT"
 echo
@@ -42,11 +42,11 @@ echo
 
 echo "--- launching build agent ---"
 "$CLAUDE" -p "$(cat <<'PROMPT'
-You are executing the unattended POP build. You start with no memory of any prior conversation.
+You are executing the unattended dr-brainrot build. You start with no memory of any prior conversation.
 
 Do this in order:
-1. Read /Users/Jacob/Projects/drbr/BUILD-PROMPT.md in full. It contains the operating rules, current status, and Phases 1 through 5.
-2. Read /Users/Jacob/Projects/drbr/pop-build-brief.md in full. It is the complete specification.
+1. Read /Users/Jacob/Projects/dr-brainrot/BUILD-PROMPT.md in full. It contains the operating rules, current status, and Phases 1 through 5.
+2. Read /Users/Jacob/Projects/dr-brainrot/podcast-queue-build-brief.md in full. It is the complete specification.
 3. Execute Phases 1, 2, 3, 4 and 5 in sequence, exactly as BUILD-PROMPT.md specifies.
 
 Hard constraints, repeated here because they matter most:
@@ -72,5 +72,5 @@ if [[ $STATUS -eq 0 ]]; then
 fi
 
 # One-shot: disarm so it does not fire again next Saturday.
-/bin/launchctl bootout "gui/$(id -u)/com.jacob.pop.build" 2>/dev/null && echo "launchd job disarmed"
+/bin/launchctl bootout "gui/$(id -u)/com.jacob.dr-brainrot.build" 2>/dev/null && echo "launchd job disarmed"
 exit $STATUS

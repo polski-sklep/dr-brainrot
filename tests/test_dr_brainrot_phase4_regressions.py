@@ -17,7 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import allowance  # noqa: E402
 import clock  # noqa: E402
 import db  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import evidence  # noqa: E402
 import report  # noqa: E402
 from dashboard import app as dashboard_app  # noqa: E402
@@ -46,7 +46,7 @@ def section(html: str, section_id: str) -> str:
 
 @pytest.fixture
 def settings(tmp_path):
-    return make_settings(tmp_path, db_path=tmp_path / "drbr.db", go_live="2026-09-13")
+    return make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db", go_live="2026-09-13")
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ def clk():
 
 def test_pre_go_live_evidence_is_shown_but_never_charged(conn, clk, settings):
     clk.set("2026-09-09T10:00:00+00:00")
-    db.current_week(conn, clk, settings)                  # the POP week before go-live exists
+    db.current_week(conn, clk, settings)                  # the queue's week before go-live exists
     clk.set("2026-09-14T10:00:00+00:00")
     db.roll_over_week(conn, clk, settings)                # go-live week opens with no debt
     assert db.current_week(conn, clk, settings).debt_min == 0
@@ -115,7 +115,7 @@ def test_weekly_total_reports_the_covering_import_not_the_latest(conn, clk, sett
 # --------------------------------------------------------------------------
 
 def test_covered_reason_survives_a_week_straddling_the_diagnostic_start(conn, clk, tmp_path):
-    s = make_settings(tmp_path, db_path=tmp_path / "drbr.db")          # no go-live: start is the data
+    s = make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db")          # no go-live: start is the data
     evidence.ensure_diagnostic_start(conn, "2026-09-16")                # a Wednesday
     measure(conn, clk, s, kind=T.KIND_WEB_DOMAIN, key="youtube.com", day="2026-09-14", minutes=25.0)
 
@@ -204,7 +204,7 @@ def test_vision_is_blocked_suite_wide(conn, clk, settings):
 
 
 # --------------------------------------------------------------------------
-# Audit check (no defect): day -> allowance week agrees with POP's instant
+# Audit check (no defect): day -> allowance week agrees with the queue's instant
 # boundary for every day across both Warsaw DST changes
 # --------------------------------------------------------------------------
 

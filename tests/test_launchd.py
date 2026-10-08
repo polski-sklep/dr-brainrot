@@ -1,4 +1,4 @@
-"""The launchd agents: each one is installed by ./drbr and listed in the README.
+"""The launchd agents: each one is installed by ./dr-brainrot and listed in the README.
 
 And the Qbserve keeper (DR5.27) does exactly one thing: reopen Qbserve in the
 background when no process of that name is running. It never touches
@@ -16,7 +16,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLISTS = sorted((ROOT / "launchd").glob("*.plist"))
-KEEPER = ROOT / "launchd" / "com.jacob.drbr.qbserve.plist"
+KEEPER = ROOT / "launchd" / "com.jacob.dr-brainrot.qbserve.plist"
 
 
 def load(path: pathlib.Path) -> dict:
@@ -24,9 +24,9 @@ def load(path: pathlib.Path) -> dict:
         return plistlib.load(f)
 
 
-def drbr_agents() -> list[str]:
-    m = re.search(r"^AGENTS=\(([^)]*)\)", (ROOT / "drbr").read_text(), re.M)
-    assert m, "./drbr has no AGENTS=( ... ) list"
+def dr_brainrot_agents() -> list[str]:
+    m = re.search(r"^AGENTS=\(([^)]*)\)", (ROOT / "dr-brainrot").read_text(), re.M)
+    assert m, "./dr-brainrot has no AGENTS=( ... ) list"
     return m.group(1).split()
 
 
@@ -41,7 +41,7 @@ def test_every_agent_parses_is_named_after_its_file_and_is_installed_and_documen
     for path in PLISTS:
         assert load(path)["Label"] == path.stem, path.name
         assert re.search(rf"^\| `{re.escape(path.stem)}` \|", table, re.M), f"{path.stem} missing from README"
-    assert sorted(drbr_agents()) == sorted(p.stem for p in PLISTS)
+    assert sorted(dr_brainrot_agents()) == sorted(p.stem for p in PLISTS)
 
 
 def test_the_qbserve_keeper_checks_every_ten_minutes_and_at_login():
@@ -52,7 +52,7 @@ def test_the_qbserve_keeper_checks_every_ten_minutes_and_at_login():
     assert "/usr/bin/open -g -j -a Qbserve" in command
     assert plist["StartInterval"] == 600 and plist["RunAtLoad"] is True
     assert "KeepAlive" not in plist and "StartCalendarInterval" not in plist
-    assert plist["StandardOutPath"] == plist["StandardErrorPath"] == "/Users/Jacob/Projects/drbr/logs/qbserve.log"
+    assert plist["StandardOutPath"] == plist["StandardErrorPath"] == "/Users/Jacob/Projects/dr-brainrot/logs/qbserve.log"
 
 
 def test_the_qbserve_keeper_never_touches_qbserves_data_or_runs_repository_code():

@@ -31,7 +31,7 @@ MIN_MS = 60_000
 
 @pytest.fixture
 def settings(tmp_path):
-    return config.test_settings(db_path=tmp_path / "pop.db")
+    return config.test_settings(db_path=tmp_path / "dr-brainrot.db")
 
 
 @pytest.fixture
@@ -799,7 +799,7 @@ def test_played_needs_a_positive_delta(conn, clk, settings):
     assert db.funnel_stats(conn, clk, settings).played == 1
 
 
-# --- DRBR: YouTube rows and the label-aware gate ------------------------------
+# --- dr-brainrot: YouTube rows and the label-aware gate ------------------------------
 
 def youtube_episode(conn, video_id="abcdefghijk", minutes=30, channel="UCchan"):
     key = f"youtube:{video_id}"

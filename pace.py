@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 import allowance
-import drbr_types as T
+import dr_brainrot_types as T
 import progress
 import report
 from clock import Clock

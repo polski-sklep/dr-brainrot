@@ -16,7 +16,7 @@ import bot
 import clock
 import config
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import checklist
 import evidence
 import jobs
@@ -183,8 +183,8 @@ def test_build_app_installs_every_extension_without_collisions(settings, clk):
     for h in text_handlers:
         assert "TEXT" not in repr(h.filters).upper() or "DOCUMENT" in repr(h.filters).upper() \
             or "PHOTO" in repr(h.filters).upper()
-    pop_cb = [h for h in handlers if isinstance(h, CallbackQueryHandler) and h.callback is bot.on_callback]
-    assert pop_cb and pop_cb[0].pattern("d:lbl:w:1") is False and pop_cb[0].pattern("promote:1") is True
+    queue_cb = [h for h in handlers if isinstance(h, CallbackQueryHandler) and h.callback is bot.on_callback]
+    assert queue_cb and queue_cb[0].pattern("d:lbl:w:1") is False and queue_cb[0].pattern("promote:1") is True
 
 
 def test_label_resolution_is_shared_by_gate_and_report(conn, clk, settings):
@@ -201,7 +201,7 @@ def test_no_telegram_message_names_the_product():
     """The product never names itself in its own copy — on the page or in Telegram.
 
     The dashboard was cleaned on 22 Sep; Telegram was missed until a Friday-morning
-    Qbserve warning said "missing from DRBR". This pins every message constant and
+    Qbserve warning said "missing from dr-brainrot". This pins every message constant and
     template the bot sends, so the next one cannot slip through the same gap.
     """
     import pathlib
@@ -222,7 +222,7 @@ def test_no_telegram_message_names_the_product():
         "checklist.LAST_REMINDER": checklist_module.LAST_REMINDER,
     }
     # Message bodies built inline: read them from the source, skipping comments,
-    # docstrings and config-key names such as DRBR_COLDTURKEY_DB.
+    # docstrings and config-key names such as DR_BRAINROT_COLDTURKEY_DB.
     for module in (checklist_module, handlers_imports, handlers_labels, jobs_module, triage, poll):
         text = pathlib.Path(module.__file__).read_text()
         text = re.sub(r'""".*?"""', "", text, flags=re.S)

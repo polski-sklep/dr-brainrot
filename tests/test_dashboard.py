@@ -1,4 +1,4 @@
-"""Tests for the DRBR dashboard (dashboard/app.py). Phase 3, integration.
+"""Tests for the dr-brainrot dashboard (dashboard/app.py). Phase 3, integration.
 
 Flask test client against a migrated sqlite file per test, frozen clocks, no
 network (conftest blocks it). Evidence is written the way source modules
@@ -23,7 +23,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import clock  # noqa: E402
 import config  # noqa: E402
 import db  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import evidence  # noqa: E402
 import labels  # noqa: E402
 from dashboard import app as dashboard_app  # noqa: E402
@@ -47,7 +47,7 @@ CSS = pathlib.Path(dashboard_app.__file__).parent / "static" / "dashboard.css"
 
 @pytest.fixture
 def settings(tmp_path):
-    return make_settings(tmp_path, db_path=tmp_path / "drbr.db")
+    return make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db")
 
 
 @pytest.fixture
@@ -546,7 +546,7 @@ def test_records_filters(client, conn, clk, settings):
 def test_ingest_blueprint_is_mounted_behind_the_token(client, settings):
     assert client.get("/api/youtube/cursor").status_code == 401
     assert client.post("/api/youtube/history", data=b"{}").status_code == 401
-    ok = client.get("/api/youtube/cursor", headers={"X-DRBR-Token": settings.ingest_token})
+    ok = client.get("/api/youtube/cursor", headers={"X-Dr-Brainrot-Token": settings.ingest_token})
     assert ok.status_code == 200 and ok.get_json() == {"cursor": None, "cursor_date": None}
 
 
@@ -723,7 +723,7 @@ def test_the_brain_never_names_the_product_or_borrows_another_components_classes
     populate(conn, clk, settings)
     for html in (text(client.get("/")), text(client.get("/?week=2026-09-06"))):
         part = section(html, "rot")
-        assert not re.search(r"\bDRBR\b|Dr\.? ?Brainrot", part)
+        assert not re.search(r"\bDRBR\b|Dr\.? ?Brainrot|dr-brainrot", part)
         assert "What it was" not in part                 # P4-01 compares first occurrences
         classes = {c for attr in re.findall(r'class="([^"]+)"', part) for c in attr.split()}
         assert not {c for c in classes

@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import config  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import evidence  # noqa: E402
 import labels  # noqa: E402
 import report  # noqa: E402
@@ -75,7 +75,7 @@ def clk():
 
 @pytest.fixture
 def settings(tmp_path):
-    return make_settings(tmp_path, db_path=tmp_path / "drbr.db", tz=TZ, go_live="2026-09-13",
+    return make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db", tz=TZ, go_live="2026-09-13",
                          weekly_allowance_min=360)
 
 

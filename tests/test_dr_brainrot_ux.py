@@ -1,6 +1,6 @@
 """The UX overhaul: what needs the user, where numbers come from, and fixing OCR by hand.
 
-DECISIONS DR5.6. The user's complaint was that DRBR never told him what it
+DECISIONS DR5.6. The user's complaint was that dr-brainrot never told him what it
 wanted from him — "I don't know how and when I'm supposed to be submitting
 sources like X desktop data, desktop web, any of it" — and that Telegram was
 the wrong place to label content. These tests pin the data behind the answer:
@@ -26,7 +26,7 @@ import checklist  # noqa: E402
 import clock  # noqa: E402
 import config  # noqa: E402
 import db  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import evidence  # noqa: E402
 import jobs  # noqa: E402
 import labels  # noqa: E402
@@ -41,7 +41,7 @@ NOW = "2026-09-16T10:00:00+00:00"
 
 @pytest.fixture
 def settings(tmp_path):
-    return config.test_settings(tz=TZ, raw_dir=tmp_path / "raw", db_path=tmp_path / "drbr.db",
+    return config.test_settings(tz=TZ, raw_dir=tmp_path / "raw", db_path=tmp_path / "dr-brainrot.db",
                                 telegram_user_id=1, go_live="2026-09-06")
 
 
@@ -440,7 +440,7 @@ def test_the_cold_turkey_step_returns_as_a_fallback_when_nothing_is_configured(c
     assert needs.coldturkey == checklist.MISSING
     text = checklist.render(needs, settings, nudge=False)
     assert "Cold Turkey. Export last week by hand:" in text and "Websites usage (time)" in text
-    assert "DRBR" not in text
+    assert "dr-brainrot" not in text
 
 
 # ==========================================================================

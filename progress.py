@@ -41,7 +41,7 @@ from datetime import timedelta
 from typing import Sequence
 
 import allowance
-import drbr_types as T
+import dr_brainrot_types as T
 import report
 from clock import Clock
 from config import Settings

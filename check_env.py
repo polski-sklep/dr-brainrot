@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validates .env is complete and every external dependency DRBR needs works.
+"""Validates .env is complete and every external dependency dr-brainrot needs works.
 
     .venv/bin/python check_env.py           # validate + live auth checks
     .venv/bin/python check_env.py --ping    # also send a test message to TELEGRAM_USER_ID
@@ -34,28 +34,28 @@ REQUIRED = {
     "TELEGRAM_BOT_TOKEN":     r"\d{6,12}:[A-Za-z0-9_-]{30,}",
     "TELEGRAM_USER_ID":       r"\d{5,15}",
     "WEEKLY_ALLOWANCE_MIN":   r"\d+",
-    "POP_TZ":                 r"\S+/\S+",
+    "DR_BRAINROT_TZ":                 r"\S+/\S+",
     "LOCK_HOURS":             r"\d+",
     "LIFESPAN_CYCLES":        r"\d+",
-    "POP_DB_PATH":            r"\S+",
+    "DR_BRAINROT_DB_PATH":            r"\S+",
     "YOUTUBE_API_KEY":        r"AIza[0-9A-Za-z_-]{35}",
-    "DRBR_VAULT_PATH":        r"/\S.*",
-    "DRBR_VAULT_INBOX":       r"[^/].*",
-    "DRBR_CAPTURE_OUTBOX":    r"\S+",
-    "DRBR_RAW_DIR":           r"\S+",
-    "DRBR_DIAGNOSTIC_WEEKS":  r"[1-9]\d*",
-    "DRBR_DASHBOARD_PORT":    r"\d{4,5}",
-    "DRBR_GO_LIVE":           r"\d{4}-\d{2}-\d{2}",
-    "DRBR_INGEST_TOKEN":      r"[A-Za-z0-9_-]{32,}",
+    "DR_BRAINROT_VAULT_PATH":        r"/\S.*",
+    "DR_BRAINROT_VAULT_INBOX":       r"[^/].*",
+    "DR_BRAINROT_CAPTURE_OUTBOX":    r"\S+",
+    "DR_BRAINROT_RAW_DIR":           r"\S+",
+    "DR_BRAINROT_DIAGNOSTIC_WEEKS":  r"[1-9]\d*",
+    "DR_BRAINROT_DASHBOARD_PORT":    r"\d{4,5}",
+    "DR_BRAINROT_GO_LIVE":           r"\d{4}-\d{2}-\d{2}",
+    "DR_BRAINROT_INGEST_TOKEN":      r"[A-Za-z0-9_-]{32,}",
 }
 SECRET_KEYS = {
     "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET",
     "SPOTIFY_REFRESH_TOKEN", "TELEGRAM_BOT_TOKEN",
-    "YOUTUBE_API_KEY", "DRBR_INGEST_TOKEN", "ANTHROPIC_API_KEY",
+    "YOUTUBE_API_KEY", "DR_BRAINROT_INGEST_TOKEN", "ANTHROPIC_API_KEY",
 }
 
 #: Deliberately not in REQUIRED: the weekly summary (DR5.8) is the only thing
-#: that uses it, and without it the Overview falls back to DRBR's own computed
+#: that uses it, and without it the Overview falls back to dr-brainrot's own computed
 #: sentences. Missing is a fine state, not a failure.
 ANTHROPIC_KEY = "ANTHROPIC_API_KEY"
 ANTHROPIC_SHAPE = r"sk-ant-[A-Za-z0-9_-]{20,}"
@@ -164,7 +164,7 @@ def check_telegram(env: dict[str, str], ping: bool) -> None:
                 f"https://api.telegram.org/bot{token}/sendMessage",
                 data=urllib.parse.urlencode({
                     "chat_id": env["TELEGRAM_USER_ID"],
-                    "text": "POP: check_env.py ping. Credentials work. Nothing else is running yet.",
+                    "text": "check_env.py ping. Credentials work. Nothing else is running yet.",
                 }).encode(),
                 method="POST",
             )
@@ -262,19 +262,19 @@ def check_paths(env: dict[str, str]) -> None:
         path = pathlib.Path(value).expanduser()
         return path if path.is_absolute() else root / path
 
-    vault = pathlib.Path(env.get("DRBR_VAULT_PATH", "")).expanduser()
-    if not env.get("DRBR_VAULT_PATH"):
-        fail("DRBR_VAULT_PATH unset")
+    vault = pathlib.Path(env.get("DR_BRAINROT_VAULT_PATH", "")).expanduser()
+    if not env.get("DR_BRAINROT_VAULT_PATH"):
+        fail("DR_BRAINROT_VAULT_PATH unset")
         return
     if not (vault / ".obsidian").is_dir():
-        fail("DRBR_VAULT_PATH is not an Obsidian vault (no .obsidian/ folder)")
+        fail("DR_BRAINROT_VAULT_PATH is not an Obsidian vault (no .obsidian/ folder)")
     else:
         ok("vault found (path not printed)")
-    inbox = env.get("DRBR_VAULT_INBOX", "")
+    inbox = env.get("DR_BRAINROT_VAULT_INBOX", "")
     (ok if (vault / inbox).is_dir() else fail)(f"inbox folder '{inbox}' exists in the vault")
-    for key in ("DRBR_CAPTURE_OUTBOX", "DRBR_RAW_DIR"):
+    for key in ("DR_BRAINROT_CAPTURE_OUTBOX", "DR_BRAINROT_RAW_DIR"):
         target = resolve(env.get(key, ""))
-        parent = target.parent if key == "DRBR_CAPTURE_OUTBOX" else target
+        parent = target.parent if key == "DR_BRAINROT_CAPTURE_OUTBOX" else target
         try:
             parent.mkdir(parents=True, exist_ok=True)
             probe = parent / ".check_env_probe"
@@ -302,16 +302,16 @@ def check_vision() -> None:
 
 def check_coldturkey(env: dict[str, str]) -> None:
     print(f"\n[8/{STEPS}] Cold Turkey statistics — read-only, counts only (no URLs printed)")
-    path = env.get("DRBR_COLDTURKEY_DB", "")
+    path = env.get("DR_BRAINROT_COLDTURKEY_DB", "")
     if not path:
-        ok("DRBR_COLDTURKEY_DB unset: Cold Turkey arrives by manual export")
+        ok("DR_BRAINROT_COLDTURKEY_DB unset: Cold Turkey arrives by manual export")
         return
     import sqlite3  # noqa: PLC0415
     import urllib.parse  # noqa: PLC0415
 
     db_path = pathlib.Path(path)
     if not db_path.exists():
-        fail("DRBR_COLDTURKEY_DB does not exist (is Cold Turkey Blocker installed?)")
+        fail("DR_BRAINROT_COLDTURKEY_DB does not exist (is Cold Turkey Blocker installed?)")
         return
     try:
         conn = sqlite3.connect(f"file:{urllib.parse.quote(str(db_path))}?mode=ro", uri=True, timeout=10)
@@ -331,9 +331,9 @@ def check_coldturkey(env: dict[str, str]) -> None:
 
 def check_qbserve(env: dict[str, str]) -> None:
     print(f"\n[9/{STEPS}] Qbserve — read-only, counts and timestamps only (no titles printed)")
-    path = env.get("DRBR_QBSERVE_DB", "")
+    path = env.get("DR_BRAINROT_QBSERVE_DB", "")
     if not path:
-        ok("DRBR_QBSERVE_DB unset: desktop apps not measured")
+        ok("DR_BRAINROT_QBSERVE_DB unset: desktop apps not measured")
         return
     import datetime as dt  # noqa: PLC0415
     import sqlite3  # noqa: PLC0415
@@ -341,7 +341,7 @@ def check_qbserve(env: dict[str, str]) -> None:
 
     db_path = pathlib.Path(path).expanduser()
     if not db_path.exists():
-        fail("DRBR_QBSERVE_DB does not exist (is Qbserve installed and has it run?)")
+        fail("DR_BRAINROT_QBSERVE_DB does not exist (is Qbserve installed and has it run?)")
         return
     need = {"Apps": {"_id", "bundle", "localized_name"}, "Activities": {"_id", "source", "app_id"},
             "HistoryTablesIndex": {"table_name", "start_date"}}
@@ -380,7 +380,7 @@ def check_qbserve(env: dict[str, str]) -> None:
     age_h = (dt.datetime.now(dt.timezone.utc) - newest).total_seconds() / 3600
     if age_h > 36:
         print(f"  WARN  Qbserve's newest record is {age_h:.0f} h old: is Qbserve running? "
-              "The com.jacob.drbr.qbserve agent reopens it within 10 minutes (not a failure)")
+              "The com.jacob.dr-brainrot.qbserve agent reopens it within 10 minutes (not a failure)")
 
 
 def check_anthropic(env: dict[str, str]) -> None:
@@ -389,7 +389,7 @@ def check_anthropic(env: dict[str, str]) -> None:
     print(f"\n[10/{STEPS}] Anthropic — optional, weekly summary only (shape check, no API call)")
     val = env.get(ANTHROPIC_KEY, "")
     if not val:
-        ok(f"{ANTHROPIC_KEY} unset: the Overview's weekly summary shows DRBR's own computed "
+        ok(f"{ANTHROPIC_KEY} unset: the Overview's weekly summary shows dr-brainrot's own computed "
            "sentences instead (optional; remove the key to turn the generated summary off)")
         return
     if not re.fullmatch(ANTHROPIC_SHAPE, val):
@@ -402,7 +402,7 @@ def check_anthropic(env: dict[str, str]) -> None:
 
 def main() -> int:
     ping = "--ping" in sys.argv
-    print("DRBR — environment and credential check")
+    print("dr-brainrot — environment and credential check")
     env = load_env()
     check_presence(env)
     check_permissions()

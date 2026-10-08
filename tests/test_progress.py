@@ -17,7 +17,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import clock  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import evidence  # noqa: E402
 import insights  # noqa: E402
 import labels  # noqa: E402
@@ -38,7 +38,7 @@ def clk():
 
 @pytest.fixture
 def settings(tmp_path):
-    return make_settings(tmp_path, db_path=tmp_path / "drbr.db", tz=TZ, go_live="2026-09-13",
+    return make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db", tz=TZ, go_live="2026-09-13",
                          weekly_allowance_min=360)
 
 
@@ -223,7 +223,7 @@ def test_the_lever_tip_only_ever_addresses_something_labelled_wasteful(conn, clk
 ])
 def test_inside_the_allowance_is_only_promised_when_the_week_is_fully_known(
         conn, clk, tmp_path, complete, effect):
-    tight = make_settings(tmp_path, db_path=tmp_path / "drbr.db", tz=TZ, go_live="2026-09-13",
+    tight = make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db", tz=TZ, go_live="2026-09-13",
                           weekly_allowance_min=60)
     screen_time(conn, clk, tight, A, {"a": 1})
     screen_time(conn, clk, tight, B, {"a": 40, "b": 30, "c": 20}, complete=complete)

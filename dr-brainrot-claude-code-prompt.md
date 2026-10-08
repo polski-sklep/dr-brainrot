@@ -1,10 +1,10 @@
-# Claude Code kickoff prompt: DRBR
+# Claude Code kickoff prompt: dr-brainrot
 
-Run `claude` from the root of the existing POP project, with `drbr-build-brief.md` placed alongside the existing code. Paste everything below the line.
+Run `claude` from the root of the existing podcast-queue project, with `dr-brainrot-build-brief.md` placed alongside the existing code. Paste everything below the line.
 
-Read `drbr-build-brief.md` in full before doing anything else. Then build it.
+Read `dr-brainrot-build-brief.md` in full before doing anything else. Then build it.
 
-This extends an existing, working POP codebase. It is not a greenfield build. Preserve existing behaviour unless the brief explicitly changes it.
+This extends an existing, working podcast-queue codebase. It is not a greenfield build. Preserve existing behaviour unless the brief explicitly changes it.
 
 ## Global operating rules
 
@@ -16,21 +16,21 @@ Everything requiring my input, credentials, files, paths, exports, screenshots, 
 
 From Phase 1 onward, if something is ambiguous:
 
-1. Prefer the behaviour explicitly specified by `drbr-build-brief.md`.
-2. If the brief is silent, prefer consistency with the existing POP architecture and behaviour.
+1. Prefer the behaviour explicitly specified by `dr-brainrot-build-brief.md`.
+2. If the brief is silent, prefer consistency with the existing queue architecture and behaviour.
 3. If neither resolves it, make the smallest reasonable decision.
 4. Record the decision and reasoning in `DECISIONS.md`.
 5. Continue without asking me.
 
 ### 2. The codebase is authoritative about existing implementation
 
-The brief was written without sight of the final POP code.
+The brief was written without sight of the final queue code.
 
 Its descriptions of existing schemas, modules, state transitions, authentication, file layout, naming, or control flow may therefore be wrong.
 
 Phase 1 exists to resolve those discrepancies.
 
-Where the brief describes what POP currently does and the actual code differs, the codebase wins. Document the discrepancy in `EXISTING.md`.
+Where the brief describes what the queue currently does and the actual code differs, the codebase wins. Document the discrepancy in `EXISTING.md`.
 
 Where the brief specifies new desired behaviour, the brief wins unless implementing it would break an invariant that makes the system non-functional. If that happens, implement the closest compatible design and record the reason in `DECISIONS.md`.
 
@@ -81,7 +81,7 @@ Before modifying data structures:
 - identify the existing migration mechanism
 - preserve existing user data
 - prefer additive and backward-compatible migrations
-- test migration from a representative pre-DRBR POP database, not only creation of a new empty database
+- test migration from a representative pre-dr-brainrot queue database, not only creation of a new empty database
 - do not destructively rewrite existing records unless explicitly required
 
 ### 7. Report meaningful progress
@@ -107,7 +107,7 @@ Collect:
 1. **YouTube Data API key**
    - Tell me exactly how to create it.
    - Tell me exactly which Google API must be enabled.
-   - Add it to POP's existing `.env`.
+   - Add it to the queue's existing `.env`.
    - Add the corresponding placeholder to `.env.example`.
    - Validate it using exactly one small live YouTube Data API request.
 2. **Obsidian vault**
@@ -149,7 +149,7 @@ Collect:
 
 ## Existing credentials
 
-Reuse POP's existing `.env` for Spotify and Telegram.
+Reuse the queue's existing `.env` for Spotify and Telegram.
 
 Verify that the existing credentials still authenticate using the least invasive available calls.
 
@@ -173,7 +173,7 @@ If an external provider is temporarily unavailable but the credential itself can
 
 **Single agent only. No implementation parallelism.**
 
-Read the complete relevant POP codebase before designing the extension.
+Read the complete relevant queue codebase before designing the extension.
 
 Exclude non-source material such as:
 
@@ -257,7 +257,7 @@ Identify exactly:
 
 Document:
 
-- how POP currently starts
+- how the queue currently starts
 - background processes
 - cron jobs
 - ports
@@ -266,7 +266,7 @@ Document:
 
 ### Brief discrepancies
 
-Create a dedicated section listing every meaningful place where the assumptions in `drbr-build-brief.md` differ from the real code.
+Create a dedicated section listing every meaningful place where the assumptions in `dr-brainrot-build-brief.md` differ from the real code.
 
 ## Produce `CONTRACTS.md`
 
@@ -320,9 +320,9 @@ Create the migration required for the agreed schema, including:
 
 Test:
 
-1. migration of a representative pre-DRBR database
+1. migration of a representative pre-dr-brainrot database
 2. clean database creation
-3. preservation of existing POP records and behaviour
+3. preservation of existing queue records and behaviour
 
 Do not begin Phase 2 until these pass.
 
@@ -469,11 +469,11 @@ Implement the label-aware gate using the Phase 1 interfaces.
 
 Requirements:
 
-- POP's existing lock behaviour remains intact for worthwhile items.
+- The queue's existing lock behaviour remains intact for worthwhile items.
 - Worthwhile items must never spend the wasteful allowance.
 - Wasteful items may bypass the normal gate only according to the defined pooled weekly allowance rules.
 - Maintain one pooled weekly allowance.
-- Preserve existing rollover/debt semantics as specified by the brief and actual POP behaviour.
+- Preserve existing rollover/debt semantics as specified by the brief and actual queue behaviour.
 - Do not weaken the underlying gate globally in order to implement the bypass.
 
 Implement `report.py` covering the brief's required:
@@ -524,7 +524,7 @@ Implement the dashboard using:
 - server-side rendering
 - binding to `127.0.0.1`
 
-Build exactly the surfaces specified in `drbr-build-brief.md`.
+Build exactly the surfaces specified in `dr-brainrot-build-brief.md`.
 
 Do not add speculative dashboard features.
 
@@ -562,7 +562,7 @@ Build an end-to-end integration test using:
 - frozen clock
 - fixtures
 - mocked external services
-- representative migrated POP database
+- representative migrated queue database
 - all five source paths
 
 Test at minimum:
@@ -602,7 +602,7 @@ Audit the entire relevant codebase specifically for:
 - secrets committed or logged
 - incompatible duplicate source identifiers
 - timezone inconsistencies at week boundaries
-- migration paths that lose existing POP data
+- migration paths that lose existing queue data
 
 ## `REVIEW.md`
 
@@ -661,9 +661,9 @@ Include:
 
 ## Single startup command
 
-Create one canonical command that starts the complete DRBR-enabled POP system in its intended local/VPS configuration.
+Create one canonical command that starts the complete dr-brainrot-enabled queue system in its intended local/VPS configuration.
 
-Prefer the convention already used by POP.
+Prefer the convention already used by the queue.
 
 If no suitable single launcher exists, add one, for example through the project's existing task runner, `Makefile`, or a small checked-in script.
 

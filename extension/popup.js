@@ -1,4 +1,4 @@
-// DRBR — popup: settings, the sync button, and an honest account of the last run.
+// dr-brainrot — popup: settings, the sync button, and an honest account of the last run.
 //
 // Rendering rule: a failure is the biggest thing on screen, and "0 videos" is
 // never shown for data that was missing. Zero new facts is only described as
@@ -145,7 +145,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("sync").addEventListener("click", async () => {
     await saveSettings();
     $("sync").disabled = true;
-    await chrome.runtime.sendMessage({ type: "drbr-start" });
+    await chrome.runtime.sendMessage({ type: "dr-brainrot-start" });
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.lastRun) render(changes.lastRun.newValue);

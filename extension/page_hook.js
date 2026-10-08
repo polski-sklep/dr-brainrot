@@ -1,4 +1,4 @@
-// DRBR — MAIN-world script on https://www.youtube.com/feed/history.
+// dr-brainrot — MAIN-world script on https://www.youtube.com/feed/history.
 //
 // Runs in the page's own JavaScript world at document_start so it can see the
 // data YouTube renders from: the `ytInitialData` object assigned by an inline
@@ -13,8 +13,8 @@
 // page cap been hit.
 (() => {
   "use strict";
-  if (window.__drbrHookInstalled) return;
-  window.__drbrHookInstalled = true;
+  if (window.__drBrainrotHookInstalled) return;
+  window.__drBrainrotHookInstalled = true;
 
   const loadedAt = new Date();
   const pages = []; // browse responses carrying history sections, in arrival order
@@ -82,11 +82,11 @@
   const originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (method, url) {
-    this.__drbrUrl = String(url || "");
+    this.__drBrainrotUrl = String(url || "");
     return originalOpen.apply(this, arguments);
   };
   XMLHttpRequest.prototype.send = function () {
-    if (isBrowseUrl(this.__drbrUrl)) {
+    if (isBrowseUrl(this.__drBrainrotUrl)) {
       this.addEventListener("load", () => {
         try {
           if (this.responseType === "json") record(this.response);
@@ -247,7 +247,7 @@
 
   window.addEventListener("message", async (event) => {
     const msg = event.data;
-    if (event.source !== window || !msg || msg.source !== "drbr-bridge" || msg.type !== "collect") return;
+    if (event.source !== window || !msg || msg.source !== "dr-brainrot-bridge" || msg.type !== "collect") return;
     let result;
     try {
       result = await collect(msg);
@@ -255,7 +255,7 @@
       result = { pages: [], cursorReached: false,
                  diagnostics: { initialFound: Boolean(initialData), stopReason: `collector crashed: ${err && err.message}` } };
     }
-    window.postMessage({ source: "drbr-page", type: "collected", requestId: msg.requestId,
+    window.postMessage({ source: "dr-brainrot-page", type: "collected", requestId: msg.requestId,
                          capturedAt: loadedAt.toISOString(), ...result }, window.location.origin);
   });
 })();

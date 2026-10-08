@@ -1,12 +1,12 @@
 # CONTRACTS
 
-**Part I** (below, unchanged) is POP's original contract. **Part II**, at the
-end of this file, is DRBR's. Where Part II changes a Part I behaviour it says
+**Part I** (below, unchanged) is the podcast queue's original contract. **Part II**, at the
+end of this file, is dr-brainrot's. Where Part II changes a Part I behaviour it says
 so explicitly; otherwise Part I still holds.
 
 ---
 
-# Part I — POP
+# Part I — The podcast queue
 
 Phase 1 output. Every module in Phases 2 and 3 implements exactly these
 signatures and imports other modules only through them. Do not widen a
@@ -488,9 +488,9 @@ Crontab lines go in `README.md`. They are not installed.
 
 ---
 
-# Part II — DRBR
+# Part II — dr-brainrot
 
-Phase 1 output for the DRBR extension (`drbr-build-brief.md`). Binding on every
+Phase 1 output for the dr-brainrot extension (`dr-brainrot-build-brief.md`). Binding on every
 Phase 2 agent. **No agent changes a shared contract privately.** If a contract
 must change, stop, write the change here centrally, and apply it to every
 affected component. Agents record everything else in `NOTES-<agent>.md` (now `docs/build-notes/`) for the
@@ -512,26 +512,26 @@ integration pass and must not be edited in Phase 2.
 | **B — Screen Time + Cold Turkey** | `sources/screentime.py`, `sources/ocr_vision.py`, `sources/coldturkey.py`, `handlers_imports.py`, `tests/test_screentime*.py`, `tests/test_coldturkey*.py`, `tests/test_handlers_imports.py`, `tests/fixtures/screentime/**`, `tests/fixtures/coldturkey/**`, `NOTES-B.md` |
 | **C — Vault + labels** | `sources/vault.py`, `labels.py`, `handlers_labels.py`, `tests/test_vault*.py`, `tests/test_labels*.py`, `tests/test_handlers_labels.py`, `tests/fixtures/vault/**`, `NOTES-C.md`; **and** the separate repo `/Users/Jacob/Projects/obsidian-ingest` on a branch `drbr-capture-id` |
 | **D — Gate + reporting** | `allowance.py`, `report.py`, `db.py`, `bot.py`, `poll.py`, `triage.py`, `tests/test_allowance*.py`, `tests/test_report*.py`, `tests/test_db.py`, `tests/test_bot.py`, `tests/test_poll.py`, `tests/test_triage.py`, `tests/test_integration.py`, `NOTES-D.md` |
-| **Integration only** | `schema.sql`, `migrations/**`, `config.py`, `clock.py`, `drbr_types.py`, `evidence.py`, `conftest.py`, `check_env.py`, `jobs.py`, `dashboard/**`, `drbr` (launcher), `launchd/**`, `requirements.txt`, `.env*`, `README.md`, `CONTRACTS.md`, `DECISIONS.md`, `EXISTING.md`, `REVIEW.md`, `tests/test_drbr_*.py` |
+| **Integration only** | `schema.sql`, `migrations/**`, `config.py`, `clock.py`, `dr_brainrot_types.py`, `evidence.py`, `conftest.py`, `check_env.py`, `jobs.py`, `dashboard/**`, `dr-brainrot` (launcher), `launchd/**`, `requirements.txt`, `.env*`, `README.md`, `CONTRACTS.md`, `DECISIONS.md`, `EXISTING.md`, `REVIEW.md`, `tests/test_dr_brainrot_*.py` |
 
-Agents run tests with `/Users/Jacob/Projects/drbr/.venv/bin/python -m pytest -q`
+Agents run tests with `/Users/Jacob/Projects/dr-brainrot/.venv/bin/python -m pytest -q`
 from their own worktree root. Real personal inputs are read-only at
-`/Users/Jacob/Projects/drbr/inputs/` (gitignored; never copy them into the
+`/Users/Jacob/Projects/dr-brainrot/inputs/` (gitignored; never copy them into the
 repo unsanitised).
 
 ## §1 Conventions
 
-- **Instants:** ISO-8601 UTC via `clock.iso()`, as in POP.
-- **Local days:** `'YYYY-MM-DD'` in `settings.tz` (`POP_TZ`, `Europe/Warsaw`). Convert only with `drbr_types.local_date`.
-- **Measurement week:** local Sunday..Saturday (`drbr_types.measurement_week`). It is charged to the POP allowance week opening **18:00 on that same Sunday** (`drbr_types.allowance_week_start_for_day`). A local day is never split between two allowance weeks. Spotify deltas keep POP's instant-based attribution (`clock.week_start_for(polled_at)`).
+- **Instants:** ISO-8601 UTC via `clock.iso()`, as in Part I.
+- **Local days:** `'YYYY-MM-DD'` in `settings.tz` (`DR_BRAINROT_TZ`, `Europe/Warsaw`). Convert only with `dr_brainrot_types.local_date`.
+- **Measurement week:** local Sunday..Saturday (`dr_brainrot_types.measurement_week`). It is charged to the queue's allowance week opening **18:00 on that same Sunday** (`dr_brainrot_types.allowance_week_start_for_day`). A local day is never split between two allowance weeks. Spotify deltas keep the queue's instant-based attribution (`clock.week_start_for(polled_at)`).
 - **Time is injected:** every function that needs "now" takes a `Clock`. Tests use `clock.FrozenClock`.
 - **Settings:** `config.Settings` gains `youtube_api_key`, `vault_path`, `vault_inbox`, `capture_outbox`, `raw_dir`, `diagnostic_weeks`, `dashboard_port`, `ingest_token` (defaults keep `config.test_settings()` valid). Tests pass `raw_dir=tmp_path/...` and `vault_path=tmp_path/...` explicitly.
 - **No network in tests**, enforced by `conftest.py`. Every external client is injected.
 - **Secrets** never appear in logs, exceptions shown to the user, fixtures, or notes.
 
-## §2 Schema (migration `0002_drbr.sql`, schema_version 2)
+## §2 Schema (migration `0002_dr_brainrot.sql`, schema_version 2)
 
-Authoritative DDL is `migrations/0002_drbr.sql`; semantics:
+Authoritative DDL is `migrations/0002_dr_brainrot.sql`; semantics:
 
 | Table | Purpose / invariants |
 |---|---|
@@ -543,9 +543,9 @@ Authoritative DDL is `migrations/0002_drbr.sql`; semantics:
 | `category_measurements` | Screen Time category totals (reported only; not labelled, not gated). |
 | `vault_captures` | Obsidian captures from the outbox, identity = `capture_id`. |
 | `vault_observations` | One row per capture per scan; latest scan per capture is current. |
-| `prompts_sent` | Dedup bookkeeping for bot prompts (like POP's `alerts_sent`). |
+| `prompts_sent` | Dedup bookkeeping for bot prompts (like the queue's `alerts_sent`). |
 
-## §3 Canonical constants — `drbr_types.py`
+## §3 Canonical constants — `dr_brainrot_types.py`
 
 Labels `WASTEFUL`/`WORTHWHILE`, `DEFAULT_LABEL = WASTEFUL`; bases
 `BASIS_ITEM_OVERRIDE` > `BASIS_SOURCE_LABEL` > `BASIS_DEFAULT`; source kinds
@@ -653,7 +653,7 @@ Rules:
 
 `ingest_api.py`: `make_blueprint(*, get_conn, clk, settings, api_factory) -> flask.Blueprint` with
 `GET /api/youtube/cursor` and `POST /api/youtube/history`. Both require header
-`X-DRBR-Token == settings.ingest_token` (constant-time compare), else 401.
+`X-Dr-Brainrot-Token == settings.ingest_token` (constant-time compare), else 401.
 Body limit 25 MB. Responds JSON with the `Outcome` fields. Mounted by the
 dashboard app (Phase 3) on `127.0.0.1:settings.dashboard_port`.
 
@@ -722,7 +722,7 @@ count and the note that unlisted domains are unmeasured.
 
 ### §6.4 Vault — `sources/vault.py` + obsidian-ingest (Agent C)
 
-**Outbox line** (JSONL, appended by obsidian-ingest to `DRBR_CAPTURE_OUTBOX`, one object per line):
+**Outbox line** (JSONL, appended by obsidian-ingest to `DR_BRAINROT_CAPTURE_OUTBOX`, one object per line):
 `{"v": 1, "capture_id": "<uuid4 hex, 32 chars>", "captured_at": "<UTC ISO>", "capture_type": "<ingest input type/format, verbatim>", "url": str|null, "title": str, "author": str|null, "rel_path": "<path relative to vault>", "body_sha256": "<hex>"}`
 
 **Frontmatter key:** `drbr_capture_id: <capture_id>` in the note's first frontmatter block.
@@ -746,7 +746,7 @@ Rules:
 - `edited` = current body hash ≠ `body_sha256` at capture. Secondary flag only.
 - Skip `.obsidian/`, `.git/`, `.trash/` when looking for kept/unprocessed copies.
 - Two files with one id: `copies=2`, outcome by the rule above, plus a warning.
-- obsidian-ingest (branch `drbr-capture-id`): generate the id and append the outbox line **before** writing the note (a logged capture whose note never appears is excluded, which is harmless; a note the log never heard of would be invisible); write the id into frontmatter; outbox failure is logged loudly and the bot reply says the DRBR log failed. Add tests there (pytest, no network). Do **not** restart its launchd agent; integration does.
+- obsidian-ingest (branch `drbr-capture-id`): generate the id and append the outbox line **before** writing the note (a logged capture whose note never appears is excluded, which is harmless; a note the log never heard of would be invisible); write the id into frontmatter; outbox failure is logged loudly and the bot reply says the dr-brainrot log failed. Add tests there (pytest, no network). Do **not** restart its launchd agent; integration does.
 
 ### §6.5 Spotify
 
@@ -771,18 +771,18 @@ debt_for(closed: db.Week, pooled: PooledMinutes) -> int  # clamp(wasteful - effe
 Behaviour:
 - **Lock stays intact for every item**, worthwhile or wasteful. Triage flow unchanged.
 - **Worthwhile items never spend the allowance**: promotion cost 0, no refusal, and their consumption is excluded from allowance, debt and alerts.
-- **Wasteful** (including unlabelled-default) promotions go through POP's gate exactly as before.
-- **Pooled consumption** for an allowance week = wasteful Spotify minutes (clamped deltas in the week window, labelled per episode) + wasteful `measurements` minutes (status ok, not `COVERED_ELSEWHERE`) whose day maps to the week. `weeks.listened_min` keeps its POP meaning (raw Spotify minutes).
+- **Wasteful** (including unlabelled-default) promotions go through the queue's gate exactly as before.
+- **Pooled consumption** for an allowance week = wasteful Spotify minutes (clamped deltas in the week window, labelled per episode) + wasteful `measurements` minutes (status ok, not `COVERED_ELSEWHERE`) whose day maps to the week. `weeks.listened_min` keeps its Part I meaning (raw Spotify minutes).
 - **Debt** at rollover = `clamp(pooled wasteful − effective allowance, 0, allowance_min)`. Late imports recompute it (`on_measurements_changed`). Alerts in `poll.check_alerts` compare pooled wasteful minutes.
 - **Gated** consumption: Spotify delta whose queue item was promoted at or before the poll instant; YouTube measurement whose `youtube:<id>` queue item was promoted on or before that local day. Everything else (all Screen Time, Cold Turkey, unpromoted YouTube/Spotify) is ungated.
-- **YouTube capture:** a YouTube link sent to the POP bot captures into the queue through `bot_data["youtube"]` (any object with `video_info(video_id) -> VideoInfo | None`, raising `VideoLookupError`). `duration_s is None` refuses capture with a message. YouTube rows are excluded from Spotify polling and never auto-`played`.
-- **Override at capture:** the why-note goes through `labels.parse_override_token` (and POP's deadline parse). An override is stored with `labels.set_item_override`. The confirmation shows the resolved label and basis. The triage post shows the label and "costs 0 min" for worthwhile.
+- **YouTube capture:** a YouTube link sent to the bot captures into the queue through `bot_data["youtube"]` (any object with `video_info(video_id) -> VideoInfo | None`, raising `VideoLookupError`). `duration_s is None` refuses capture with a message. YouTube rows are excluded from Spotify polling and never auto-`played`.
+- **Override at capture:** the why-note goes through `labels.parse_override_token` (and the queue's deadline parse). An override is stored with `labels.set_item_override`. The confirmation shows the resolved label and basis. The triage post shows the label and "costs 0 min" for worthwhile.
 - Labels are always read through `labels.resolve` via `allowance.item_label`; nothing caches a label.
 
 ## §8 Telegram integration hooks
 
-- `bot.build_app` registers POP handlers, then calls `handlers_imports.register(app)` and `handlers_labels.register(app)`.
-- Callback data prefix `d:` is reserved for DRBR. `d:imp:...` (B), `d:lbl:...` (C). POP's handler ignores `d:`; malformed non-`d:` data is still answered "Unrecognised button.". Data ≤ 64 bytes.
+- `bot.build_app` registers the queue's handlers, then calls `handlers_imports.register(app)` and `handlers_labels.register(app)`.
+- Callback data prefix `d:` is reserved for dr-brainrot. `d:imp:...` (B), `d:lbl:...` (C). The queue's handler ignores `d:`; malformed non-`d:` data is still answered "Unrecognised button.". Data ≤ 64 bytes.
 - Extension modules must not add a plain TEXT handler. Photos, image documents and JSON documents belong to B; label commands/callbacks to C; links and notes to D (`bot.py`).
 - Every handler is wrapped in `bot.authorised_only` and reads `settings`, `conn`, `clk` from `context.bot_data`.
 - Jobs call, and never duplicate, these functions (all return a list of sent-message summaries, send via `triage.send`, dedupe via `prompts_sent`, and do nothing once `evidence.diagnostic(...).ended`):
@@ -815,7 +815,7 @@ label_split(..., weeks: int = 8) -> list[WeekSplit(week_start, wasteful_min, wor
 allowance_status(...) -> AllowanceStatus(week_start, allowance_min, debt_min, effective_min, spent_wasteful_min, remaining_min, promoted_min)
 gated_vs_ungated(..., week_start: str) -> list[GatedRow(group, gated_min, ungated_min, share_ungated|None)]
 cost_per_keeper(..., since: str | None = None) -> list[KeeperRow(group, minutes, keepers, minutes_per_keeper|None, provenances, blind_spots)]   # ranked; None price sorts last
-funnels(...) -> Funnels(pop: db.FunnelStats, vault: VaultFunnel(captured, unprocessed, kept, excluded, edited_kept))
+funnels(...) -> Funnels(queue: db.FunnelStats, vault: VaultFunnel(captured, unprocessed, kept, excluded, edited_kept))
 blind_spots(...) -> list[str]
 records(..., *, group=None, label=None, start=None, end=None, limit=500) -> list[RecordRow]
 ```
@@ -836,20 +836,20 @@ mounts `ingest_api.make_blueprint`. Consumes only `report.py`, `labels.py`
 
 `jobs.py daily` (launchd, daily): `vault.read_outbox`, `vault.scan`,
 `handlers_imports.send_due_prompts`, `handlers_labels.send_label_batch`,
-diagnostic-end notice. POP's `poll.py`/`triage.py` schedules are unchanged.
+diagnostic-end notice. The queue's `poll.py`/`triage.py` schedules are unchanged.
 
 ## §12 Fixtures and personal data
 
 - Committed fixtures are derived from the real inputs **and sanitised**: titles, channel names, video ids, app names beyond what the parser needs, domains, device name and exact minutes are replaced with synthetic values while the structure the parser depends on is kept byte-for-byte in shape.
 - For Screen Time, fixtures are recorded OCR observations (JSON), sanitised the same way; images are not committed.
-- A test may read `/Users/Jacob/Projects/drbr/inputs/` only as an optional local check that `pytest.skip`s when absent, and it must not print personal content.
+- A test may read `/Users/Jacob/Projects/dr-brainrot/inputs/` only as an optional local check that `pytest.skip`s when absent, and it must not print personal content.
 - Nothing from the vault is committed.
 
 ## §13 Amendments made at integration (Phase 2.5)
 
-- §1 Settings: `go_live: str` (`DRBR_GO_LIVE`, local date). `evidence.finish_import` never fixes `diagnostic_start` before it. (DR2.2)
+- §1 Settings: `go_live: str` (`DR_BRAINROT_GO_LIVE`, local date). `evidence.finish_import` never fixes `diagnostic_start` before it. (DR2.2)
 - §6.1: minutes rule for partial regular videos prefers `resume_s` (DR2.1); one fact per regular video per sync under its newest date, one per distinct day for Shorts (DR2.3); entries before `settings.go_live` are skipped and counted in meta (DR2.2); cursor also stores `youtube_cursor_date`, and `GET /api/youtube/cursor` returns `{cursor, cursor_date}` (DR2.4); a failed import answers HTTP 422 with the Outcome body; the key is sent as the `X-Goog-Api-Key` header; `PARSER_VERSION = "youtube-2"`.
-- §3: `drbr_types.UNKNOWN_YOUTUBE_CHANNEL_KEY`; §5 `sources_needing_label` excludes it (DR2.5).
+- §3: `dr_brainrot_types.UNKNOWN_YOUTUBE_CHANNEL_KEY`; §5 `sources_needing_label` excludes it (DR2.5).
 - §6.4: `scan` records a failed import when `settings.vault_path` is unset or missing (DR2.6). `/labels` sends immediately, ignoring the once-per-day `prompts_sent` gate but keeping the 7-day and per-source cooldowns.
 - §6.2 (Agent B, accepted): `ocr_vision.recognize_region` and a `region_ocr=` parameter on `ingest_batch`/`reparse`; `TextObservation.origin`; batches are per chat, not per album; the duplicate check matches identical images in the same week; `reparse` replaces the previous import's rows; "This Week"/all-devices imports have NULL periods (DR1.13, DR2.8).
 - §6.3: days on or after the export date are skipped with a warning (DR2.9). Measurements carry `item_key` = the raw domain, so X from `x.com` and `twitter.com` never overwrite each other; **readers sum per source**.
@@ -871,7 +871,7 @@ All additive and defaulted; every earlier call site stays valid. Reasons and tes
 
 ## §15 Post-build amendment — automated Cold Turkey (DR5.1)
 
-- `config.Settings.coldturkey_db: Path | None` (`DRBR_COLDTURKEY_DB`); None = manual exports only.
+- `config.Settings.coldturkey_db: Path | None` (`DR_BRAINROT_COLDTURKEY_DB`); None = manual exports only.
 - `sources/coldturkey_local.py`: `hostname(url) -> str | None`; `read_host_minutes(db_path, *, first_day, last_day, tz) -> dict[(date, host), minutes]` (read-only, raises `ColdTurkeyLocalError`); `export_document(totals) -> bytes`; `window(clk, settings) -> (first, last) | None`; `sync(conn, clk, settings) -> Outcome | None`.
 - `coldturkey.ingest(..., origin="export" | "local_db")`; import `meta.origin`, measurement `detail.origin`; `reparse` keeps the origin.
 - `jobs.run_daily` step `coldturkey_local` runs before `import_prompts`.
@@ -891,9 +891,9 @@ All additive and defaulted; every earlier call site stays valid. Reasons and tes
 
 - Migration `0004_desktop_apps.sql`, schema_version 4: rebuilds `sources`, `imports`, `measurements`, `prompts_sent` with widened CHECKs (`kind` + `desktop_app`; `provenance` + `app_tracker`; import `kind` + `qbserve`; prompt `kind` + `qbserve_stale`). Columns, constraints, indexes and rows are unchanged.
 - `db.migrate` runs each step with `PRAGMA foreign_keys=OFF` (set before `BEGIN`), runs `PRAGMA foreign_key_check` before committing, and raises `db.MigrationError` (whole step rolled back) on any violation. Foreign keys are back ON afterwards.
-- `drbr_types`: `KIND_DESKTOP_APP = "desktop_app"`, `GROUP_DESKTOP_APPS = "desktop_apps"` (in `REPORT_GROUPS`; `report_group(KIND_DESKTOP_APP)`), `PROV_APP_TRACKER = "app_tracker"` (in `PROVENANCES`, between export and vault), `IMPORT_KINDS` + `"qbserve"`, `COVERED_ELSEWHERE[("desktop_app", "com.spotify.client")]`.
+- `dr_brainrot_types`: `KIND_DESKTOP_APP = "desktop_app"`, `GROUP_DESKTOP_APPS = "desktop_apps"` (in `REPORT_GROUPS`; `report_group(KIND_DESKTOP_APP)`), `PROV_APP_TRACKER = "app_tracker"` (in `PROVENANCES`, between export and vault), `IMPORT_KINDS` + `"qbserve"`, `COVERED_ELSEWHERE[("desktop_app", "com.spotify.client")]`.
 - `labels.normalise_key("desktop_app", bundle)` → bundle casefolded; known Mac X bundles → `("x", "x")`.
-- `config.Settings.qbserve_db: Path | None` (`DRBR_QBSERVE_DB`); None = desktop apps not measured.
+- `config.Settings.qbserve_db: Path | None` (`DR_BRAINROT_QBSERVE_DB`); None = desktop apps not measured.
 - `evidence.upsert_measurement` accepts `PROV_APP_TRACKER`.
 - `sources/qbserve.py`:
   - `read_app_minutes(db_path, *, first_day, last_day, tz) -> (list[AppDay], facts)` is read-only and raises `QbserveError`;
@@ -917,7 +917,7 @@ All additive and defaulted; every earlier call site stays valid. Reasons and tes
   - rebuilds `sources` with `label CHECK (label IN ('wasteful','worthwhile','tool'))`; every column, row, id, `UNIQUE (kind, source_key)` and inbound foreign key is unchanged;
   - `item_labels.label` is **not** widened;
   - data step: `label='tool'`, `labelled_at` = migration time (UTC, `YYYY-MM-DDTHH:MM:SS+00:00`) for `kind='web_domain' AND source_key IN ('127.0.0.1','localhost')`.
-- `drbr_types`: `TOOL = "tool"`, `SOURCE_LABELS = (WASTEFUL, WORTHWHILE, TOOL)`. `LABELS` is unchanged (item overrides).
+- `dr_brainrot_types`: `TOOL = "tool"`, `SOURCE_LABELS = (WASTEFUL, WORTHWHILE, TOOL)`. `LABELS` is unchanged (item overrides).
 - `labels`:
   - `set_source_label` and `list_sources(label=)` accept `tool`;
   - `set_item_override` and `parse_override_token` stay binary (no `#tool`);
@@ -1082,7 +1082,7 @@ Without a `bot`, the Qbserve staleness warning is skipped and does not consume
 that day's slot. **The HTTP endpoint for "Sync now" is not built here** —
 `dashboard/app.py` is owned elsewhere.
 
-### `drbr_types.py`
+### `dr_brainrot_types.py`
 
 `GROUP_VAULT = "vault"`. Not in `REPORT_GROUPS`, not a `report_group()` result:
 the vault produces counts, never minutes. It exists so the attention and
@@ -1098,7 +1098,7 @@ figures `report.py` already computes. Aggregates only leave this Mac.
 ```python
 build_payload(conn, clk, settings) -> dict          # aggregate-only facts; read-only, deterministic
 write_summary(conn, clk, settings, *, client=None, force=False) -> Insight   # never raises
-fallback_summary(payload: dict) -> str              # DRBR's own sentences, computed locally
+fallback_summary(payload: dict) -> str              # dr-brainrot's own sentences, computed locally
 latest(conn, clk, settings) -> Insight | None       # the newest stored row, or None
 
 @dataclass(frozen=True)
@@ -1122,10 +1122,10 @@ class SummaryUnusable(RuntimeError)
 `flash` and never reordered. It is an `Insight` or `None`.
 
 - `insight is None` — nothing has been generated yet. Render no panel.
-- `insight.model is None` — DRBR wrote the sentences itself. **This, and only
+- `insight.model is None` — dr-brainrot wrote the sentences itself. **This, and only
   this, is the fallback test**; there is no `is_fallback` and no `status` on the
   dataclass. Print `insight.fallback_reason` beside the summary: it is the real
-  reason in words ("No ANTHROPIC_API_KEY is set, so DRBR wrote these sentences
+  reason in words ("No ANTHROPIC_API_KEY is set, so dr-brainrot wrote these sentences
   from its own figures.", "API call failed: RuntimeError: …", "Too little data:
   …"), never a code, and is non-None exactly when `model` is None.
 - `insight.model` set (`"claude-opus-5"`) — a model wrote it;
@@ -1164,7 +1164,7 @@ weeks[]:    week_start, days {from, to}, wasteful_min, worthwhile_min, tool_min,
                         unmeasured_items, covered_excluded_min
             coverage_gaps[]: one sentence per weekly import that never arrived
 cost_per_keeper[]: group, minutes, keepers, minutes_per_keeper
-funnels: pop {captured, survived_lock, promoted, played, fully_played, *_rate},
+funnels: queue {captured, survived_lock, promoted, played, fully_played, *_rate},
          vault {captured, unprocessed, kept, excluded, edited_kept}
 ```
 
@@ -1189,7 +1189,7 @@ is rebuilt.
 ### `config.py`
 
 `Settings.anthropic_api_key: str = ""` (`ANTHROPIC_API_KEY`, in `_KEYS`).
-Optional; empty means the panel shows DRBR's computed sentences.
+Optional; empty means the panel shows dr-brainrot's computed sentences.
 
 ### `check_env.py`
 
@@ -1406,17 +1406,17 @@ def _automatic_state(conn, clk, kind, *, what, tz, never_action, stale_action)  
 * `needs_attention` Qbserve row: `_automatic_state` first (never read,
   failed, read over 36 h old); when that is `ok` and `qbserve_silence`
   holds, `STATE_STALE` with `QBSERVE_ACTION`.
-* `launchd/com.jacob.drbr.qbserve.plist`: `/bin/sh -c "/usr/bin/pgrep -xq
+* `launchd/com.jacob.dr-brainrot.qbserve.plist`: `/bin/sh -c "/usr/bin/pgrep -xq
   Qbserve || { /bin/date ...; /usr/bin/open -g -j -a Qbserve; }"`,
   `StartInterval` 600, `RunAtLoad` true, output to `logs/qbserve.log`. In
-  `./drbr`'s `AGENTS`, so `start`, `stop` and `status` include it. No
+  `./dr-brainrot`'s `AGENTS`, so `start`, `stop` and `status` include it. No
   repository code, no Qbserve data.
 
 ## §22 Post-build amendment — audiobooks from Audible (DR5.28)
 
 - Migration `0008_audiobooks.sql`, schema_version 8: rebuilds `imports`, `sources` and `measurements` with widened CHECKs (import `kind` + `audible`; source `kind` + `audiobook`; `provenance` + `audible_stats`), by the procedure of 0004/0005/0007. Columns, constraints, indexes and rows are unchanged. `schema.sql` stays the v1 baseline.
-- `drbr_types`: `KIND_AUDIOBOOK = "audiobook"` (key = ASIN, kept as given), `GROUP_AUDIOBOOKS = "audiobooks"` (in `REPORT_GROUPS`, not `KEEPER_GROUPS`; `report_group(KIND_AUDIOBOOK)`), `PROV_AUDIBLE_STATS = "audible_stats"` (in `PROVENANCES` after `browser_sync`; text "Audible's own listening stats"), `IMPORT_KINDS` + `"audible"`, `UNKNOWN_AUDIOBOOK_KEY = "unknown"`, `COVERED_ELSEWHERE` for `("iphone_app", "audible")`, `("web_domain", "audible.co.uk")`, `("web_domain", "audible.com")` and `("desktop_app", "com.audible.iphone")`. Audiobook measurements use `DEVICE_ACCOUNT`.
-- `config.Settings.audible_auth: Path | None` (`DRBR_AUDIBLE_AUTH`, default `data/audible_auth.json`; set but empty = None). The store file is `audible_auth.with_name("audible_store.json")`. `test_settings` keeps None.
+- `dr_brainrot_types`: `KIND_AUDIOBOOK = "audiobook"` (key = ASIN, kept as given), `GROUP_AUDIOBOOKS = "audiobooks"` (in `REPORT_GROUPS`, not `KEEPER_GROUPS`; `report_group(KIND_AUDIOBOOK)`), `PROV_AUDIBLE_STATS = "audible_stats"` (in `PROVENANCES` after `browser_sync`; text "Audible's own listening stats"), `IMPORT_KINDS` + `"audible"`, `UNKNOWN_AUDIOBOOK_KEY = "unknown"`, `COVERED_ELSEWHERE` for `("iphone_app", "audible")`, `("web_domain", "audible.co.uk")`, `("web_domain", "audible.com")` and `("desktop_app", "com.audible.iphone")`. Audiobook measurements use `DEVICE_ACCOUNT`.
+- `config.Settings.audible_auth: Path | None` (`DR_BRAINROT_AUDIBLE_AUTH`, default `data/audible_auth.json`; set but empty = None). The store file is `audible_auth.with_name("audible_store.json")`. `test_settings` keeps None.
 - `labels`:
   - `normalise_key("audiobook", asin)` → the ASIN, stripped, case kept;
   - `ensure_source(conn, clk, kind, raw_key, display_name=None, *, label_on_create=None)`: `label_on_create` (a source label) and `labelled_at` are written only when the call creates the row; an existing row is never touched, so the user's later label wins. Backward compatible;
@@ -1428,7 +1428,7 @@ def _automatic_state(conn, clk, kind, *, what, tz, never_action, stale_action)  
   PARSER_VERSION = "audible-1"; KIND = "audible"; LOOKBACK_DAYS = 8
   CHUNK_DAYS = 30; CHUNK_STEP = 28                # 30-day requests, started 28 days apart
   STANDING_LABEL = T.WORTHWHILE; READ_AT_KEY = "audible_read_at"
-  SIGN_IN_COMMAND = "cd ~/Projects/drbr && .venv/bin/python audible_login.py --again"
+  SIGN_IN_COMMAND = "cd ~/Projects/dr-brainrot && .venv/bin/python audible_login.py --again"
   BOOK_NOT_KNOWN = "Audible (book not known)"
   FAIL_SIGN_IN, FAIL_UNREACHABLE, FAIL_UNEXPECTED = "sign_in", "unreachable", "unexpected"
   class AudibleError(evidence.ParseError)          # a document or answer of the wrong shape

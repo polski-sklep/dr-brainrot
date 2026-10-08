@@ -1,4 +1,4 @@
-"""Shared DRBR vocabulary: enums, source grouping, and day/week semantics.
+"""Shared dr-brainrot vocabulary: enums, source grouping, and day/week semantics.
 
 Phase 1 contract module (CONTRACTS.md Part II). Owned by no Phase 2 agent;
 imported by all of them. Stdlib only. Changing anything here is a contract
@@ -20,7 +20,7 @@ WORTHWHILE = "worthwhile"
 #: queue item is content by definition (DECISIONS DR5.5).
 LABELS = (WASTEFUL, WORTHWHILE)
 
-#: A source label meaning "not content; out of scope" (DECISIONS DR5.5). DRBR
+#: A source label meaning "not content; out of scope" (DECISIONS DR5.5). dr-brainrot
 #: measures brain-rot content only. A source the user only goes to to get a task
 #: done (shopping, email, banking, a todo app) is a tool: its minutes are never
 #: wasteful or worthwhile, never charge the allowance, and are shown separately.
@@ -234,14 +234,14 @@ def queue_key_for_youtube(video_id: str) -> str:
 
 # --- days and weeks ---------------------------------------------------------
 #
-# Two kinds of time exist in DRBR and they must not be confused.
+# Two kinds of time exist in dr-brainrot and they must not be confused.
 #
 # 1. Instants (UTC ISO strings) — Spotify polls, captures, imports.
-# 2. Local calendar days (YYYY-MM-DD in POP_TZ) — every weekly/daily source:
+# 2. Local calendar days (YYYY-MM-DD in DR_BRAINROT_TZ) — every weekly/daily source:
 #    Screen Time weeks, Cold Turkey days, YouTube date groups.
 #
 # A *measurement week* is local Sunday..Saturday, because that is what Screen
-# Time and Cold Turkey report. It maps onto the POP *allowance week* that opens
+# Time and Cold Turkey report. It maps onto the queue's *allowance week* that opens
 # at 18:00 on that same Sunday (DECISIONS DR1.7).
 
 def local_date(instant: datetime | str, tz: str) -> date:
@@ -287,7 +287,7 @@ def measurement_week(d: date) -> MeasurementWeek:
 
 
 def allowance_week_start_for_day(d: date, tz: str) -> str:
-    """POP `weeks.week_start` (UTC ISO) that a local calendar day is charged to.
+    """The queue's `weeks.week_start` (UTC ISO) that a local calendar day is charged to.
 
     The allowance week opening at 18:00 on the Sunday of that day's
     measurement week. A day is never split across two allowance weeks.

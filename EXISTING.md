@@ -1,12 +1,12 @@
-# EXISTING.md — POP as it actually is, before DRBR
+# EXISTING.md — The podcast queue as it actually is, before dr-brainrot
 
 Phase 1 reconnaissance, 2026-09-16. Read from source, not from any brief.
-Where `drbr-build-brief.md` assumed something different, the code wins and the
+Where `dr-brainrot-build-brief.md` assumed something different, the code wins and the
 difference is listed in [Brief discrepancies](#brief-discrepancies).
 
 Source read in full: `db.py`, `schema.sql`, `bot.py`, `poll.py`, `triage.py`,
 `config.py`, `clock.py`, `conftest.py`, `check_env.py`, the launchd plists,
-`README.md`, POP's `CONTRACTS.md`/`DECISIONS.md` (headings plus the sections
+`README.md`, the queue's `CONTRACTS.md`/`DECISIONS.md` (headings plus the sections
 cited below), and `spotify.py` (surface and auth). The related capture bot at
 `/Users/Jacob/Projects/obsidian-ingest` was read too (`bot.py`,
 `ingest_url.py`, `vault_write.py`, `processor.py`).
@@ -18,24 +18,24 @@ cited below), and `spotify.py` (surface and auth). The related capture bot at
 | Aspect | Reality |
 |---|---|
 | Host | **The user's Mac**, not a VPS. The README documents a VPS cron variant, but nothing runs on one. |
-| Python | 3.12.14 (Homebrew), venv at `.venv/`. POP's own deps: `python-telegram-bot` 22.8, `httpx`, `pytest`, `pytest-asyncio`. |
-| Location | Was `/Users/Jacob/Projects/POP`; moved into `/Users/Jacob/Projects/drbr` on 2026-09-16, flat at the repo root, git history kept (branch `drbr`). |
+| Python | 3.12.14 (Homebrew), venv at `.venv/`. The queue's own deps: `python-telegram-bot` 22.8, `httpx`, `pytest`, `pytest-asyncio`. |
+| Location | Was the original podcast-queue directory under `/Users/Jacob/Projects/`; moved into `/Users/Jacob/Projects/dr-brainrot` on 2026-09-16, flat at the repo root, git history kept (branch `dr-brainrot`). |
 | Processes | Three launchd user agents in `launchd/`, installed in `~/Library/LaunchAgents/`. |
-| `com.jacob.pop.bot` | `bot.py`, `KeepAlive`, long polling (no inbound port, no webhook). |
-| `com.jacob.pop.poll` | `poll.py`, daily 09:17 local. |
-| `com.jacob.pop.triage` | `triage.py`, Sunday 18:00 local. |
-| Ports | None. POP binds nothing. |
+| `com.jacob.dr-brainrot.bot` | `bot.py`, `KeepAlive`, long polling (no inbound port, no webhook). |
+| `com.jacob.dr-brainrot.poll` | `poll.py`, daily 09:17 local. |
+| `com.jacob.dr-brainrot.triage` | `triage.py`, Sunday 18:00 local. |
+| Ports | None. The queue binds nothing. |
 | Logs | `logs/{bot,poll,triage}.log` (gitignored). httpx logging raised to WARNING so the bot token never reaches a log. |
-| Env loading | `config.load()` parses `.env` (stdlib, no dotenv), then overlays allow-listed `os.environ` keys (`_KEYS`), then explicit overrides. `TZ` is deliberately ignored; POP reads `POP_TZ` (currently `Europe/Warsaw`). Relative paths resolve against the repo root. |
+| Env loading | `config.load()` parses `.env` (stdlib, no dotenv), then overlays allow-listed `os.environ` keys (`_KEYS`), then explicit overrides. `TZ` is deliberately ignored; the app reads `DR_BRAINROT_TZ` (currently `Europe/Warsaw`). Relative paths resolve against the repo root. |
 | Test guards | `conftest.py` blocks DNS, socket connects and both httpx transports, and raises if any test reads the real `.env`. |
 
 ## Database
 
-**SQLite**, WAL, foreign keys ON per connection. File `data/pop.db`
+**SQLite**, WAL, foreign keys ON per connection. File `data/dr-brainrot.db`
 (gitignored). Timestamps are ISO-8601 UTC strings with `+00:00`, so string
 order is chronological order.
 
-**Migration mechanism before DRBR:** `db.init_db()` runs `schema.sql`
+**Migration mechanism before dr-brainrot:** `db.init_db()` runs `schema.sql`
 (idempotent `CREATE ... IF NOT EXISTS`) on every process start, then
 `db.migrate()`, which was a no-op at `meta.schema_version = '1'`. There was no
 migrations directory.
@@ -107,7 +107,7 @@ lost) rather than reading as zero. `poll` keys results by id, never by index.
 - **Capture:** link → `spotify.get_episode` → pending capture parked in `context.user_data` (no DB write) → why-note reply → `parse_deadline` strips a trailing "by/before <date>" → `db.upsert_episode` + `db.capture` → zero-delta baseline `record_listening` if already partly heard.
 - **Callbacks:** one `CallbackQueryHandler(on_callback)` for everything; data `action:item_id` with actions `promote|drop|holds_yes|holds_no`; anything else is answered "Unrecognised button."
 - **Persistence boundary:** `db` module only; `conn`, `clk`, `settings`, `spotify` live in `app.bot_data`. Tests inject fakes there.
-- **Where DRBR hooks belong:** new capture types (YouTube link, label override) in `_handle_link`/`_handle_note`; new commands and photo/document handlers as separate handlers registered in `build_app`; inline labelling as its own callback namespace, which requires narrowing `on_callback`'s catch-all.
+- **Where dr-brainrot hooks belong:** new capture types (YouTube link, label override) in `_handle_link`/`_handle_note`; new commands and photo/document handlers as separate handlers registered in `build_app`; inline labelling as its own callback namespace, which requires narrowing `on_callback`'s catch-all.
 - **Errors:** `on_error` logs a token-scrubbed traceback and tells the authorised user a fixed failure string.
 
 ## Spotify (`spotify.py`)
@@ -141,20 +141,20 @@ lost) rather than reading as zero. `poll` keys results by id, never by index.
 
 ## Brief discrepancies
 
-| # | Brief assumed | Reality | Consequence for DRBR |
+| # | Brief assumed | Reality | Consequence for dr-brainrot |
 |---|---|---|---|
 | 1 | Backend on a VPS, reached over Tailscale | Everything runs on the Mac under launchd | Vault scan and extension ingest run locally; no sync agent (DR0.3). Dashboard on 127.0.0.1 is reachable on the Mac itself. |
-| 2 | One existing Telegram bot that also writes Obsidian notes | Two bots: POP (podcast queue) and obsidian-ingest (vault writer) | Capture IDs are added to obsidian-ingest. The queue, screenshots, exports and labels go through the POP bot. Neither bot is replaced. |
+| 2 | One existing Telegram bot that also writes Obsidian notes | Two bots: the podcast queue's and obsidian-ingest (vault writer) | Capture IDs are added to obsidian-ingest. The queue, screenshots, exports and labels go through the queue's bot. Neither bot is replaced. |
 | 3 | Vault may need syncing to the server | Local git repo at `<vault path>` (obsidian-ingest's own default) | Scanned in place. |
-| 4 | Ungated/impulse consumption is measured for every source | POP polls only **captured** episodes; podcast listening that never touched the queue is invisible | Reported as a named blind spot for podcasts; not silently absorbed. |
-| 5 | "Existing lock and allocation ceiling" is a simple minute cap | Cap is on *promotion* (remaining minutes); *debt* comes from *listened* minutes, clamped at one allowance | DRBR keeps both mechanisms and makes each label-aware. |
-| 6 | Weekly timing is generic | Week = Sunday 18:00 `Europe/Warsaw`, DST-correct; POP docs still mention Lisbon in places | DRBR maps its Sunday–Saturday data weeks onto this boundary (DR1.7). |
-| 7 | POP stores a podcast show identity | Only the show **name** is stored | Podcast sources are keyed by normalised show name. |
+| 4 | Ungated/impulse consumption is measured for every source | The queue polls only **captured** episodes; podcast listening that never touched the queue is invisible | Reported as a named blind spot for podcasts; not silently absorbed. |
+| 5 | "Existing lock and allocation ceiling" is a simple minute cap | Cap is on *promotion* (remaining minutes); *debt* comes from *listened* minutes, clamped at one allowance | dr-brainrot keeps both mechanisms and makes each label-aware. |
+| 6 | Weekly timing is generic | Week = Sunday 18:00 `Europe/Warsaw`, DST-correct; the original docs still mention Lisbon in places | dr-brainrot maps its Sunday–Saturday data weeks onto this boundary (DR1.7). |
+| 7 | The queue stores a podcast show identity | Only the show **name** is stored | Podcast sources are keyed by normalised show name. |
 | 8 | A migration mechanism exists | Hook only (no-op), no migrations dir | Added `migrations/NNNN_*.sql`, transactional per step. |
-| 9 | Repo layout `drbr/pop/` | POP modules import each other flat and resolve `.env`/data from their own directory | POP kept flat at the repo root (DR0.2). |
+| 9 | Repo layout `dr-brainrot/pop/` | The queue's modules import each other flat and resolve `.env`/data from their own directory | The queue kept flat at the repo root (DR0.2). |
 | 10 | Allowance 180 min | User set 360 min pooled | `WEEKLY_ALLOWANCE_MIN=360`. |
 | 11 | YouTube progress read from the rendered DOM overlay | The saved page carries the same value as `thumbnailOverlayProgressBarViewModel.startPercent` inside `ytInitialData`; later pages arrive as `/youtubei/v1/browse` continuation JSON | Parser reads the page data, not pixels and not the rendered DOM (DR1.12). |
 | 12 | Cold Turkey export gives per-site usage | The real export lists only the chart's top domains (5 here), minutes as floats per UTC-midnight day | Unlisted domains are a stated blind spot. |
 | 13 | One Screen Time screenshot | A scrolled sequence (10 images): Most Used (app minutes), Pickups, Notifications, and only the top 3 categories | Parser takes a batch; per-category data limited to what's shown. |
-| 14 | POP's catch-all callback handler is an extension point | It answers every callback, so a second namespace needed narrowing | DRBR reserves the `d:` prefix. |
+| 14 | The queue's catch-all callback handler is an extension point | It answers every callback, so a second namespace needed narrowing | dr-brainrot reserves the `d:` prefix. |
 | 15 | `played` is a generic completion signal | It is Spotify's `fully_played` flag; YouTube has no equivalent | YouTube queue items never auto-transition to `played` (DR1.14). |

@@ -9,7 +9,7 @@
 2. **`OutboxResult` cannot say "outbox file missing".** A missing file returns
    `OutboxResult(0, [])`, identical to "no new captures". Proposal: add
    `missing: bool = False` so `jobs.py daily` can warn when
-   `DRBR_CAPTURE_OUTBOX` points at nothing for days.
+   `DR_BRAINROT_CAPTURE_OUTBOX` points at nothing for days.
 3. **Callback prefix in the Phase 1 stubs.** `handlers_labels.py`'s stub
    docstring said `d:label:`; §8 and the build prompt say `d:lbl:`. Implemented
    `d:lbl:` (contract wins). The `handlers_imports.py` stub similarly says
@@ -48,7 +48,7 @@
   over all copies. One warning per duplicated id.
 - **Inbox match** is path-prefix on whole segments (`01-Inbox` matches
   `01-Inbox/Read/x.md`, not `01-Inbox-old/x.md`); a trailing slash in
-  `DRBR_VAULT_INBOX` is ignored. A missing inbox folder is a warning (partial).
+  `DR_BRAINROT_VAULT_INBOX` is ignored. A missing inbox folder is a warning (partial).
 - **Non-UTF-8 note:** decoded with replacement characters plus a warning;
   unreadable files are warnings. The scan never aborts on one bad file.
 - **Import row:** kind `vault_scan`, `raw_path` NULL, periods NULL (so the
@@ -76,7 +76,7 @@
   rather than raising; pinned by a test.
 - `sources_needing_label` evidence = any `measurements` row, any
   `vault_captures.source_id`, or a `listening` row for an episode whose
-  normalised show (Spotify) / `source_key` (YouTube) matches. POP's zero-delta
+  normalised show (Spotify) / `source_key` (YouTube) matches. The queue's zero-delta
   baseline listening row written at capture counts, so a captured podcast show
   becomes promptable. Episodes with no listening row do not count.
 - Cooldown: excluded iff `prompted_at > now − 7 days` (exactly 7 days → asked
@@ -92,7 +92,7 @@
   i.e. at most one daily-job batch per local day; row written only when at
   least one prompt went out.
 - Each prompt: display name, kind, "seen in" (distinct measurement provenances
-  as source names, vault capture count, "your POP queue"), and a reminder that
+  as source names, vault capture count, "your podcast queue"), and a reminder that
   unlabelled counts as wasteful. Buttons `Wasteful` / `Worthwhile`. Sources are
   marked prompted one at a time after each send.
 - `/labels` collects messages via a sync collector, then awaits
@@ -111,15 +111,15 @@
   generates `uuid4().hex`, appends `drbr_capture_id` as the **last**
   frontmatter key, renders the content, appends the outbox line (fsync), and
   only then writes the note. `body_sha256` is computed from the rendered
-  content, so it matches what DRBR will hash.
+  content, so it matches what dr-brainrot will hash.
 - `commit_plan(plan, input_type=None)` returns `WROTE: <path>` plus, on log
-  failure, a second line `DRBR_LOG_FAILED: <reason>`. `ingest` passes its
+  failure, a second line `DR_BRAINROT_LOG_FAILED: <reason>`. `ingest` passes its
   `input_type`. `bot.py` reads the first line for the filename and appends a
   warning to the reply if the second line is present. Proposals
   (`action != write`) get no id and no line.
 - **capture_type mapping:**
 
-  | classified input | note `format` | `capture_type` | DRBR keeper group |
+  | classified input | note `format` | `capture_type` | dr-brainrot keeper group |
   |---|---|---|---|
   | tweet (short) | x-post | `x-post` | x |
   | tweet (long-form/article) | x-article | `x-article` | x |
@@ -132,7 +132,7 @@
 - Outbox line: `captured_at` is UTC to the second (`+00:00`); `url`/`author`
   empty strings become `null`; `title` is the plan title before filename
   sanitising; `rel_path` is POSIX, relative to `VAULT_PATH`.
-- `DRBR_CAPTURE_OUTBOX` is read from `os.environ` at call time (`~` expanded),
+- `DR_BRAINROT_CAPTURE_OUTBOX` is read from `os.environ` at call time (`~` expanded),
   so the `.env` loaded by `bot.py`/`processor.py` applies. The outbox's parent
   directory is not created: a wrong path fails loudly instead of silently
   logging somewhere nobody reads.
@@ -142,8 +142,8 @@
   used). Running `python vault_write.py` still writes demo notes into the real
   vault, and now also appends outbox lines if the env var is set.
 - Tests: `tests/test_capture_id.py` + `tests/conftest.py` (autouse: VAULT_PATH
-  → tmp, `DRBR_CAPTURE_OUTBOX` unset). Stdlib only. The venv there has no
-  pytest; they run with `/Users/Jacob/Projects/drbr/.venv/bin/python -m pytest tests`.
+  → tmp, `DR_BRAINROT_CAPTURE_OUTBOX` unset). Stdlib only. The venv there has no
+  pytest; they run with `/Users/Jacob/Projects/dr-brainrot/.venv/bin/python -m pytest tests`.
   The reply-formatting change in `bot.py` is untested (importing it needs
   dotenv/telegram and a token).
 - Added `.env.example` (placeholders only; there was none).
@@ -166,16 +166,16 @@
 
 ## Integration to-dos
 
-1. Merge the drbr worktree branch (commit listed in the final report).
+1. Merge the dr-brainrot worktree branch (commit listed in the final report).
 2. In `/Users/Jacob/Projects/obsidian-ingest` (the live checkout): merge branch
    `drbr-capture-id`, add to its real `.env`:
-   `DRBR_CAPTURE_OUTBOX=/Users/Jacob/Projects/drbr/data/vault_captures.jsonl`,
-   make sure `/Users/Jacob/Projects/drbr/data/` exists, then restart
+   `DR_BRAINROT_CAPTURE_OUTBOX=/Users/Jacob/Projects/dr-brainrot/data/vault_captures.jsonl`,
+   make sure `/Users/Jacob/Projects/dr-brainrot/data/` exists, then restart
    `com.jacob.obsidian-ingest`. Send one test capture and confirm a line lands
    in the outbox and the note carries `drbr_capture_id`.
 3. Remove the worktree afterwards:
    `git -C /Users/Jacob/Projects/obsidian-ingest worktree remove /Users/Jacob/Projects/obsidian-ingest-drbr`.
-4. Set `DRBR_VAULT_PATH=<absolute vault path>` in drbr's `.env`
+4. Set `DR_BRAINROT_VAULT_PATH=<absolute vault path>` in dr-brainrot's `.env`
    (default `vault_path` is None, so `scan` fails loudly until it is set).
 5. `jobs.py daily`: `vault.read_outbox` then `vault.scan` (in that order, or
    fresh captures show as `unlogged_ids`), then `handlers_labels.send_label_batch`.

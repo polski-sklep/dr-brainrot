@@ -18,16 +18,16 @@
 
   To quit Qbserve on purpose, stop this agent first, or it is reopened within
   10 minutes:
-            launchctl bootout gui/$(id -u)/com.jacob.drbr.qbserve
+            launchctl bootout gui/$(id -u)/com.jacob.dr-brainrot.qbserve
 
-  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.drbr.qbserve.plist
-  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.drbr.qbserve
-  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.drbr.qbserve
+  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.dr-brainrot.qbserve.plist
+  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.dr-brainrot.qbserve
+  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.dr-brainrot.qbserve
 -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.jacob.drbr.qbserve</string>
+    <string>com.jacob.dr-brainrot.qbserve</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -43,8 +43,8 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/qbserve.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/qbserve.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/qbserve.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/qbserve.log</string>
 </dict>
 </plist>

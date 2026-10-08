@@ -43,7 +43,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import timedelta
 
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 import report
@@ -51,7 +51,7 @@ import triage
 from clock import Clock
 from config import Settings
 
-log = logging.getLogger("drbr.checklist")
+log = logging.getLogger("dr-brainrot.checklist")
 
 CHECKLIST_KEY = "checklist_week"
 NUDGE_KEY = "checklist_nudge_week"
@@ -106,7 +106,7 @@ LAST_REMINDER = "That's the only reminder. The dashboard keeps showing what's mi
 #: to send: audiobooks are optional and read themselves. Said only when Audible
 #: refused the sign-in, because then nothing but him can fix it.
 AUDIBLE_SIGNIN_LINE = ("Audiobooks aren't being read: the Audible sign-in needs redoing. When you have a "
-                       "minute, in Terminal: cd ~/Projects/drbr && .venv/bin/python audible_login.py --again")
+                       "minute, in Terminal: cd ~/Projects/dr-brainrot && .venv/bin/python audible_login.py --again")
 
 #: How each evidence step is named when the labels line refers back to it.
 _BRINGS = {"screentime": ("the screenshots", "add", "bring"),

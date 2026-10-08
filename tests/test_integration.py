@@ -391,7 +391,7 @@ def test_last_weeks_overage_never_shrinks_the_gate(conn, settings, spotify):
     clk = clock.FrozenClock(TRIAGE_1)
     item = _capture(conn, clk, settings, A, "why")
     db.current_week(conn, clk, settings)
-    # DRBR: overage is driven by pooled wasteful minutes computed from evidence,
+    # dr-brainrot: overage is driven by pooled wasteful minutes computed from evidence,
     # so the overage is real listening on another (unlabelled) episode rather
     # than a hand-set `listened_min`.
     db.upsert_episode(conn, B.spotify_id, B.title, B.show, B.description,
@@ -587,7 +587,7 @@ def test_a_part_heard_episode_does_not_arrive_with_phantom_listening_time(
 
 
 # ==========================================================================
-# DRBR — one pooled, label-aware week across sources, end to end
+# dr-brainrot — one pooled, label-aware week across sources, end to end
 #
 # Bot capture (Spotify and YouTube, with an override) -> triage posts labels
 # -> promotion prices by label -> poll listens -> YouTube history arrives ->
@@ -598,7 +598,7 @@ def test_a_part_heard_episode_does_not_arrive_with_phantom_listening_time(
 import asyncio  # noqa: E402
 
 import bot as bot_module  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import evidence  # noqa: E402
 import labels  # noqa: E402
 import report  # noqa: E402
@@ -658,9 +658,9 @@ def _measure(conn, clk, settings, *, kind, key, day, end=None, minutes, item_key
     evidence.finish_import(conn, clk, settings, rec, period_start=day, period_end=end or day)
 
 
-def test_drbr_pooled_label_aware_week_end_to_end(tmp_path):
+def test_dr_brainrot_pooled_label_aware_week_end_to_end(tmp_path):
     settings = config.test_settings(tz="Europe/Warsaw", raw_dir=tmp_path / "raw",
-                                    db_path=tmp_path / "drbr.db")
+                                    db_path=tmp_path / "dr-brainrot.db")
     conn = db.connect(settings)
     db.init_db(conn)
     db.migrate(conn)
@@ -732,6 +732,6 @@ def test_drbr_pooled_label_aware_week_end_to_end(tmp_path):
     assert (gated[T.GROUP_YOUTUBE].gated_min, gated[T.GROUP_YOUTUBE].ungated_min) == (25, 30)
     assert gated[T.GROUP_IPHONE].share_ungated == 1.0
 
-    stats = report.funnels(conn, clk, settings).pop
+    stats = report.funnels(conn, clk, settings).queue
     assert (stats.promoted, stats.played) == (2, 2)                         # the talk: measured watching
     conn.close()

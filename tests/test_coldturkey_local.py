@@ -20,7 +20,7 @@ import evidence
 import jobs
 import labels
 import report
-import drbr_types as T
+import dr_brainrot_types as T
 from sources import coldturkey, coldturkey_local as ctl
 
 SECRET = "zz-private-search-term"
@@ -165,7 +165,7 @@ def test_sync_imports_hostname_minutes_and_nothing_personal(conn, clk, settings)
     meta = json.loads(imp["meta"])
     assert meta["origin"] == "local_db" and meta["filename"] == ctl.FILENAME
 
-    # Privacy: no URL fragment anywhere DRBR stores things.
+    # Privacy: no URL fragment anywhere dr-brainrot stores things.
     raw = evidence.raw_file(settings, imp["raw_path"]).read_text()
     assert SECRET not in raw and "?" not in raw and "/search" not in raw and "/users/" not in raw
     dump = "\n".join(conn.iterdump())

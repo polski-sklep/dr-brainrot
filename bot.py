@@ -18,7 +18,7 @@ module imports cleanly when they are absent or mid-write, and so that tests
 can inject fakes through `bot_data` without touching the real modules.
 `spotify` is injected as an object and never constructed here.
 
-DRBR (CONTRACTS.md Part II §7, Agent D) adds, without loosening either rule:
+dr-brainrot (CONTRACTS.md Part II §7, Agent D) adds, without loosening either rule:
 
 3. **YouTube links capture into the same queue.** The video is looked up
    through ``bot_data["youtube"]`` (anything with ``video_info(video_id)``),
@@ -52,7 +52,7 @@ from telegram.ext import (
 import clock
 from config import Settings
 
-log = logging.getLogger("pop.bot")
+log = logging.getLogger("dr-brainrot.bot")
 
 #: Key under which the in-flight capture is parked in ``context.user_data``.
 PENDING_KEY = "pending_capture"
@@ -109,7 +109,7 @@ def _looks_like_spotify_ref(text: str) -> bool:
 
 
 # --------------------------------------------------------------------------
-# YouTube links (DRBR)
+# YouTube links (dr-brainrot)
 # --------------------------------------------------------------------------
 
 #: A YouTube video id: exactly 11 url-safe base64 characters, not a prefix of
@@ -424,7 +424,7 @@ async def _handle_youtube_link(update: Update, context: ContextTypes.DEFAULT_TYP
     Every failure replies and writes nothing, and none of them disturbs a
     capture already pending — the same guarantees the Spotify path gives.
     """
-    from drbr_types import VideoLookupError, queue_key_for_youtube  # noqa: PLC0415
+    from dr_brainrot_types import VideoLookupError, queue_key_for_youtube  # noqa: PLC0415
 
     message = update.effective_message
     video_id = parse_youtube_ref(text)
@@ -480,7 +480,7 @@ async def _handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
     platform = pending.get("platform", "spotify")
     labels = _labels_module()
 
-    # The override token first, then POP's trailing deadline, so either order
+    # The override token first, then the queue's trailing deadline, so either order
     # in the message works: "for the interview #worth by friday" and
     # "for the interview by friday #worth" both parse to the same capture.
     tokenless, override = labels.parse_override_token(text)
@@ -529,7 +529,7 @@ async def _handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
     # The override is written only once the item exists, so a rejected
     # capture never leaves a dangling label. Explicit statement only.
     if override is not None:
-        from drbr_types import item_ref  # noqa: PLC0415
+        from dr_brainrot_types import item_ref  # noqa: PLC0415
 
         ref = pending["spotify_id"] if platform == "youtube" else item_ref("spotify", pending["spotify_id"])
         labels.set_item_override(conn, clk, ref, override)
@@ -636,7 +636,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 # --------------------------------------------------------------------------
 
 START_TEXT = (
-    "POP holds a podcast episode for 48h before it is eligible, then you triage "
+    "The queue holds a podcast episode for 48h before it is eligible, then you triage "
     "it against a weekly allowance of wasteful content minutes.\n\n"
     "Send me a Spotify episode or YouTube video link and I will ask you why. "
     "Add #worthwhile or #wasteful to your reason to label that one item."
@@ -756,7 +756,7 @@ def build_app(settings: Settings, conn, clk, spotify, *, youtube=None) -> Applic
     """Assemble the Application. Constructs no client and opens no socket.
 
     `spotify` is any object with the `SpotifyClient` surface; the bot never
-    builds one itself, so tests inject `FakeSpotify`. `youtube` (DRBR) is any
+    builds one itself, so tests inject `FakeSpotify`. `youtube` (dr-brainrot) is any
     object with `video_info(video_id)`; without one, YouTube links are answered
     "not set up" and nothing is captured.
     """
@@ -773,30 +773,30 @@ def build_app(settings: Settings, conn, clk, spotify, *, youtube=None) -> Applic
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("queue", cmd_queue))
     app.add_handler(CommandHandler("stats", cmd_stats))
-    # POP's buttons own every callback EXCEPT the DRBR namespace. Anything not
+    # The queue's buttons own every callback EXCEPT the dr-brainrot namespace. Anything not
     # starting "d:" still reaches on_callback, so malformed data is answered
     # "Unrecognised button." exactly as before.
-    app.add_handler(CallbackQueryHandler(on_callback, pattern=_not_drbr_callback))
+    app.add_handler(CallbackQueryHandler(on_callback, pattern=_not_dr_brainrot_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
-    _install_drbr_extensions(app)
+    _install_dr_brainrot_extensions(app)
     app.add_error_handler(on_error)
     return app
 
 
-#: Callback data prefix reserved for DRBR extensions (CONTRACTS.md Part II §8).
-DRBR_CALLBACK_PREFIX = "d:"
+#: Callback data prefix reserved for dr-brainrot extensions (CONTRACTS.md Part II §8).
+DR_BRAINROT_CALLBACK_PREFIX = "d:"
 
 
-def _not_drbr_callback(data: object) -> bool:
-    return not str(data or "").startswith(DRBR_CALLBACK_PREFIX)
+def _not_dr_brainrot_callback(data: object) -> bool:
+    return not str(data or "").startswith(DR_BRAINROT_CALLBACK_PREFIX)
 
 
-def _install_drbr_extensions(app: Application) -> None:
-    """DRBR handler modules register their own handlers here.
+def _install_dr_brainrot_extensions(app: Application) -> None:
+    """dr-brainrot handler modules register their own handlers here.
 
     Each module owns its handlers, commands and callback namespace
     (``d:<module>:...``); bot.py only calls ``register``. Neither module may
-    add a plain TEXT handler: free text belongs to the POP capture flow.
+    add a plain TEXT handler: free text belongs to the queue's capture flow.
     """
     import handlers_imports  # noqa: PLC0415
     import handlers_labels  # noqa: PLC0415

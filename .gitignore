@@ -17,7 +17,7 @@ venv/
 # Runtime logs
 logs/
 
-# DRBR: real personal inputs (screenshots, exports, history page) — never commit
+# dr-brainrot: real personal inputs (screenshots, exports, history page) — never commit
 inputs/
 
 # agent worktrees

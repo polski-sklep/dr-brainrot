@@ -1,4 +1,4 @@
-"""Phase 1 shared modules: drbr_types day/week semantics, evidence, label resolver core."""
+"""Phase 1 shared modules: dr_brainrot_types day/week semantics, evidence, label resolver core."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ import pytest
 import clock
 import config
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 

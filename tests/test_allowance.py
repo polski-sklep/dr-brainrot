@@ -1,4 +1,4 @@
-"""Tests for allowance.py and the label-aware gate — DRBR Phase 2, Agent D.
+"""Tests for allowance.py and the label-aware gate — dr-brainrot Phase 2, Agent D.
 
 No network, frozen clocks, a fresh migrated database per test. Measurements
 are written through `evidence` exactly as a source module would, and labels
@@ -26,7 +26,7 @@ import allowance  # noqa: E402
 import clock  # noqa: E402
 import config  # noqa: E402
 import db  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import evidence  # noqa: E402
 import labels  # noqa: E402
 import poll  # noqa: E402
@@ -384,7 +384,7 @@ def test_worthwhile_consumption_is_counted_but_never_charged(conn, clk, settings
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.overage_min == 0
     assert opened.debt_min == 0
-    # POP's listened_min keeps its meaning: raw Spotify minutes, all labels.
+    # The queue's listened_min keeps its meaning: raw Spotify minutes, all labels.
     assert week_row(conn, WEEK).listened_min == 300
 
 

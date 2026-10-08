@@ -1,6 +1,6 @@
 -- The "tool" source label (DECISIONS DR5.5), schema_version 4 -> 5.
 --
--- DRBR measures brain-rot content only. A source the user only goes to to get
+-- dr-brainrot measures brain-rot content only. A source the user only goes to to get
 -- a task done (shopping, email, banking, a todo app) is not content, so it is
 -- labelled `tool`: out of scope, never counted as wasteful or worthwhile, and
 -- shown separately so the label cannot become a hiding place.
@@ -39,7 +39,7 @@ INSERT INTO sources_new (id, kind, source_key, display_name, label, labelled_at,
 DROP TABLE sources;
 ALTER TABLE sources_new RENAME TO sources;
 
--- The one automatic label (user-approved, DR5.5): DRBR's own dashboard host is
+-- The one automatic label (user-approved, DR5.5): dr-brainrot's own dashboard host is
 -- the measuring instrument, not content. Cold Turkey records the time spent
 -- reading the dashboard in a browser as the web domain 127.0.0.1 (or
 -- localhost). Nothing else is labelled here; the user labels.

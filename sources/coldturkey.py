@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 from clock import Clock

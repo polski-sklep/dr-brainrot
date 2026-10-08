@@ -2,7 +2,7 @@
 
     .venv/bin/python tests/fixtures/youtube/sanitise_real_page.py
 
-Reads `/Users/Jacob/Projects/drbr/inputs/Watch history - YouTube.html` (never
+Reads `/Users/Jacob/Projects/dr-brainrot/inputs/Watch history - YouTube.html` (never
 committed) and writes `history_initial.json` and `history_continuation.json`
 next to this file. Personal data policy: CONTRACTS.md Part II §12.
 
@@ -43,7 +43,7 @@ sys.path.insert(0, str(ROOT))
 
 from sources import youtube  # noqa: E402
 
-REAL = pathlib.Path("/Users/Jacob/Projects/drbr/inputs/Watch history - YouTube.html")
+REAL = pathlib.Path("/Users/Jacob/Projects/dr-brainrot/inputs/Watch history - YouTube.html")
 
 # (real section index, [("shelf", n_shorts_kept) | ("item", item_index, percent_or_None)])
 INITIAL = [

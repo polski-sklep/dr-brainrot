@@ -20,7 +20,7 @@ Three things in this module are load-bearing and easy to get silently wrong.
    actually passes (DECISIONS.md D1.10). Expiring an item the day before the
    event it was captured for would defeat the only reason the field exists.
 
-DRBR (CONTRACTS.md Part II §7, Agent D): each post shows the item's resolved
+dr-brainrot (CONTRACTS.md Part II §7, Agent D): each post shows the item's resolved
 label, read fresh through `allowance.item_label`, and says "costs 0 min —
 worthwhile" when it is; the week header adds pooled wasteful minutes spent
 across sources. The order of operations in `run_triage` is unchanged, and the
@@ -49,12 +49,12 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import allowance
 import clock
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 from clock import Clock
 from config import Settings
 from db import QueueItem, Week
 
-log = logging.getLogger("pop.triage")
+log = logging.getLogger("dr-brainrot.triage")
 
 #: Callback payloads are ``f"{action}:{item_id}"``, matching bot.ACTIONS.
 #: These strings are the contract between this module and bot.on_callback;
@@ -248,14 +248,14 @@ def render_item(item: QueueItem, week: Week, warning: bool, *,
     episode title containing an underscore or an asterisk must not blow up a
     Markdown parse or, worse, silently swallow part of the title.
 
-    `label` (DRBR) is the `labels.ResolvedLabel` the caller read through
+    `label` (dr-brainrot) is the `labels.ResolvedLabel` the caller read through
     `allowance.item_label`. It is passed in rather than looked up because this
     function takes no connection (CONTRACTS.md §5); `None` renders exactly the
-    POP post.
+    original queue post.
 
     `tz` (Phase 4) is the display zone for the deadline. Without it the
     deadline rendered in `clock.fmt_local`'s built-in default (Lisbon), an
-    hour off for a user whose `POP_TZ` is Warsaw — "18:00" read as "17:00".
+    hour off for a user whose `DR_BRAINROT_TZ` is Warsaw — "18:00" read as "17:00".
     Callers holding `Settings` pass `settings.tz`.
     """
     lines = [
@@ -307,9 +307,9 @@ def render_week_header(week: Week, *, spent_wasteful_min: float | None = None,
                        tz: str | None = None) -> str:
     """Allowance, remaining, and last week's recorded overage. Posted after the items.
 
-    DRBR adds pooled wasteful minutes spent across sources — this week so far,
+    dr-brainrot adds pooled wasteful minutes spent across sources — this week so far,
     and the week just closed. Going over is recorded and shown, never carried
-    (DR5.2). "Remaining" keeps POP's meaning: minutes still promotable.
+    (DR5.2). "Remaining" keeps the queue's meaning: minutes still promotable.
     """
     lines = [
         f"Week of {_fmt_local(week.week_start, tz)}",
@@ -532,7 +532,7 @@ def render_stats(conn, clk: Clock, settings: Settings) -> str:
     )
     recent = db.funnel_stats(conn, clk, settings, since=since)
 
-    lines = ["POP funnel", ""]
+    lines = ["Queue funnel", ""]
     lines += _funnel_block("All time", all_time)
     lines.append("")
     lines += _funnel_block(f"Last {STATS_WEEKS} weeks", recent)
@@ -547,7 +547,7 @@ def render_stats(conn, clk: Clock, settings: Settings) -> str:
         f"Still holds, yes: {_pct(all_time.still_holds_yes_rate)} "
         f"({all_time.still_holds_answered} answered)"
     )
-    # DRBR: the cross-source picture lives on the local dashboard, not here.
+    # dr-brainrot: the cross-source picture lives on the local dashboard, not here.
     lines.append(f"Cross-source report: dashboard at http://127.0.0.1:{settings.dashboard_port}")
     return "\n".join(lines)
 

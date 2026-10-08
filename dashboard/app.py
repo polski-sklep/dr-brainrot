@@ -1,4 +1,4 @@
-"""dashboard/app.py — the DRBR dashboard. Phase 3, integration.
+"""dashboard/app.py — the dr-brainrot dashboard. Phase 3, integration.
 
 Implements CONTRACTS.md Part II §10 and the brief's "Dashboard" section: Flask
 plus HTMX, server-rendered, bound to 127.0.0.1 only. Run it with
@@ -32,7 +32,7 @@ Why it is shaped like this.
    connection is opened lazily inside the request and closed on teardown.
    The ingest blueprint shares it and never closes it itself.
 
-6. **Content only (DR5.5).** DRBR measures brain-rot content. A source the
+6. **Content only (DR5.5).** dr-brainrot measures brain-rot content. A source the
    user labels `tool` (not content) is out of every wasteful/worthwhile figure
    `report` produces, and its minutes are printed on their own so the label
    cannot hide anything. The label manager offers it as a third button.
@@ -60,7 +60,7 @@ import allowance
 import clock
 import config
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import ingest_api
 import insights
 import jobs
@@ -73,7 +73,7 @@ from config import Settings
 from sources import screentime
 from sources.youtube import DataApiClient
 
-log = logging.getLogger("drbr.dashboard")
+log = logging.getLogger("dr-brainrot.dashboard")
 
 #: HTMX 2.x from jsdelivr, pinned. The SRI hash was computed from the file
 #: served by jsdelivr, checked against unpkg's copy, and against jsdelivr's
@@ -1477,13 +1477,13 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
     app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 
     def conn() -> sqlite3.Connection:
-        if "drbr_conn" not in g:
-            g.drbr_conn = get_conn()
-        return g.drbr_conn
+        if "dr_brainrot_conn" not in g:
+            g.dr_brainrot_conn = get_conn()
+        return g.dr_brainrot_conn
 
     @app.teardown_appcontext
     def _close_conn(_exc):
-        c = g.pop("drbr_conn", None)
+        c = g.pop("dr_brainrot_conn", None)
         if c is not None:
             c.close()
 
@@ -1668,7 +1668,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
 
     @app.post("/sync")
     def sync_now():
-        """Run every source DRBR can fetch by itself, now, instead of at 09:30."""
+        """Run every source dr-brainrot can fetch by itself, now, instead of at 09:30."""
         results = jobs.run_sync(conn(), clk, settings)
         failed = [r.name for r in results.values() if not r.ok]
         for r in results.values():
@@ -1682,7 +1682,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
 
         `force=True` because `write_summary` writes at most one row a week; this
         is the one way to ask for another. It never raises: a failure stores
-        itself and comes back as DRBR's own computed sentences, which is what
+        itself and comes back as dr-brainrot's own computed sentences, which is what
         the warn flash says.
         """
         result = insights.write_summary(conn(), clk, settings, force=True)
@@ -1749,7 +1749,7 @@ def main() -> None:  # production entry point; tests patch Flask.run
     finally:
         setup.close()
     if not settings.ingest_token:
-        log.warning("DRBR_INGEST_TOKEN is not set: the extension ingest API will refuse every request")
+        log.warning("DR_BRAINROT_INGEST_TOKEN is not set: the extension ingest API will refuse every request")
     app = create_app(settings, clock.RealClock(), lambda: db.connect(settings))
     app.run(host="127.0.0.1", port=settings.dashboard_port, threaded=True, debug=False, use_reloader=False)
 

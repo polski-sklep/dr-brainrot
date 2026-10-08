@@ -39,14 +39,14 @@ from datetime import date, datetime, time, timedelta, timezone
 from statistics import median
 from zoneinfo import ZoneInfo
 
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 from clock import Clock
 from config import Settings
 from sources.coldturkey_local import hostname
 
-#: Where Brave keeps it on macOS. Only ever used via DRBR_BRAVE_HISTORY_DB.
+#: Where Brave keeps it on macOS. Only ever used via DR_BRAINROT_BRAVE_HISTORY_DB.
 DEFAULT_DB = (pathlib.Path.home() / "Library" / "Application Support" / "BraveSoftware"
               / "Brave-Browser" / "Default" / "History")
 
@@ -93,7 +93,7 @@ def read_phone_visits(db_path: pathlib.Path, *, first_day: date, last_day: date,
     start = datetime.combine(first_day, time(0), tzinfo=zone)
     end = datetime.combine(last_day + timedelta(days=1), time(0), tzinfo=zone)
     out: list[tuple[date, str, datetime]] = []
-    with tempfile.TemporaryDirectory(prefix="drbr-history-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="dr-brainrot-history-") as tmp:
         copy = pathlib.Path(tmp) / "History"
         try:
             shutil.copy2(db_path, copy)

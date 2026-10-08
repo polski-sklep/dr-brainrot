@@ -37,13 +37,13 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 from clock import Clock
 from config import Settings
 from sources import coldturkey
 
-#: Where Cold Turkey Blocker keeps it on macOS. Only ever used via DRBR_COLDTURKEY_DB.
+#: Where Cold Turkey Blocker keeps it on macOS. Only ever used via DR_BRAINROT_COLDTURKEY_DB.
 DEFAULT_DB = pathlib.Path("/Library/Application Support/Cold Turkey/data-browser.db")
 LOOKBACK_DAYS = 8
 FILENAME = "cold-turkey-local-statistics.json"

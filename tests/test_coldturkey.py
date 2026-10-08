@@ -200,7 +200,7 @@ def test_reparse_writes_a_new_import_using_the_original_receive_time(conn, setti
     assert {r["import_id"] for r in rows(conn)} == {out.import_id}
 
 
-REAL = pathlib.Path("/Users/Jacob/Projects/drbr/inputs")
+REAL = pathlib.Path("/Users/Jacob/Projects/dr-brainrot/inputs")
 
 
 def test_real_exports_local_only():

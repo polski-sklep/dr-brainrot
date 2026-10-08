@@ -1,6 +1,6 @@
 """One-time Audible sign-in for the daily Audible read. Run it yourself, in Terminal:
 
-    cd ~/Projects/drbr && .venv/bin/python audible_login.py
+    cd ~/Projects/dr-brainrot && .venv/bin/python audible_login.py
 
 It prints an Amazon sign-in link. Open it in your browser and sign in there: your
 password and two-step code go to Amazon only, never to this program. When the

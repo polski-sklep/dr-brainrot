@@ -1,6 +1,6 @@
 """Optional local check: the parser against the real saved history page.
 
-Skips when `/Users/Jacob/Projects/drbr/inputs/` is absent (it is gitignored and
+Skips when `/Users/Jacob/Projects/dr-brainrot/inputs/` is absent (it is gitignored and
 personal). Asserts only counts and shapes; no assertion message or output
 includes a title, channel or video id (CONTRACTS §12).
 """
@@ -13,7 +13,7 @@ import pytest
 
 from sources import youtube
 
-REAL = pathlib.Path("/Users/Jacob/Projects/drbr/inputs/Watch history - YouTube.html")
+REAL = pathlib.Path("/Users/Jacob/Projects/dr-brainrot/inputs/Watch history - YouTube.html")
 # Saved on Wednesday 2026-09-16, Europe/Warsaw.
 CAPTURED_AT = "2026-09-16T10:00:00+00:00"
 

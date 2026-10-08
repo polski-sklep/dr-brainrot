@@ -1,4 +1,4 @@
-// DRBR — service worker. Orchestrates one weekly sync:
+// dr-brainrot — service worker. Orchestrates one weekly sync:
 //   GET cursor -> (re)load the history tab -> content scripts scroll and collect
 //   -> POST payload -> store the Outcome for the popup.
 //
@@ -50,7 +50,7 @@ function waitForTabComplete(getTabId, timeoutMs) {
 async function pingContentScript(tabId, attempts = 20) {
   for (let i = 0; i < attempts; i++) {
     try {
-      const r = await chrome.tabs.sendMessage(tabId, { type: "drbr-ping" });
+      const r = await chrome.tabs.sendMessage(tabId, { type: "dr-brainrot-ping" });
       if (r && r.ok) return true;
     } catch (_) { /* not injected yet */ }
     await new Promise((r) => setTimeout(r, 500));
@@ -65,18 +65,18 @@ async function startSync() {
     message: "Asking the backend for the cursor…", outcome: null, error: null, diagnostics: null } });
 
   const settings = await getSettings();
-  if (!settings.token) return fail(runId, "No DRBR token set. Paste DRBR_INGEST_TOKEN into the settings and save.");
+  if (!settings.token) return fail(runId, "No dr-brainrot token set. Paste DR_BRAINROT_INGEST_TOKEN into the settings and save.");
 
   let cursor;
   try {
     const resp = await fetch(`${settings.backendUrl}/api/youtube/cursor`, {
-      headers: { "X-DRBR-Token": settings.token },
+      headers: { "X-Dr-Brainrot-Token": settings.token },
     });
-    if (resp.status === 401) return fail(runId, "The backend rejected the token (401). Check DRBR_INGEST_TOKEN.");
+    if (resp.status === 401) return fail(runId, "The backend rejected the token (401). Check DR_BRAINROT_INGEST_TOKEN.");
     if (!resp.ok) return fail(runId, `The backend answered HTTP ${resp.status} for the cursor.`);
     cursor = await resp.json();
   } catch (err) {
-    return fail(runId, `The DRBR backend is unreachable at ${settings.backendUrl} (${err.message}). Is the dashboard running?`);
+    return fail(runId, `The dr-brainrot backend is unreachable at ${settings.backendUrl} (${err.message}). Is the dashboard running?`);
   }
 
   await updateRun(runId, { phase: "loading", message: "Loading the YouTube history page…", cursor });
@@ -100,7 +100,7 @@ async function startSync() {
   await updateRun(runId, { phase: "scrolling", tabId: tab.id,
     message: "Scrolling history back to the last sync… keep the tab visible." });
   try {
-    await chrome.tabs.sendMessage(tab.id, { type: "drbr-collect", runId, cursor: cursor.cursor,
+    await chrome.tabs.sendMessage(tab.id, { type: "dr-brainrot-collect", runId, cursor: cursor.cursor,
       cursorDate: cursor.cursor_date, pageCap: Number(settings.pageCap) || DEFAULTS.pageCap });
   } catch (err) {
     return fail(runId, `Could not start collection on the page (${err.message}).`);
@@ -121,11 +121,11 @@ async function postPayload(msg) {
   try {
     resp = await fetch(`${settings.backendUrl}/api/youtube/history`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-DRBR-Token": settings.token },
+      headers: { "Content-Type": "application/json", "X-Dr-Brainrot-Token": settings.token },
       body,
     });
   } catch (err) {
-    return fail(runId, `The DRBR backend is unreachable at ${settings.backendUrl} (${err.message}). Nothing was imported.`);
+    return fail(runId, `The dr-brainrot backend is unreachable at ${settings.backendUrl} (${err.message}). Nothing was imported.`);
   }
   if (resp.status === 401) return fail(runId, "The backend rejected the token (401). Nothing was imported.");
   if (resp.status === 413) return fail(runId, "The capture is too large for the backend (413). Lower the page cap and run again.");
@@ -147,7 +147,7 @@ async function postPayload(msg) {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== "object") return;
-  if (msg.type === "drbr-start" && !sender.tab) {
+  if (msg.type === "dr-brainrot-start" && !sender.tab) {
     startSync().catch(async (err) => {
       const { lastRun } = await chrome.storage.local.get("lastRun");
       if (lastRun) await fail(lastRun.runId, `Unexpected error: ${err && err.message}`);
@@ -155,7 +155,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return;
   }
-  if (msg.type === "drbr-collected" && sender.tab) {
+  if (msg.type === "dr-brainrot-collected" && sender.tab) {
     postPayload(msg).catch((err) => fail(msg.runId, `Unexpected error while posting: ${err && err.message}`));
     sendResponse({ ok: true });
   }

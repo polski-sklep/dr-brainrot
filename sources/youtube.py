@@ -40,12 +40,12 @@ from typing import Any, Iterable, Iterator
 import httpx
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 from clock import Clock
 from config import Settings
-from drbr_types import VideoInfo, VideoLookupError
+from dr_brainrot_types import VideoInfo, VideoLookupError
 
 __all__ = [
     "PARSER_VERSION",
@@ -80,7 +80,7 @@ CURSOR_DATE_KEY = "youtube_cursor_date"
 UNKNOWN_CHANNEL_KEY = T.UNKNOWN_YOUTUBE_CHANNEL_KEY
 UNKNOWN_CHANNEL_NAME = "Unknown channel (video unavailable in the Data API)"
 
-log = logging.getLogger("drbr.youtube")
+log = logging.getLogger("dr-brainrot.youtube")
 
 
 class YouTubeParseError(evidence.ParseError):
@@ -710,7 +710,7 @@ def _ingest_bytes(conn: sqlite3.Connection, clk: Clock, settings: Settings, data
             )
         facts = _collapse(fresh)
         if settings.go_live:
-            # History before DRBR went live is evidence, not diagnostic data:
+            # History before dr-brainrot went live is evidence, not diagnostic data:
             # the first sync alone reaches weeks back (DECISIONS DR2.2).
             before = [f for f in facts if f[0].watch_date < settings.go_live]
             facts = [f for f in facts if f[0].watch_date >= settings.go_live]

@@ -29,7 +29,7 @@ import checklist
 import clock
 import config
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import jobs
 import labels
@@ -46,7 +46,7 @@ CSS = pathlib.Path(dashboard_app.__file__).parent / "static" / "dashboard.css"
 @pytest.fixture
 def settings(tmp_path):
     return config.test_settings(tz=TZ, raw_dir=tmp_path / "raw", go_live="2026-09-13",
-                                weekly_allowance_min=360, db_path=tmp_path / "drbr.db")
+                                weekly_allowance_min=360, db_path=tmp_path / "dr-brainrot.db")
 
 
 @pytest.fixture
@@ -940,7 +940,8 @@ def test_new_words_are_plain_and_never_name_the_tool_itself(conn, signed_in):
         *(" ".join(r.limits) + r.measures + r.tool for r in report.provenance_map(conn, clk, signed_in)
           if r.group == T.GROUP_AUDIOBOOKS),
     ]
-    assert len(words) > 15 and not [w for w in words if "DRBR" in w]
+    # The sign-in command has to name the folder; the words around it may not name the tool.
+    assert len(words) > 15 and not [w for w in words if "dr-brainrot" in w.replace(audible.SIGN_IN_COMMAND, "")]
     assert audible.SIGN_IN_COMMAND in report.AUDIBLE_SIGNIN_ACTION
 
 
@@ -1180,8 +1181,8 @@ def test_a_book_relabelled_wasteful_counts_in_this_weeks_pace(conn, settings, si
 def test_the_nightly_refresh_names_the_audible_read_and_the_restart_includes_the_bot():
     root = pathlib.Path(__file__).resolve().parents[1]
     readme = (root / "README.md").read_text()
-    nightly = next(ln for ln in readme.splitlines() if ln.startswith("| `com.jacob.drbr.nightly`"))
+    nightly = next(ln for ln in readme.splitlines() if ln.startswith("| `com.jacob.dr-brainrot.nightly`"))
     assert "Audible" in nightly
-    assert "Audible" in (root / "launchd" / "com.jacob.drbr.nightly.plist").read_text()
-    for agent in ("com.jacob.drbr.dashboard", "com.jacob.pop.bot"):     # both always-on processes
+    assert "Audible" in (root / "launchd" / "com.jacob.dr-brainrot.nightly.plist").read_text()
+    for agent in ("com.jacob.dr-brainrot.dashboard", "com.jacob.dr-brainrot.bot"):     # both always-on processes
         assert f"launchctl kickstart -k gui/$(id -u)/{agent}" in readme

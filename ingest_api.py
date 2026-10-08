@@ -28,12 +28,12 @@ from clock import Clock
 from config import Settings
 from sources import youtube
 
-log = logging.getLogger("drbr.ingest_api")
+log = logging.getLogger("dr-brainrot.ingest_api")
 
 #: CONTRACTS §6.1. A week of history is typically one or two ~2 MB pages.
 MAX_BODY_BYTES = 25 * 1024 * 1024
 
-TOKEN_HEADER = "X-DRBR-Token"
+TOKEN_HEADER = "X-Dr-Brainrot-Token"
 
 
 def _authorised(settings: Settings) -> bool:
@@ -57,7 +57,7 @@ def make_blueprint(*, get_conn: Callable[[], sqlite3.Connection], clk: Clock, se
     POST; it is closed afterwards if it has `close()`, and it is only built
     once the request is authorised, so an unauthorised caller costs no quota.
     """
-    bp = Blueprint("drbr_ingest", __name__, url_prefix="/api/youtube")
+    bp = Blueprint("dr_brainrot_ingest", __name__, url_prefix="/api/youtube")
 
     @bp.get("/cursor")
     def cursor():

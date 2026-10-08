@@ -35,7 +35,7 @@ plumbing around them.
    ``resolved_at`` is stamped on entry to a terminal state, which by
    construction happens at most once.
 
-DRBR (CONTRACTS.md Part II §7, Agent D). Every invariant above holds
+dr-brainrot (CONTRACTS.md Part II §7, Agent D). Every invariant above holds
 unchanged. What changed:
 
 * The queue holds YouTube videos too (`episodes.platform = 'youtube'`, keyed
@@ -46,7 +46,7 @@ unchanged. What changed:
 * ``roll_over_week()`` records the closed week's overage from pooled
   **wasteful** minutes across sources and opens the next week with its full
   allowance: nothing carries over (``allowance.overage_for``, DR5.2). ``listened_min``
-  keeps its POP meaning: raw Spotify minutes.
+  keeps its original meaning: raw Spotify minutes.
 * ``funnel_stats()`` "played" for a YouTube item is measured watching after
   promotion, because YouTube has no ``fully_played`` flag (DR1.14).
 """
@@ -137,7 +137,7 @@ class QueueItem:
     still_holds: int | None
     promoted_at: str | None
     resolved_at: str | None
-    # DRBR. Defaults keep every POP constructor call valid.
+    # dr-brainrot. Defaults keep every pre-Part II constructor call valid.
     platform: str = "spotify"
     source_key: str | None = None
 
@@ -165,7 +165,7 @@ class Week:
     def effective_allowance_min(self) -> int:
         """The week's full allowance. Nothing from an earlier week reduces it (DR5.2).
 
-        `debt_min` survives only as a column in POP's schema. It is zeroed by
+        `debt_min` survives only as a column in the queue's schema. It is zeroed by
         migration 0003 and deliberately ignored here, so even a stray write
         could never shrink the gate again.
         """
@@ -332,7 +332,7 @@ PLATFORMS = ("spotify", "youtube")
 def _check_platform_key(spotify_id: str, platform: str) -> None:
     """A YouTube row is keyed 'youtube:<videoId>'; a Spotify row never is.
 
-    The key shape is how POP's own queries tell the two apart without a join,
+    The key shape is how the queue's own queries tell the two apart without a join,
     so a mismatch is refused rather than stored.
     """
     if platform not in PLATFORMS:
@@ -348,7 +348,7 @@ def upsert_episode(conn: sqlite3.Connection, spotify_id: str, title: str, show: 
     """Store or refresh episode metadata. Safe to call on every capture.
 
     `platform`/`source_key` default to a Spotify row with no source key, so
-    every POP call site is unchanged. For YouTube: `spotify_id` is
+    every pre-Part II call site is unchanged. For YouTube: `spotify_id` is
     'youtube:<videoId>', `show` the channel title, `source_key` the channel id.
     """
     _check_platform_key(spotify_id, platform)
@@ -394,7 +394,7 @@ def capture(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, spotify
     worthless and is never created. The bot therefore holds the pending
     capture in memory until the reply arrives.
 
-    DRBR: `platform`/`source_key` are optional assertions about the episode
+    dr-brainrot: `platform`/`source_key` are optional assertions about the episode
     row `upsert_episode` wrote. The row is the source of truth; a caller that
     disagrees with it gets a ValueError rather than a silently mislabelled
     item. The lock applies identically on every platform and for every label.
@@ -488,7 +488,7 @@ def polling_targets(conn: sqlite3.Connection) -> list[str]:
     Not restricted to the promoted slate. Out-of-band listening on a queued
     item is exactly the behaviour the brief wants visible.
 
-    DRBR: YouTube rows are excluded. Spotify has nothing to say about them;
+    dr-brainrot: YouTube rows are excluded. Spotify has nothing to say about them;
     their consumption arrives through the history extension instead.
     """
     rows = conn.execute(
@@ -659,9 +659,9 @@ def promote(conn: sqlite3.Connection, clk: Clock, settings: Settings, item_id: i
             "locked items cannot be promoted"
         )
 
-    # DRBR: the price depends on the label, read fresh through labels.resolve.
+    # dr-brainrot: the price depends on the label, read fresh through labels.resolve.
     # Worthwhile costs 0 and is never refused; wasteful (including the
-    # unlabelled default) is priced and gated exactly as POP always did. The
+    # unlabelled default) is priced and gated exactly as the queue always did. The
     # lock check above has already run, identically for both.
     import allowance  # noqa: PLC0415 — allowance imports db; lazy breaks the cycle
 
@@ -699,7 +699,7 @@ def roll_over_week(conn: sqlite3.Connection, clk: Clock,
        minutes, not promoted ones; worthwhile consumption never counts. A late
        import re-records it through `allowance.on_measurements_changed`.
     3. Open the new week with the full allowance from config. **Nothing carries
-       over** (DECISIONS DR5.2, which retires POP's D1.5/D1.6 debt).
+       over** (DECISIONS DR5.2, which retires the queue's D1.5/D1.6 debt).
 
     Note which week gets closed. Triage runs *at* Sunday 18:00, and a Sunday at
     exactly 18:00 already belongs to the new week, so the week being closed is
@@ -825,7 +825,7 @@ def _rate(numerator: int, denominator: int) -> float | None:
 def _youtube_watched_after_promotion(conn: sqlite3.Connection, settings: Settings,
                                      item: QueueItem) -> bool:
     """Measured YouTube watching of this video on or after its promotion day."""
-    import drbr_types as T  # noqa: PLC0415
+    import dr_brainrot_types as T  # noqa: PLC0415
 
     video_id = item.spotify_id.split(":", 1)[1]
     promoted_day = T.iso_date(T.local_date(item.promoted_at, settings.tz))
@@ -889,7 +889,7 @@ def funnel_stats(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
     # above 100% and made the stage measure something other than what the
     # brief defines.
     #
-    # DRBR: a YouTube item has no listening rows and no fully_played flag
+    # dr-brainrot: a YouTube item has no listening rows and no fully_played flag
     # (DR1.14). Its "played" is measured watching: an ok YouTube history
     # measurement of that video with minutes > 0 on or after the local day it
     # was first promoted. No watch-percentage threshold is applied — any

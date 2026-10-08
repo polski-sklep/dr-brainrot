@@ -1,4 +1,4 @@
-# Build brief: POP
+# Build brief: the podcast queue
 
 A deliberate-consumption queue for podcasts. Capture an episode instead of
 playing it, wait out a lock, triage weekly against a time allowance, and
@@ -11,7 +11,7 @@ Personal tool. Single user. Runs on the Hetzner VPS.
 ## What this is for
 
 The target behaviour is the reflex: see an interesting episode, click, listen,
-distract. POP inserts a required conscious act into that arc at the moment the
+distract. The queue inserts a required conscious act into that arc at the moment the
 impulse fires. The intended replacement for listening time is nothing —
 undirected thinking while cycling, walking, or working through low-attention
 tasks.
@@ -59,7 +59,7 @@ chat the user is already in constantly. This is why a bot beats an iOS
 Shortcut: a Shortcut can only capture, it cannot report back.
 
 **Coexistence with Pulse.** The VPS also runs Pulse, which uses Telethon with a
-*user* account (bots cannot read arbitrary group history). POP uses the *Bot
+*user* account (bots cannot read arbitrary group history). The queue uses the *Bot
 API* via python-telegram-bot or aiogram. Different auth models, different
 libraries. They coexist fine but must not share client code.
 
@@ -199,7 +199,7 @@ This is the control loop and it is the main reason the interface is a bot.
 ### What is invisible
 
 Anything played spontaneously outside the queue. This is precisely the
-behaviour POP exists to catch, so it matters, but the fix is deferred (see v2).
+behaviour the queue exists to catch, so it matters, but the fix is deferred (see v2).
 If v1 numbers look implausibly low, that is the signal the system is being
 bypassed.
 

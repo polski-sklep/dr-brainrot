@@ -445,16 +445,16 @@ def test_no_images_is_a_recorded_failure(conn, clk, settings):
 
 # --- optional local check against the real screenshots ---------------------------------
 
-REAL_INPUTS = pathlib.Path("/Users/Jacob/Projects/drbr/inputs")
+REAL_INPUTS = pathlib.Path("/Users/Jacob/Projects/dr-brainrot/inputs")
 
 
 def test_real_screenshots_local_only():
-    """Runs real Vision on inputs/ only when DRBR_REAL_OCR=1 and the files exist. Prints nothing personal."""
+    """Runs real Vision on inputs/ only when DR_BRAINROT_REAL_OCR=1 and the files exist. Prints nothing personal."""
     import os
 
     files = sorted(REAL_INPUTS.glob("IMG_52*.PNG"))
-    if os.environ.get("DRBR_REAL_OCR") != "1" or len(files) != 10:
-        pytest.skip("real OCR check is local-only (set DRBR_REAL_OCR=1 with inputs/ present)")
+    if os.environ.get("DR_BRAINROT_REAL_OCR") != "1" or len(files) != 10:
+        pytest.skip("real OCR check is local-only (set DR_BRAINROT_REAL_OCR=1 with inputs/ present)")
     data = [f.read_bytes() for f in files]
     pages = [REAL_RECOGNIZE(b) for b in data]
     pages, _ = st.recover_unnamed_rows(pages, data, REAL_RECOGNIZE_REGION)

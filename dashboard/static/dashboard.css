@@ -1,5 +1,5 @@
 /* ==========================================================================
-   DRBR dashboard — design system.
+   dr-brainrot dashboard — design system.
 
    A restrained analytical interface: neutral surfaces, one accent, semantic
    colour reserved for genuine states. Light theme, desktop-primary, usable
@@ -43,7 +43,7 @@
   --info-bg:       #EFF5FE;   /* explainer panels. Says "read me", not "act". */
   --info-border:   #C6DAF6;
 
-  /* -- Label colours. A user decision, not a verdict by DRBR: the hue names
+  /* -- Label colours. A user decision, not a verdict by dr-brainrot: the hue names
         which label you chose, and the word is always printed beside it. They
         are deliberately lighter and flatter than the semantic colours above,
         and they only ever appear inside a chip — never on a figure. -------- */
@@ -158,7 +158,7 @@ header.site nav {
 }
 
 /* Dr. Brainrot. The spiral is the project's own motif — it sits at the centre
-   of the POP logo this tool grew out of — and it is what brain rot looks like:
+   of the podcast queue's logo this tool grew out of — and it is what brain rot looks like:
    inward, and going nowhere. It is drawn in the accent, at 19px, once. */
 .wordmark {
   display: inline-flex;

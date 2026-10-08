@@ -64,13 +64,13 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 from clock import Clock
 from config import Settings
 
-log = logging.getLogger("drbr.audible")
+log = logging.getLogger("dr-brainrot.audible")
 # The library logs file names at INFO and whole responses at DEBUG. Neither
 # belongs in logs/jobs.log.
 logging.getLogger("audible").setLevel(logging.WARNING)
@@ -105,7 +105,7 @@ STANDING_LABEL_NOTE = "worthwhile: your standing decision for audiobooks (DR5.28
 #: `meta` key: the last read that reached Audible, whatever it found
 #: (as DR5.27): an unchanged re-read records no import but still counts.
 READ_AT_KEY = "audible_read_at"
-SIGN_IN_COMMAND = "cd ~/Projects/drbr && .venv/bin/python audible_login.py --again"
+SIGN_IN_COMMAND = "cd ~/Projects/dr-brainrot && .venv/bin/python audible_login.py --again"
 MAX_DAY_MS = 86_400_000
 
 NO_LIBRARY_WARNING = ("Where each book is couldn't be read this time, so days that needed it are listed "

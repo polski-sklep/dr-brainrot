@@ -93,7 +93,7 @@ accurate level, with language correction both on and off.
   off, two different device-name readings appeared.
 - Parsing the real pages (label edited to Last Week) gives 38 named apps, 3
   categories and a total. The one unnamed row is recovered as X by the crop
-  re-read. The local-only test `DRBR_REAL_OCR=1 pytest tests/test_screentime.py -k real`
+  re-read. The local-only test `DR_BRAINROT_REAL_OCR=1 pytest tests/test_screentime.py -k real`
   checks this against `inputs/`. It prints nothing.
 
 ## Screen Time decisions

@@ -30,9 +30,9 @@ import pytest
 import clock
 import config
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
-from drbr_types import VideoInfo, VideoLookupError
+from dr_brainrot_types import VideoInfo, VideoLookupError
 from sources import youtube
 from sources.youtube import DataApiClient, FakeYouTubeApi, YouTubeParseError
 

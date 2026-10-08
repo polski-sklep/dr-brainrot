@@ -28,14 +28,14 @@ from telegram.ext import CommandHandler
 
 import bot
 import checklist
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 import report
 from clock import Clock
 from config import Settings
 
-log = logging.getLogger("drbr.labels")
+log = logging.getLogger("dr-brainrot.labels")
 
 #: The diagnostic must have run this long before /labels answers with a count:
 #: "after the first week of collection".

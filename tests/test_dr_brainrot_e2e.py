@@ -1,6 +1,6 @@
-"""DRBR end to end: one diagnostic fortnight through every real entry point.
+"""dr-brainrot end to end: one diagnostic fortnight through every real entry point.
 
-Phase 4, independent verification (drbr-claude-code-prompt.md, "Integration
+Phase 4, independent verification (dr-brainrot-claude-code-prompt.md, "Integration
 test"). Written by the verifier, not by any agent that built the code.
 
 Why one long scenario rather than many small tests: the defects this guards
@@ -28,13 +28,13 @@ ingest blueprint, recorded Vision observations behind the real Screen Time
 handler, the sanitised Cold Turkey export behind the real document handler,
 and obsidian-ingest's own `vault_write.write_note` writing into a temporary
 vault (emulated with the identical line format only if that checkout is
-absent). The database starts as a POP version-1 file with POP rows in it and
+absent). The database starts as a queue version-1 file with queue rows in it and
 is migrated, as the live one was.
 
 Timeline (Europe/Warsaw, CEST = UTC+2; go-live Sunday 13 Sep 2026):
 
-  Sun 13 15:00Z  migrate the pre-DRBR POP database
-  Sun 13 16:00Z  triage: POP week closes, the go-live allowance week opens
+  Sun 13 15:00Z  migrate the pre-dr-brainrot queue database
+  Sun 13 16:00Z  triage: the queue's week closes, the go-live allowance week opens
   Mon 14 06:00Z  four captures in Telegram; a show labelled worthwhile
   Tue 15 12:00Z  obsidian-ingest files five notes
   Wed 16 05:00Z  a worthwhile promotion is refused: still locked
@@ -73,7 +73,7 @@ import bot  # noqa: E402
 import clock  # noqa: E402
 import config  # noqa: E402
 import db  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import evidence  # noqa: E402
 import handlers_imports as hi  # noqa: E402
 import handlers_labels  # noqa: E402
@@ -95,7 +95,7 @@ MIN = 60_000
 OWNER = 1
 TOKEN = "e2e-ingest-token"
 
-# Spotify episodes (22-character ids, as POP requires).
+# Spotify episodes (22-character ids, as the queue requires).
 LEGACY = "LegacyEpisode000000001"
 DROPPED = "DroppedEpisode00000001"
 W = "WastefulEpisode0000001"       # "Drama Hour", unlabelled
@@ -114,12 +114,12 @@ YT_DURATIONS = {
     "fxVideo0016": 600,
 }
 
-LEGACY_WEEK = "2026-09-06T16:00:00+00:00"   # POP week opened before DRBR existed
+LEGACY_WEEK = "2026-09-06T16:00:00+00:00"   # queue week opened before dr-brainrot existed
 OLDER_WEEK = "2026-08-30T16:00:00+00:00"
 GO_LIVE_WEEK = "2026-09-13T16:00:00+00:00"  # Sun 13 Sep 18:00 Warsaw
 NEXT_WEEK = "2026-09-20T16:00:00+00:00"
 
-POP_TABLES = {
+QUEUE_TABLES = {
     "episodes": "spotify_id, title, show, description, release_date, duration_ms",
     "queue": "id, spotify_id, why_note, captured_at, deadline, state, cycles_seen, still_holds, promoted_at, resolved_at",
     "listening": "id, spotify_id, polled_at, position_ms, delta_ms, fully_played",
@@ -318,7 +318,7 @@ def load_vault_writer(monkeypatch, vault_root: pathlib.Path, outbox: pathlib.Pat
     Falls back to an emulation of the exact outbox/frontmatter contract
     (CONTRACTS.md Part II §6.4) only when that checkout is not on this machine.
     """
-    monkeypatch.setenv("DRBR_CAPTURE_OUTBOX", str(outbox))
+    monkeypatch.setenv("DR_BRAINROT_CAPTURE_OUTBOX", str(outbox))
 
     class FrozenDateTime:
         @staticmethod
@@ -356,7 +356,7 @@ def load_vault_writer(monkeypatch, vault_root: pathlib.Path, outbox: pathlib.Pat
 
 
 def build_pop_v1(path: pathlib.Path) -> dict[str, list[tuple]]:
-    """A representative pre-DRBR POP database: schema.sql only, with POP's own rows."""
+    """A representative pre-dr-brainrot queue database: schema.sql only, with the queue's own rows."""
     raw = sqlite3.connect(path)
     raw.executescript(db.SCHEMA_PATH.read_text())
     raw.executemany("INSERT INTO episodes VALUES (?, ?, ?, ?, ?, ?)", [
@@ -381,7 +381,7 @@ def build_pop_v1(path: pathlib.Path) -> dict[str, list[tuple]]:
     raw.execute("INSERT INTO deadline_notices VALUES (2, '2026-08-29T09:17:00+00:00')")
     raw.execute("INSERT INTO meta VALUES ('last_triage_week', ?)", (LEGACY_WEEK,))
     raw.commit()
-    snapshot = {t: raw.execute(f"SELECT {cols} FROM {t} ORDER BY 1").fetchall() for t, cols in POP_TABLES.items()}
+    snapshot = {t: raw.execute(f"SELECT {cols} FROM {t} ORDER BY 1").fetchall() for t, cols in QUEUE_TABLES.items()}
     assert raw.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "1"
     raw.close()
     return snapshot
@@ -391,14 +391,14 @@ def build_pop_v1(path: pathlib.Path) -> dict[str, list[tuple]]:
 # The scenario
 # ==========================================================================
 
-def test_drbr_end_to_end(tmp_path, monkeypatch, caplog):
+def test_dr_brainrot_end_to_end(tmp_path, monkeypatch, caplog):
     vault_root = tmp_path / "vault"
     (vault_root / "01-Inbox" / "Read").mkdir(parents=True)
     outbox = tmp_path / "data" / "vault_captures.jsonl"
     outbox.parent.mkdir()
     settings = config.test_settings(
         tz="Europe/Warsaw", weekly_allowance_min=1000, telegram_user_id=OWNER,
-        db_path=tmp_path / "data" / "pop.db", raw_dir=tmp_path / "data" / "raw",
+        db_path=tmp_path / "data" / "dr-brainrot.db", raw_dir=tmp_path / "data" / "raw",
         vault_path=vault_root, vault_inbox="01-Inbox", capture_outbox=outbox,
         go_live="2026-09-13", diagnostic_weeks=8, ingest_token=TOKEN,
     )
@@ -406,7 +406,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch, caplog):
     tg = SyncBot()
 
     # ------------------------------------------------------------------
-    # Migration of a representative POP database: nothing lost
+    # Migration of a representative queue database: nothing lost
     # ------------------------------------------------------------------
     before = build_pop_v1(settings.db_path)
     conn = db.connect(settings)
@@ -416,10 +416,10 @@ def test_drbr_end_to_end(tmp_path, monkeypatch, caplog):
     db.migrate(conn)                                   # a restart re-runs both; still the current version, nothing doubled
     assert evidence.get_meta(conn, "schema_version") == str(db.SCHEMA_VERSION)
     # Migration 0003 adds `weeks.overage_min` (NULL until computed) and zeroes debt_min;
-    # these POP weeks already had debt 0, so the POP columns below are byte-identical.
+    # these queue weeks already had debt 0, so the queue columns below are byte-identical.
     assert [tuple(r) for r in conn.execute("SELECT week_start, overage_min FROM weeks ORDER BY 1")] == \
         [(OLDER_WEEK, None), (LEGACY_WEEK, None)]
-    for table, cols in POP_TABLES.items():
+    for table, cols in QUEUE_TABLES.items():
         assert [tuple(r) for r in conn.execute(f"SELECT {cols} FROM {table} ORDER BY 1")] == \
             [tuple(r) for r in before[table]], table
     assert {tuple(r) for r in conn.execute("SELECT platform, source_key FROM episodes")} == {("spotify", None)}
@@ -460,7 +460,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch, caplog):
         return conn.execute("SELECT * FROM queue WHERE spotify_id = ? ORDER BY id DESC LIMIT 1", (sid,)).fetchone()
 
     # ------------------------------------------------------------------
-    # Sun 13 16:00Z — POP's triage closes the pre-DRBR week and opens go-live's
+    # Sun 13 16:00Z — the queue's triage closes the pre-dr-brainrot week and opens go-live's
     # ------------------------------------------------------------------
     clk.set(GO_LIVE_WEEK)
     sent_before = len(tg.sent)
@@ -597,7 +597,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch, caplog):
             for sid in db.polling_targets(conn)]})
     scoped_out = spotify.SpotifyClient(settings, transport=httpx.MockTransport(no_resume_point))
     fake_spotify.set_position(W, 85 * MIN)
-    with caplog.at_level(logging.ERROR, logger="pop.poll"):
+    with caplog.at_level(logging.ERROR, logger="dr-brainrot.poll"):
         assert poll.run_poll(conn, clk, settings, scoped_out, tg) == ["positions"]
     assert any(isinstance(r.exc_info[1], spotify.SpotifyError) and "resume_point" in str(r.exc_info[1])
                for r in caplog.records if r.exc_info)
@@ -611,13 +611,13 @@ def test_drbr_end_to_end(tmp_path, monkeypatch, caplog):
     app = dashboard_app.create_app(settings, clk, lambda: db.connect(settings))
     app.config["TESTING"] = True
     web = app.test_client()
-    headers = {"X-DRBR-Token": TOKEN, "Content-Type": "application/json"}
+    headers = {"X-Dr-Brainrot-Token": TOKEN, "Content-Type": "application/json"}
     clk.set("2026-09-20T07:05:00+00:00")
     initial = json.loads((FIXTURES / "youtube" / "history_initial.json").read_text())
     body = youtube_payload([initial], "2026-09-20T07:00:00+00:00")
 
     assert web.post("/api/youtube/history", data=body,
-                    headers={"X-DRBR-Token": "wrong"}).status_code == 401                # [17] refused, nothing recorded
+                    headers={"X-Dr-Brainrot-Token": "wrong"}).status_code == 401                # [17] refused, nothing recorded
     assert count(conn, "imports", "kind = 'youtube_history'") == 0
     resp = web.post("/api/youtube/history", data=body, headers=headers)
     yt_outcome = resp.get_json()
@@ -916,7 +916,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch, caplog):
     funnels = report.funnels(conn, clk, settings)
     assert (funnels.vault.captured, funnels.vault.unprocessed, funnels.vault.kept,
             funnels.vault.excluded, funnels.vault.edited_kept) == (3, 1, 2, 2, 1)   # [12] excluded outside
-    assert (funnels.pop.captured, funnels.pop.survived_lock, funnels.pop.promoted, funnels.pop.played) == (4, 4, 3, 3)
+    assert (funnels.queue.captured, funnels.queue.survived_lock, funnels.queue.promoted, funnels.queue.played) == (4, 4, 3, 3)
 
     spots = report.blind_spots(conn, clk, settings)
     assert "1 YouTube video(s) with no readable progress are left out of minutes (not counted as zero)." in spots
@@ -963,15 +963,15 @@ def test_drbr_end_to_end(tmp_path, monkeypatch, caplog):
     labels_html = web.get("/labels?kind=youtube_channel").get_data(as_text=True)
     assert "worthwhile" in flat(one_row(table_rows(labels_html), CHANNEL_A))
 
-    # POP's pre-DRBR history is still exactly what it was.
+    # The queue's pre-dr-brainrot history is still exactly what it was.
     for table in ("episodes", "listening", "alerts_sent", "deadline_notices"):
         rows_now = [tuple(r) for r in conn.execute(
-            f"SELECT {POP_TABLES[table]} FROM {table} ORDER BY 1")][:len(before[table])]
+            f"SELECT {QUEUE_TABLES[table]} FROM {table} ORDER BY 1")][:len(before[table])]
         assert rows_now == [tuple(r) for r in before[table]], table
     assert [tuple(r) for r in conn.execute(
-        f"SELECT {POP_TABLES['weeks']} FROM weeks WHERE week_start IN (?, ?) ORDER BY 1",
+        f"SELECT {QUEUE_TABLES['weeks']} FROM weeks WHERE week_start IN (?, ?) ORDER BY 1",
         (OLDER_WEEK, LEGACY_WEEK))] == [tuple(r) for r in before["weeks"]]
-    # The only DRBR addition to those rows: an overage recorded against their own 180 (neither went over).
+    # The only dr-brainrot addition to those rows: an overage recorded against their own 180 (neither went over).
     assert [tuple(r) for r in conn.execute(
         "SELECT week_start, overage_min FROM weeks WHERE week_start IN (?, ?) ORDER BY 1",
         (OLDER_WEEK, LEGACY_WEEK))] == [(OLDER_WEEK, 0), (LEGACY_WEEK, 0)]

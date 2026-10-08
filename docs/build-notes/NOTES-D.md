@@ -1,4 +1,4 @@
-# NOTES-D — Gate + reporting (Agent D, DRBR Phase 2)
+# NOTES-D — Gate + reporting (Agent D, dr-brainrot Phase 2)
 
 Branch `worktree-agent-a803254386310f8af`, based on `f0c456e` (the worktree was
 created from `main`; it was reset to `f0c456e` before any work, with no local
@@ -8,17 +8,17 @@ changes to lose).
 
 1. **Part I §2 `QueueItem` gained two trailing fields**, `platform: str = "spotify"`
    and `source_key: str | None = None`, filled from `episodes`. Defaults keep
-   every POP constructor call valid. §7's `item_label` needs them. Please add
+   every Part I constructor call valid. §7's `item_label` needs them. Please add
    to CONTRACTS.md §2.
 2. **Part I §5 render signatures widened with keyword-only `label=None`**:
    `render_item(item, week, warning, *, label=None)` and
    `render_deadline_notice(item, week, *, label=None)`. These functions take no
-   connection, so the resolved label is passed in; `None` renders the POP post
+   connection, so the resolved label is passed in; `None` renders the original queue post
    exactly. `render_week_header(week, *, spent_wasteful_min=None,
    last_week_wasteful_min=None)` likewise.
 3. **`bot.build_app(..., *, youtube=None)`**: optional client parked in
    `bot_data["youtube"]`.
-4. **`allowance` exposes helpers beyond §7**: `whole_minutes` (POP's
+4. **`allowance` exposes helpers beyond §7**: `whole_minutes` (the queue's
    ties-down rounding for float minutes, used by debt *and* alerts so they
    never disagree), `week_end`, `ensure_item_source` (identity row for a queue
    item's show/channel; never a label), `spotify_label`, `measurement_label`,
@@ -37,10 +37,10 @@ changes to lose).
    least consistent and immediate, or (b) debt freezes once the following
    week closes. I implemented the contract as written; (a) is one line for C
    or integration.
-7. **Historical weeks on the live DB.** The first DRBR import will run
-   `on_measurements_changed` over POP-era `weeks` rows. With every show still
-   unlabelled (so wasteful) the recomputed debt equals POP's, *except* where
-   week rows have gaps: POP's `listened_min` window ran to the next existing
+7. **Historical weeks on the live DB.** The first dr-brainrot import will run
+   `on_measurements_changed` over pre-Part II `weeks` rows. With every show still
+   unlabelled (so wasteful) the recomputed debt equals the queue's, *except* where
+   week rows have gaps: the queue's `listened_min` window ran to the next existing
    week row, while pooled Spotify minutes use the §1 instant attribution
    (`week_start_for(polled_at)`, i.e. exactly seven local days). Integration
    should diff `weeks.debt_min` on a copy of the real DB before and after one
@@ -63,7 +63,7 @@ changes to lose).
 4. **Diagnostic window**: `report.window_start` = `evidence.diagnostic().start`,
    else `getattr(settings, "go_live", "")`. Applied to `label_split` (weeks
    ending before it omitted), `cost_per_keeper` (default and clamp of `since`),
-   `funnels` (POP `funnel_stats(since=...)` and vault captures by
+   `funnels` (the queue's `funnel_stats(since=...)` and vault captures by
    `captured_at`), `blind_spots` (first week checked), `records` (clamped
    `start`). `weekly_totals`/`gated_vs_ungated`/`allowance_status` take an
    explicit or current week and are not clamped; the gate itself
@@ -71,9 +71,9 @@ changes to lose).
    now match a date bound by **period overlap** (`period_end >= start`), so a
    Screen Time week straddling the start counts whole rather than vanishing.
    The go_live fallback is untested here (field absent in this worktree's
-   `Settings`); integration should add one test on branch drbr.
+   `Settings`); integration should add one test on branch dr-brainrot.
 5. **Unknown YouTube channel** (key `"unknown"`, or
-   `drbr_types.UNKNOWN_YOUTUBE_CHANNEL_KEY` when present): its source label is
+   `dr_brainrot_types.UNKNOWN_YOUTUBE_CHANNEL_KEY` when present): its source label is
    ignored, so it resolves unlabelled → wasteful; a per-video capture override
    still applies. Tested.
 6. **Cold Turkey partial imports** still count as coverage for the days they
@@ -90,21 +90,21 @@ start explicitly before their captures (as go-live would be).
 - **Gate** (`db.promote`): lock re-check first (unchanged, every label), then
   `allowance.promotion_cost`. Worthwhile: cost 0, the refusal check is skipped
   entirely (not just `+0`), so a worthwhile item promotes even when debt has
-  raised `promoted_min` above the effective allowance. Wasteful: POP's path
-  byte-for-byte. POP's `promotion_cost_min` is untouched.
+  raised `promoted_min` above the effective allowance. Wasteful: the queue's path
+  byte-for-byte. The queue's `promotion_cost_min` is untouched.
 - **Pooled minutes** are floats; debt and alerts compare
   `whole_minutes(pooled.wasteful_min)` (ceil(x − 0.5), identical to
   `ms_to_min` for Spotify-only weeks — tested).
 - **Reads never write.** `item_label`/`pooled_minutes` look sources up without
   creating them (absent = unlabelled = wasteful default, the same answer).
   Source identity rows are created at bot capture and backfilled daily by
-  `poll.run_poll` for active items, so pre-DRBR queue shows can reach the label
+  `poll.run_poll` for active items, so pre-dr-brainrot queue shows can reach the label
   batch (`labels.sources_needing_label` needs a `sources` row).
 - **Measurements → week**: by `period_start` through
   `allowance_week_start_for_day` (a Screen Time Sunday..Saturday row maps via
   its Sunday). Covered-elsewhere rows accumulate in `covered_excluded_min`;
   non-ok rows only in `unmeasured_items`.
-- **`weeks.listened_min`** keeps POP's meaning (raw Spotify, all labels).
+- **`weeks.listened_min`** keeps the queue's meaning (raw Spotify, all labels).
 - **Gated Spotify** = a queue row for the episode with `promoted_at <=
   polled_at`. `promoted_at` is never cleared, so listening after a lapse still
   counts as gated (the choice was made). YouTube gated = promoted on/before the
@@ -121,7 +121,7 @@ start explicitly before their captures (as go-live would be).
   directly under the duration): `Label: <label> (<basis>)`, plus
   `· costs 0 min — worthwhile`. Header adds "Last week spent N min wasteful
   across sources" and "Spent so far N min wasteful across sources"; "Remaining"
-  keeps POP's promotable meaning. `/stats` adds one final line pointing to the
+  keeps the queue's promotable meaning. `/stats` adds one final line pointing to the
   dashboard.
 - **Bot YouTube capture**: strict 11-char id from `youtube.com/watch?…v=`,
   `m.youtube.com`, `youtu.be/`, `/shorts/` (link may sit inside text). A
@@ -150,9 +150,9 @@ start explicitly before their captures (as go-live would be).
   starts). `records` covers Spotify listening and measurements (vault rows are
   counts and live in `funnels`).
 
-## POP test assertions changed (and why)
+## Part I test assertions changed (and why)
 
-All are fixture/setup changes forced by Part II; no POP behaviour assertion
+All are fixture/setup changes forced by Part II; no Part I behaviour assertion
 was weakened.
 
 1. `tests/test_poll.py` — five tests (`check_alerts_is_safe…`,
@@ -195,7 +195,7 @@ was weakened.
 - **Construct the YouTube client in `bot.main`** — done defensively:
   `_youtube_client(settings)` imports `sources.youtube.DataApiClient` when
   `YOUTUBE_API_KEY` is set, else YouTube capture replies "not set up". Verify
-  `DataApiClient.video_info` raises `drbr_types.VideoLookupError` (not a
+  `DataApiClient.video_info` raises `dr_brainrot_types.VideoLookupError` (not a
   generic httpx error) on network/quota failures; the bot catches only that,
   anything else reaches `on_error`.
 - **`jobs.py`** does not need anything from D; `poll.py`/`triage.py` schedules
@@ -203,5 +203,5 @@ was weakened.
 - **Dashboard** consumes `report.*` only; `report.cost_per_keeper(since=...)`
   accepts a local date or an instant.
 - Resolve concern 6 (relabel → debt recompute) with Agent C / `handlers_labels`.
-- Run concern 7's diff on a copy of `data/pop.db` before enabling imports.
+- Run concern 7's diff on a copy of `data/dr-brainrot.db` before enabling imports.
 - Update CONTRACTS.md with concerns 1–5.

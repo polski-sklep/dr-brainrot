@@ -1,4 +1,4 @@
-// DRBR — isolated-world bridge on https://www.youtube.com/feed/history.
+// dr-brainrot — isolated-world bridge on https://www.youtube.com/feed/history.
 //
 // The MAIN-world hook can see the page's data but not the extension APIs; this
 // script can use the extension APIs but not the page's JavaScript objects. It
@@ -11,16 +11,16 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || typeof msg !== "object") return;
-    if (msg.type === "drbr-ping") {
+    if (msg.type === "dr-brainrot-ping") {
       sendResponse({ ok: true });
       return;
     }
-    if (msg.type !== "drbr-collect") return;
+    if (msg.type !== "dr-brainrot-collect") return;
 
     const requestId = crypto.randomUUID();
     const onMessage = (event) => {
       const data = event.data;
-      if (event.source !== window || !data || data.source !== "drbr-page" ||
+      if (event.source !== window || !data || data.source !== "dr-brainrot-page" ||
           data.type !== "collected" || data.requestId !== requestId) return;
       window.removeEventListener("message", onMessage);
       const payload = {
@@ -33,14 +33,14 @@
         pages: data.pages || [],
       };
       chrome.runtime.sendMessage({
-        type: "drbr-collected",
+        type: "dr-brainrot-collected",
         runId: msg.runId,
         body: JSON.stringify(payload),
         diagnostics: data.diagnostics || {},
       });
     };
     window.addEventListener("message", onMessage);
-    window.postMessage({ source: "drbr-bridge", type: "collect", requestId, cursor: msg.cursor || null,
+    window.postMessage({ source: "dr-brainrot-bridge", type: "collect", requestId, cursor: msg.cursor || null,
                          cursorDate: msg.cursorDate || null, pageCap: msg.pageCap }, window.location.origin);
     sendResponse({ started: true });
   });

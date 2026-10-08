@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  DRBR daily jobs — `jobs.py daily`: read the capture outbox, scan the vault,
+  dr-brainrot daily jobs — `jobs.py daily`: read the capture outbox, scan the vault,
   read Cold Turkey and Qbserve, then on Sundays send the check-in for the week
   just finished (and on Monday its one reminder, if evidence is still
   missing), and the diagnostic-end notice. See checklist.py (DR5.24).
 
   TIMEZONE. launchd's StartCalendarInterval fires in SYSTEM local time
-  (Europe/Warsaw), which matches POP_TZ. 09:30 is after POP's 09:17 poll, so
+  (Europe/Warsaw), which matches DR_BRAINROT_TZ. 09:30 is after the 09:17 poll, so
   the two do not run at once, and off the hour to avoid piling onto :00.
 
   Unlike cron, launchd runs a MISSED calendar job at the next wake. Each step
@@ -15,24 +15,24 @@
   unreachable fails only the sending steps (DR5.25). Any failed step makes the
   run exit 1 (see logs/jobs.log).
 
-  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.drbr.jobs.plist
-  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.drbr.jobs
-  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.drbr.jobs
+  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.dr-brainrot.jobs.plist
+  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.dr-brainrot.jobs
+  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.dr-brainrot.jobs
 -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.jacob.drbr.jobs</string>
+    <string>com.jacob.dr-brainrot.jobs</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Jacob/Projects/drbr/.venv/bin/python</string>
-        <string>/Users/Jacob/Projects/drbr/jobs.py</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/.venv/bin/python</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/jobs.py</string>
         <string>daily</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Jacob/Projects/drbr</string>
+    <string>/Users/Jacob/Projects/dr-brainrot</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -46,8 +46,8 @@
     <false/>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/jobs.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/jobs.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/jobs.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/jobs.log</string>
 </dict>
 </plist>

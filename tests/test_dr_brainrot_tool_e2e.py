@@ -4,7 +4,7 @@ One week through the real entry points: Cold Turkey statistics ingested by the
 source module, a source labelled tool from the Telegram button, the allowance
 alert from poll, Sunday's rollover, then the report and the dashboard HTML.
 
-The promise under test is the user's: DRBR is for brain-rot content, not for
+The promise under test is the user's: dr-brainrot is for brain-rot content, not for
 time spent on Amazon. 300 counted content minutes against a 360-minute
 allowance is not over, however long the shopping took, and the 200 tool
 minutes are still shown rather than silently dropped.
@@ -23,7 +23,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import clock  # noqa: E402
 import db  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import labels  # noqa: E402
 import poll  # noqa: E402
 import report  # noqa: E402
@@ -36,7 +36,7 @@ WEEK = "2026-09-13T16:00:00+00:00"           # allowance week opening Sun 13 Sep
 
 
 def test_300_wasteful_content_minutes_and_200_tool_minutes_is_not_over_360(tmp_path):
-    settings = make_settings(tmp_path, db_path=tmp_path / "drbr.db", weekly_allowance_min=360,
+    settings = make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db", weekly_allowance_min=360,
                              telegram_user_id=OWNER)
     clk = clock.FrozenClock("2026-09-14T08:00:00+00:00")
     conn = open_db(settings)

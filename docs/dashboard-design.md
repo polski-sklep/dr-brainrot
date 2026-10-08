@@ -1,4 +1,4 @@
-# DRBR dashboard — design specification
+# dr-brainrot dashboard — design specification
 
 What the dashboard looks like and why. The rules here are enforced by
 `dashboard/static/dashboard.css`; the templates only apply them.
@@ -63,7 +63,7 @@ section *contains* before moving it, not just what it is called.
 
 ## 0.1 Identity
 
-The product is **Dr. Brainrot**; `DRBR` stays the short form in body copy and
+The product is **Dr. Brainrot**; `dr-brainrot` stays the short form in body copy and
 in code. The wordmark sets `Dr.` in muted medium weight against `Brainrot` in
 bold, so the joke is in the typography rather than in an illustration.
 
@@ -74,7 +74,7 @@ file to keep in step.
 
 Two earlier marks were tried and rejected on evidence, both rendered at 160px,
 40px and 19px side by side. A **spiral** — inward, going nowhere, and already
-the motif at the centre of the POP logo this grew out of — is handsome large
+the motif at the centre of the podcast queue's logo this grew out of — is handsome large
 and collapses to an indistinct dot at header size. A **pulse line** held at
 every size and suited the clinical framing, but it said "medical instrument"
 rather than "brain rot", and the name deserves the joke. The brain reads at
@@ -126,7 +126,7 @@ obviously uninterested in flattering the reader.
 Two constraints from the application shape everything below, and they are the
 reason this does not look like a generic admin template:
 
-1. **DRBR makes no good/bad claim.** There are no targets, scores or streaks.
+1. **dr-brainrot makes no good/bad claim.** There are no targets, scores or streaks.
    So there is no "good" colour and no "bad" colour for consumption. The
    wasteful/worthwhile split is told apart by **lightness, not hue**.
    One component reverses this at Jacob's request (DR5.20): the brain beside
@@ -221,7 +221,7 @@ direct value labels above each bar.
 
 Added at the user's explicit request, after the neutral scheme below had been
 built and shown to them. They name **which label you chose** — they are not a
-verdict by DRBR, and the word is always printed inside the chip, so colour is
+verdict by dr-brainrot, and the word is always printed inside the chip, so colour is
 still never the only signal.
 
 | Token | Text on its own tint | Role |
@@ -334,19 +334,19 @@ never moves.
 Plain and direct, in the second person. The rule is that a sentence should
 survive being read once.
 
-**The product never names itself.** No screen says "DRBR" or "Dr. Brainrot" in
+**The product never names itself.** No screen says "dr-brainrot" or "Dr. Brainrot" in
 its copy. A tool that refers to itself in the third person is describing
 itself to a stranger, and the only reader here already knows what he is
 looking at. The name belongs in the wordmark and the page title and nowhere
-else. So: "not content — never counted", not "DRBR ignores it"; "Every minute
-stored", not "every minute DRBR has stored"; "Blind spots: what isn't
-measured", not "what DRBR cannot see". Where a subject is genuinely needed,
+else. So: "not content — never counted", not "dr-brainrot ignores it"; "Every minute
+stored", not "every minute dr-brainrot has stored"; "Blind spots: what isn't
+measured", not "what dr-brainrot cannot see". Where a subject is genuinely needed,
 it is *this page*, not the product.
 
 **Three absences, three verbs.** A figure can be missing for three different
 reasons and the copy must never blur them, because keeping them apart is the
 whole point of the diagnostic. A *tool* is something you decided is not
-content, so DRBR **ignores** it. An *unmeasured* row is one DRBR has **no
+content, so dr-brainrot **ignores** it. An *unmeasured* row is one dr-brainrot has **no
 figure** for — never zero. A *covered elsewhere* row was **already counted**
 by another source and is excluded so nothing is double-counted. Using one
 tidy phrase for all three reads better and says less; it was tried and

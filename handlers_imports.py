@@ -1,4 +1,4 @@
-"""Telegram handlers for DRBR evidence imports.
+"""Telegram handlers for dr-brainrot evidence imports.
 
 CONTRACTS Part II §8. Owned by Agent B (Screen Time, Cold Turkey).
 
@@ -30,12 +30,12 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 from clock import Clock
 from config import Settings
 
-log = logging.getLogger("drbr.imports")
+log = logging.getLogger("dr-brainrot.imports")
 
 CALLBACK_PREFIX = "d:imp:"
 BATCHER_KEY = "imports_batcher"

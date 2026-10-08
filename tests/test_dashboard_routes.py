@@ -20,7 +20,7 @@ import allowance  # noqa: E402
 import clock  # noqa: E402
 import config  # noqa: E402
 import db  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import insights  # noqa: E402
 import labels  # noqa: E402
 import report  # noqa: E402
@@ -32,7 +32,7 @@ WED = "2026-09-16T10:00:00+00:00"
 
 @pytest.fixture
 def settings(tmp_path):
-    return make_settings(tmp_path, db_path=tmp_path / "drbr.db",
+    return make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db",
                          weekly_allowance_min=360, go_live="2026-09-13")
 
 

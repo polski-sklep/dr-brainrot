@@ -101,10 +101,10 @@ checkout. It cannot satisfy the requirement as written, for two independent
 reasons:
 
 - It has no access to the local filesystem, so it cannot "re-read
-  `pop-build-brief.md` and this prompt from the project directory at run time".
+  `podcast-queue-build-brief.md` and this prompt from the project directory at run time".
   Inlining both documents into the routine prompt would work around the read,
   but not the write.
-- `/Users/Jacob/Projects/POP` is not a git repository, so there is no source
+- The original podcast-queue directory under `/Users/Jacob/Projects/` is not a git repository, so there is no source
   for the sandbox to clone and no mechanism to return the deliverables. The
   build would complete in a cloud sandbox and be unrecoverable.
 
@@ -112,7 +112,7 @@ reasons:
 jobs are session-only and in-memory, and fire only while the REPL is idle. A
 job three days out would not survive to Saturday.
 
-The chosen mechanism is a launchd user agent (`com.jacob.pop.build.plist`)
+The chosen mechanism is a launchd user agent (`com.jacob.dr-brainrot.build.plist`)
 running `run_build.sh`, which invokes `claude -p` in the project directory. It
 meets the actual requirement: fires Saturday 09:00 local, on this machine, with
 the project directory present and readable, and deliverables land where they
@@ -223,7 +223,7 @@ allowance" without saying which minutes. The allocation gate makes it
 impossible for promoted minutes to exceed the allowance in the first place, so
 if debt were computed from promotions it would always be zero and the mechanism
 would be dead code. The only way to exceed the allowance is to actually listen
-past it, which POP explicitly cannot prevent. So debt is
+past it, which the queue explicitly cannot prevent. So debt is
 `listened_min - effective_allowance_min`. This also makes the debt mechanism
 consistent with the alerts, which fire on listened minutes.
 
@@ -608,7 +608,7 @@ Both are in `REVIEW.md` with evidence.
    `TZ=UTC` would silently move triage to Sunday 18:00 UTC, an hour off for half
    the year, which is exactly what D1.3 was written to prevent, arriving through
    the config layer instead of the arithmetic. The fix is to rename the key to
-   `POP_TZ`, which touches `.env` on the VPS and so belongs to its owner.
+   `DR_BRAINROT_TZ`, which touches `.env` on the VPS and so belongs to its owner.
 
 ---
 
@@ -621,7 +621,7 @@ numbering continues the file's convention: a new phase, entries from `.1`.
 
 **This is not a new feature. It is an unimplemented line of the brief.**
 
-`pop-build-brief.md:79-81`: "An item with a deadline surfaces before it expires
+`podcast-queue-build-brief.md:79-81`: "An item with a deadline surfaces before it expires
 regardless of where the weekly cycle sits. It still requires a note and still
 counts against the allowance." The word is *surfaces* — the item is shown to
 the user. What was built was the lock exemption alone (`db.py:281-291`,
@@ -645,12 +645,12 @@ brief already specified rather than inventing any.
 
 **Why this does not violate the constraints it looks like it might.**
 
-*Friction* (`pop-build-brief.md:313-316`, "every field added is friction the
+*Friction* (`podcast-queue-build-brief.md:313-316`, "every field added is friction the
 user must survive weekly"). `deadline_notices` (`schema.sql:94-105`) is dedup
 bookkeeping keyed by `queue_id`, the same idea as `alerts_sent` under D1.13. It
 asks the user for nothing. No field was added to `queue`.
 
-*No privileged content category* (`pop-build-brief.md:38-41`, and the deadline
+*No privileged content category* (`podcast-queue-build-brief.md:38-41`, and the deadline
 paragraph's own "without creating a privileged content category"). Surfacing is
 delivery and nothing else. The item needed a note to exist (`db.py:302-304`);
 promotion runs through `db.promote()` and is refused by the allocation gate at
@@ -695,7 +695,7 @@ unexplainable, and an unexplained message is how a personal tool starts getting
 ignored. `warning=False`, because the last-cycle warning is a lifespan
 statement and a deadline item is lifespan-exempt (D1.10).
 
-### D5.2 — The timezone setting is `POP_TZ`, and `TZ` is refused outright
+### D5.2 — The timezone setting is `DR_BRAINROT_TZ`, and `TZ` is refused outright
 
 `TZ` is the POSIX system-timezone variable. `config.load()` overlaid
 `os.environ` for every key in `_KEYS`, and `TZ` was one of them, so any cron
@@ -708,13 +708,13 @@ arrived through the config layer instead. The build had already been bitten
 once from the other direction, by a launchd job stamped CEST rather than WEST
 (`README.md:105-109`).
 
-The setting is now `POP_TZ`, defaulting to `"Europe/Lisbon"`
+The setting is now `DR_BRAINROT_TZ`, defaulting to `"Europe/Lisbon"`
 (`config.py:70-75`).
 
 **Renaming the read was not sufficient on its own.** `TZ` is removed from
 `_KEYS` entirely (`config.py:82-89`), so no ambient value under that name can
 reach `Settings` by any path — not as an override, and not as a fallback when
-`POP_TZ` is absent. `tests/test_config.py` asserts `"TZ" not in config._KEYS`
+`DR_BRAINROT_TZ` is absent. `tests/test_config.py` asserts `"TZ" not in config._KEYS`
 structurally, so a later edit to that set cannot quietly re-add it.
 
 An existing `.env` still carrying `TZ=` now fails `check_env.py`'s presence
@@ -723,7 +723,7 @@ That noise is the point: a config key that stops being read should say so.
 
 `CRON_TZ=Europe/Lisbon` in `README.md`'s crontab block is deliberately
 untouched. It controls when the daemon fires the jobs, which is a genuinely
-different concern from what POP believes its own timezone to be, and both are
+different concern from what the queue believes its own timezone to be, and both are
 needed. `README.md:111-120` now says so explicitly, because the two being
 confusable is how this defect gets reintroduced.
 
@@ -845,29 +845,29 @@ failed build log (D0.15) — launchd was reporting correctly.
 Both schedulers fire in system local time, so triage is scheduled at **19:00
 Warsaw = 18:00 Lisbon**. Lisbon and Warsaw share EU DST dates, so that offset is
 a constant +1h; verified across 400 days and both switchovers, zero mismatches.
-Scheduling `Hour 18` would have fired an hour *before* POP's own week boundary
+Scheduling `Hour 18` would have fired an hour *before* the queue's own week boundary
 and closed the wrong week every Sunday.
 
-Unresolved and the user's call: POP is configured `POP_TZ=Europe/Lisbon`
+Unresolved and the user's call: the queue is configured `DR_BRAINROT_TZ=Europe/Lisbon`
 because the brief specifies Sunday 18:00 Lisbon, but the machine is in Warsaw.
-If triage should happen at 18:00 *local* instead, set `POP_TZ=Europe/Warsaw`
+If triage should happen at 18:00 *local* instead, set `DR_BRAINROT_TZ=Europe/Warsaw`
 and change the plist to `Hour 18`.
 
 ### D5.10 — The bot runs under launchd with KeepAlive
 
 It was previously running from an interactive shell and would have died with
-that session. `com.jacob.pop.bot.plist` restarts it on crash and across
+that session. `com.jacob.dr-brainrot.bot.plist` restarts it on crash and across
 reboots, with `ThrottleInterval` 30 so a crash-loop cannot spin. Telegram
 permits exactly one `getUpdates` poller per token, so any manually started
 instance must be stopped before bootstrapping this (D5.6).
 
-The stale `com.jacob.pop.build.plist` was also removed from
+The stale `com.jacob.dr-brainrot.build.plist` was also removed from
 `~/Library/LaunchAgents`. Agents there load at login, so it would have re-armed
 itself and fired again the next Saturday. The `.build-complete` sentinel would
 have aborted the run safely, but the job should not exist at all. The source
 file stays in the project as the record for D0.15.
 
-### D5.11 — `POP_TZ` changed to Europe/Warsaw at the user's instruction
+### D5.11 — `DR_BRAINROT_TZ` changed to Europe/Warsaw at the user's instruction
 
 Supersedes the Lisbon setting in D5.9 and departs from the brief, which
 specifies "Sunday 18:00 Europe/Lisbon". The user is in Warsaw; triage at 19:00
@@ -877,9 +877,9 @@ about.
 
 Three things moved together, and all three must stay in step:
 
-1. `.env`: `POP_TZ=Europe/Warsaw`.
-2. `com.jacob.pop.triage.plist`: `Hour` 19 → 18. The system timezone and
-   `POP_TZ` now agree, so launchd fires exactly on POP's own week boundary
+1. `.env`: `DR_BRAINROT_TZ=Europe/Warsaw`.
+2. `com.jacob.dr-brainrot.triage.plist`: `Hour` 19 → 18. The system timezone and
+   `DR_BRAINROT_TZ` now agree, so launchd fires exactly on the queue's own week boundary
    rather than being offset against it.
 3. The stored `weeks` row was **realigned, not deleted**: its key moved from
    `2026-08-23T17:00:00+00:00` (Sunday 18:00 Lisbon) to
@@ -889,45 +889,45 @@ Three things moved together, and all three must stay in step:
    but the kind of debris that makes a later bug hard to read.
 
 Side effect worth knowing: the Warsaw boundary for 30 August had already passed
-when the switch was made, so the change moved POP into a new week immediately.
+when the switch was made, so the change moved the queue into a new week immediately.
 Nothing was lost — the outgoing week was empty.
 
-The bot was restarted because `POP_TZ` is read once at process start; the
+The bot was restarted because `DR_BRAINROT_TZ` is read once at process start; the
 running instance still held Lisbon.
 
 **If the user moves timezone again**, all three of the above must change
-together, and the plist `Hour` must be offset if the system zone and `POP_TZ`
+together, and the plist `Hour` must be offset if the system zone and `DR_BRAINROT_TZ`
 diverge. Firing early is the failure that closes the wrong week.
 
 ---
 
-# Part II — DRBR
+# Part II — dr-brainrot
 
-Decisions for the DRBR extension (`drbr-build-brief.md`). Numbered `DR<phase>.<n>`
-so they never collide with POP's `D` numbers above. Phase 0 answers came from
+Decisions for the dr-brainrot extension (`dr-brainrot-build-brief.md`). Numbered `DR<phase>.<n>`
+so they never collide with the queue's `D` numbers above. Phase 0 answers came from
 the user on 2026-09-16; everything after Phase 0 was decided without asking,
 per the build prompt.
 
 ## Phase 0 — dependencies (user answers and consequences)
 
-### DR0.1 — `drbr/` is the master folder; POP was moved into it
-User decision. POP's launchd agents were stopped, `data/pop.db` and both `.env`
+### DR0.1 — `dr-brainrot/` is the master folder; the podcast queue was moved into it
+User decision. The queue's launchd agents were stopped, `data/dr-brainrot.db` and both `.env`
 files were backed up to `/Users/Jacob/Projects/drbr-backup-20260916/` (integrity
-check `ok`), POP's files and `.git` were moved into `drbr/`, the venv was
+check `ok`), the queue's files and `.git` were moved into `dr-brainrot/`, the venv was
 rebuilt (venvs are not relocatable), the three plists and `run_build.sh` were
 repointed, and the agents were re-bootstrapped. 488 tests and `check_env.py`
-passed before the first DRBR change. Work happens on git branch `drbr`.
+passed before the first dr-brainrot change. Work happens on git branch `dr-brainrot`.
 
-### DR0.2 — POP stays flat at the repo root, not in `drbr/pop/`
-The brief's layout shows `pop/`. POP's 46 intra-module imports are flat
+### DR0.2 — The queue stays flat at the repo root, not in `dr-brainrot/pop/`
+The brief's layout shows `pop/`. The queue's 46 intra-module imports are flat
 (`import db`), `config.ROOT`/`.env`/`data/` resolve from the module's own
 directory, and tests monkeypatch module objects by name. A subpackage would
 mean rewriting all of that for no behavioural gain and at real risk to a
-working system. New DRBR code follows the brief's names (`sources/`,
+working system. New dr-brainrot code follows the brief's names (`sources/`,
 `labels.py`, `report.py`, `dashboard/`, `extension/`).
 
 ### DR0.3 — The vault is scanned in place; no local agent
-The brief's fork assumed a VPS. There is no VPS: POP runs on the Mac, the vault
+The brief's fork assumed a VPS. There is no VPS: the queue runs on the Mac, the vault
 is a local git repo at `<vault path>` (obsidian-ingest's own default), and the browser extension runs on
 the same machine. "Server-side scanning" and "local" are the same host.
 
@@ -938,7 +938,7 @@ for re-parsing and by marking all screenshot figures `screenshot_ocr`.
 
 ### DR0.5 — Pooled wasteful allowance is 360 minutes
 User decision (6 hours across every source). `.env` `WEEKLY_ALLOWANCE_MIN=360`.
-The currently open POP week keeps its 180-minute snapshot, as POP designed;
+The currently open week keeps its 180-minute snapshot, as the queue designed;
 the next week opens at 360.
 
 ### DR0.6 — End date: 8 weeks from the first valid data date
@@ -950,7 +950,7 @@ cannot jump.
 ### DR0.7 — Inbox is everything under `01-Inbox/`, as it is today
 User decision. Any tracked note whose copies are all under `01-Inbox/`
 (including `Read/`, `Read/X Bookmarks/`, `YoutubeTranscripts/`) is unprocessed;
-anywhere else is kept. Only notes carrying a DRBR capture id are tracked, so
+anywhere else is kept. Only notes carrying a dr-brainrot capture id are tracked, so
 everything already in the vault is outside the measurement.
 
 ### DR0.8 — Cold Turkey usage comes from the website-statistics export
@@ -978,23 +978,23 @@ writability, and Apple Vision importability.
 `schema.sql` stays the version-1 baseline, so a fresh database and an upgraded
 one run the identical path (asserted by test). Each `migrations/NNNN_*.sql`
 runs in one transaction with its version bump; a failure rolls the whole step
-back and it retries whole on the next start. Migration 0002 is additive: no POP
-row is rewritten, and new columns default to pre-DRBR behaviour. Verified
+back and it retries whole on the next start. Migration 0002 is additive: no queue
+row is rewritten, and new columns default to pre-dr-brainrot behaviour. Verified
 against a copy of the real database (row counts unchanged, integrity ok).
 
-### DR1.2 — YouTube captures reuse the POP queue via `episodes.platform`
+### DR1.2 — YouTube captures reuse the podcast queue via `episodes.platform`
 The brief pools the allowance across "a wasteful podcast and a wasteful YouTube
-save", and spending it "requires the existing POP path". So YouTube saves go
-through POP's queue. `queue.spotify_id` is `NOT NULL REFERENCES episodes`, and
+save", and spending it "requires the existing queue path". So YouTube saves go
+through the queue. `queue.spotify_id` is `NOT NULL REFERENCES episodes`, and
 SQLite cannot relax that without a table rebuild. So YouTube rows live in
 `episodes` with `platform='youtube'` and key `youtube:<videoId>`. The column
-name is now slightly wrong, but every POP query, state transition and test is
+name is now slightly wrong, but every queue query, state transition and test is
 untouched.
 
 ### DR1.3 — The lock stays on for worthwhile items; only the allowance is conditional
 The brief says "lock and allocation ceiling become conditional on the label"
 and "worthwhile content is unrestricted and uncounted". The build prompt says
-"POP's existing lock behaviour remains intact for worthwhile items" and lists
+"The queue's existing lock behaviour remains intact for worthwhile items" and lists
 "worthwhile items accidentally bypassing the existing gate" as a defect. They
 agree on the allowance and conflict on the lock. The prompt is the more
 specific instruction and was written after the brief, so worthwhile items keep
@@ -1002,14 +1002,14 @@ the 48h lock and triage but cost 0 minutes and never count toward debt or
 alerts. "Unrestricted" is read as "no minute ceiling".
 
 ### DR1.4 — Debt comes from pooled wasteful consumption
-POP's debt was driven by listened minutes (D1.5). DRBR keeps that principle and
+The queue's debt was driven by listened minutes (D1.5). dr-brainrot keeps that principle and
 widens it: debt = pooled **wasteful** minutes across Spotify, YouTube, Screen
 Time and Cold Turkey minus the effective allowance, clamped as before (D1.6).
-`weeks.listened_min` keeps its POP meaning (raw Spotify minutes) so no POP
+`weeks.listened_min` keeps its original meaning (raw Spotify minutes) so no
 reading of it changes.
 
 ### DR1.5 — Late imports recompute debt
-Screen Time, Cold Turkey and YouTube arrive after the week closes, while POP's
+Screen Time, Cold Turkey and YouTube arrive after the week closes, while the queue's
 rollover runs Sunday 18:00. `evidence.finish_import` calls
 `allowance.on_measurements_changed`, which recomputes `debt_min` for weeks
 whose predecessor's minutes changed. A debt can therefore rise on Monday. The
@@ -1023,7 +1023,7 @@ decision. A button after capture would be a second decision. Conflicting tokens
 are not guessed between.
 
 ### DR1.7 — Weekly data maps Sunday..Saturday → the allowance week opening that Sunday 18:00
-Screen Time and Cold Turkey report local Sunday–Saturday weeks. POP's allowance
+Screen Time and Cold Turkey report local Sunday–Saturday weeks. The queue's allowance
 week runs Sunday 18:00 → Sunday 18:00. Mapping the calendar week to the
 allowance week that opens on its Sunday overlaps by 6¼ of 7 days, and a day is
 never split. The residual (Sunday before 18:00 charged a few hours "late") is
@@ -1037,7 +1037,7 @@ applied once and X's minutes are one row in cost per keeper.
 ### DR1.9 — Double-counted surfaces are excluded from totals, not deleted
 YouTube history is account-level, so Screen Time's "YouTube" app and Cold
 Turkey's youtube.com would count the same viewing twice; Spotify's app and web
-player overlap POP polling. Those rows are stored and shown with the reason,
+player overlap the queue's polling. Those rows are stored and shown with the reason,
 but excluded from pooled minutes, allowance and cost per keeper. Spotify music
 is outside the brief's scope and is therefore not measured anywhere, which is
 stated as such.
@@ -1050,7 +1050,7 @@ YouTube, X, iPhone apps, desktop web). Groups with no keeper path show minutes
 with "no keepers yet", never a price.
 
 ### DR1.11 — Podcast impulse listening stays a named blind spot
-POP polls only captured episodes, so listening that never touched the queue is
+The queue polls only captured episodes, so listening that never touched the queue is
 invisible. A followed-shows sweep would fix it, but the brief says "No change"
 for Spotify beyond conditional gating. It's reported as a blind spot, not
 silently absorbed or estimated.
@@ -1070,21 +1070,21 @@ Partial or all-devices captures are kept as evidence with a warning saying
 what to send, and write no minutes.
 
 ### DR1.14 — YouTube queue items never auto-transition to `played`
-POP's `played` is Spotify's own `fully_played` flag. YouTube offers no
+The queue's `played` is Spotify's own `fully_played` flag. YouTube offers no
 such flag. Declaring "played" at some watched percentage would be an inferred
-threshold. YouTube items lapse and expire through POP's normal rules. Their
+threshold. YouTube items lapse and expire through the queue's normal rules. Their
 consumption still appears in gated/ungated minutes and the "played" funnel
 stage counts measured watching after promotion.
 
-### DR1.15 — obsidian-ingest talks to DRBR through a JSONL outbox
+### DR1.15 — obsidian-ingest talks to dr-brainrot through a JSONL outbox
 The two bots run from different repos and venvs. An append-only JSONL file
 couples them by a documented line format instead of shared code or a shared
-database connection, and DRBR ingests it idempotently by `capture_id`.
+database connection, and dr-brainrot ingests it idempotently by `capture_id`.
 
 ### DR1.16 — The outbox line is written before the note
 If the log succeeds and the note write fails, the capture is `excluded` at
 scan, which is harmless. If the note were written first and the log failed,
-the note would carry an id DRBR never heard of and would be silently missing
+the note would carry an id dr-brainrot never heard of and would be silently missing
 from the denominator.
 
 ### DR1.17 — "Edited after capture" compares body hashes, not mtimes
@@ -1101,13 +1101,13 @@ only when the content does.
 
 ### DR1.19 — Extension ingest shares the dashboard's 127.0.0.1 port, behind a token
 One local Flask process serves the dashboard and `/api/youtube/*`. A random
-`DRBR_INGEST_TOKEN` is required on the API so no other local page can post
+`DR_BRAINROT_INGEST_TOKEN` is required on the API so no other local page can post
 fake history.
 
-### DR1.20 — DRBR callback data uses the reserved `d:` prefix
-POP's callback handler caught every button. It is now registered with a
-pattern that excludes `d:`, so POP's "Unrecognised button." behaviour for
-garbage data is unchanged and DRBR namespaces can't collide with
+### DR1.20 — dr-brainrot callback data uses the reserved `d:` prefix
+The queue's callback handler caught every button. It is now registered with a
+pattern that excludes `d:`, so the queue's "Unrecognised button." behaviour for
+garbage data is unchanged and dr-brainrot namespaces can't collide with
 `promote:`/`drop:`.
 
 ### DR1.21 — Duplicate evidence is detected by content hash; re-parsing is explicit
@@ -1130,10 +1130,10 @@ Shorts unchanged. This reads a stored value, the YouTube equivalent of Spotify's
 `resume_point`, so nothing is inferred. `detail.minutes_basis` records which
 rule applied. `PARSER_VERSION` is now `youtube-2`.
 
-### DR2.2 — Measurement starts at a fixed go-live date (`DRBR_GO_LIVE=2026-09-13`)
+### DR2.2 — Measurement starts at a fixed go-live date (`DR_BRAINROT_GO_LIVE=2026-09-13`)
 The first YouTube sync reaches about 3.5 weeks back from the initial page alone,
 which would have set `diagnostic_start` to 24 August and burned weeks of the
-eight-week window before DRBR existed. Go-live is the Sunday of the week DRBR
+eight-week window before dr-brainrot existed. Go-live is the Sunday of the week dr-brainrot
 was built, so this week's Cold Turkey export counts. YouTube history before
 go-live is kept as raw evidence and counted in import meta
 (`skipped_before_go_live`), but not measured. `finish_import` never sets
@@ -1185,7 +1185,7 @@ with a warning and the import is `partial`.
 
 ### DR2.10 — Report windows start at the diagnostic start
 `report.window_start` = `diagnostic_start` once set, else `settings.go_live`.
-Queue captures from before it drop out of the dashboard funnels. POP's own
+Queue captures from before it drop out of the dashboard funnels. The queue's own
 `/stats` in Telegram still reports all time.
 
 ## Phase 4 — verification decisions
@@ -1194,14 +1194,14 @@ Queue captures from before it drop out of the dashboard funnels. POP's own
 DR2.2 skipped pre-go-live YouTube history at ingest, but Cold Turkey and Screen
 Time still wrote those days and `pooled_minutes` charged them. A first export
 reaching back past go-live would have handed week 1 a debt built from days
-before DRBR existed. The rows are still stored and shown in weekly totals
+before dr-brainrot existed. The rows are still stored and shown in weekly totals
 (they are evidence); only the allowance, debt and gated split ignore them.
-Spotify is POP's own allowance, older than DRBR, and is unaffected.
+Spotify is the queue's own allowance, older than dr-brainrot, and is unaffected.
 
 ### DR4.2 — A vault scan without its inbox fails
 Without the inbox folder every note is "outside the inbox", so every capture
 would be recorded kept and cost per keeper would fall. On macOS a wrong-case
-`DRBR_VAULT_INBOX` passed the old `is_dir()` check and matched no path, with
+`DR_BRAINROT_VAULT_INBOX` passed the old `is_dir()` check and matched no path, with
 the same result. The inbox is resolved to its on-disk spelling, and a missing
 one fails the scan when captures exist (same reasoning as DR2.6).
 
@@ -1217,7 +1217,7 @@ blocked in tests. Not worth that risk for a few seconds a week.
 under the label that applied then. It only caps further promotions in the
 same week and resets at rollover; debt, alerts and reports read consumption
 through the current labels and do change at once (DR2.7). A refund would need
-per-promotion cost records, which POP never stored, to undo a decision that
+per-promotion cost records, which the queue never stored, to undo a decision that
 was correctly priced when it was made.
 
 ## Post-build — user-requested changes
@@ -1242,14 +1242,14 @@ document, in Cold Turkey's own export shape. The full-URL table is never copied.
 - `jobs.py daily` calls `sources/coldturkey_local.sync` before sending prompts.
 - It reads finished local days only (never today), from the later of go-live and 8 days ago, so late corrections replace facts on their natural key. An unchanged window is a duplicate import.
 - It feeds the existing `coldturkey.ingest`, so every tested rule still applies, with `origin="local_db"`.
-- Local day = `POP_TZ`. The first week had no activity near midnight, so it could not tell local days from UTC days; local matches the rest of DRBR.
+- Local day = `DR_BRAINROT_TZ`. The first week had no activity near midnight, so it could not tell local days from UTC days; local matches the rest of dr-brainrot.
 - Provenance keeps the `manual_export` key, so these facts replace any earlier export facts for the same domain and day. The display text is now "Cold Turkey statistics (this Mac)" and `detail.origin` says which route.
 - Desktop app time (`data-helper.db`) is not read. The brief scopes Cold Turkey to websites.
 
 **Fallback.** If the database can't be read, the job step fails loudly, the
 week stays uncovered, and the Monday reminder asks for a manual export,
 saying the automatic read failed. Manual exports sent to the bot still work.
-`DRBR_COLDTURKEY_DB` unset means manual exports only. Tests never read the real file.
+`DR_BRAINROT_COLDTURKEY_DB` unset means manual exports only. Tests never read the real file.
 
 **Blind spots updated.** "Top domains only" is claimed only while any
 manual-export import exists. "This Mac only" always stands.
@@ -1257,8 +1257,8 @@ manual-export import exists. "This Mac only" always stands.
 ### DR5.2 — Going over the allowance is recorded, never carried as debt
 User decision (2026-09-17): "This notion of the carryover of debt needs to go.
 I need it recorded. How much I go over, I don't want to carry debt over."
-This retires POP's D1.5/D1.6 (debt from listening, clamped at one allowance)
-and DRBR's DR1.4/DR1.5 debt recompute.
+This retires the queue's D1.5/D1.6 (debt from listening, clamped at one allowance)
+and dr-brainrot's DR1.4/DR1.5 debt recompute.
 
 - **Recorded:** `weeks.overage_min` (migration 0003) = max(0, pooled wasteful
   minutes − that week's own allowance), in whole minutes and **unclamped**. The
@@ -1267,7 +1267,7 @@ and DRBR's DR1.4/DR1.5 debt recompute.
   `allowance.on_measurements_changed`, which now updates every week
   independently. No week's figure affects another.
 - **Never carried:** every week opens with the full allowance.
-  `weeks.debt_min` stays in POP's schema but was zeroed by migration 0003 and
+  `weeks.debt_min` stays in the queue's schema but was zeroed by migration 0003 and
   is ignored by `Week.effective_allowance_min`, so even a stray write can't
   shrink the gate.
 - **Unchanged:** the gate still refuses a wasteful promotion that exceeds what
@@ -1283,7 +1283,7 @@ and DRBR's DR1.4/DR1.5 debt recompute.
   That file is the frozen v1 baseline and is deliberately not edited.
 
 ### DR5.3 — Desktop app time is read from Qbserve, per app per day, browsers skipped
-User request (2026-09-17): the user asked how Qbserve could improve DRBR and
+User request (2026-09-17): the user asked how Qbserve could improve dr-brainrot and
 approved adding desktop apps. Cold Turkey sees this Mac's browsers only
 (DR5.1), so native apps (chat, mail, games, the Spotify and X clients) were a
 blind spot. Qbserve, already running on this Mac, keeps its tracking in a
@@ -1293,7 +1293,7 @@ local SQLite database (`~/Library/Application Support/Qbserve/UserDatabase.sqlit
 - `Apps(_id, bundle, localized_name)`, `Activities(_id, source, app_id)`, and
   the monthly history tables listed in `HistoryTablesIndex`
   (`activity_id, start_time, duration`).
-- Rows are summed per app bundle per local day (`POP_TZ`) while reading. Only
+- Rows are summed per app bundle per local day (`DR_BRAINROT_TZ`) while reading. Only
   bundle, display name, day and minutes leave the module.
 - A history table name is used only if it fully matches `z_HistoryLog_YYYY_M`;
   anything else in the index is ignored, never interpolated into SQL.
@@ -1302,7 +1302,7 @@ local SQLite database (`~/Library/Application Support/Qbserve/UserDatabase.sqlit
 - `Activities.title`: window titles and page names. It is never selected, so it
   can't reach the database, raw evidence or logs.
 - Qbserve's productivity ratings and categories. They are an automatic judgement
-  of value, which is exactly what DRBR refuses to make (DR1.18). Apps are
+  of value, which is exactly what dr-brainrot refuses to make (DR1.18). Apps are
   labelled by the user like every other source.
 
 **Browsers are detected from the data.** Any app that owns a website activity
@@ -1332,7 +1332,7 @@ There is no hard-coded browser list to go stale.
   database is never copied.
 - Desktop app minutes are always ungated. They count in pooled wasteful minutes
   by label, like every other measurement.
-- `DRBR_QBSERVE_DB` unset means desktop apps are not measured, and no weekly
+- `DR_BRAINROT_QBSERVE_DB` unset means desktop apps are not measured, and no weekly
   row expects them.
 
 **Absence is not zero.** Qbserve records nothing while it isn't running, which
@@ -1349,7 +1349,7 @@ reading as 0 minutes. Stale-data handling:
 
 ### DR5.4 — The week opening 13 Sep was corrected to the 360-minute allowance
 User decision (2026-09-17): "set this week to 360". That week's row was opened
-with POP's old 180-minute snapshot before the user chose 360 in Phase 0, so
+with the queue's old 180-minute snapshot before the user chose 360 in Phase 0, so
 it showed 127 min over. It is the first diagnostic week, and the only row
 changed: `weeks.allowance_min` went 180 → 360 for `2026-09-13T16:00:00+00:00`,
 then overage was re-recorded. Earlier pre-diagnostic weeks keep 180. A backup
@@ -1361,8 +1361,8 @@ User framing (2026-09-17), which governs this decision:
 > "Let's ensure we do not lose sight of the fact that this tool is specifically for brain rot content, not for how much time I'm wasting on Amazon or websites tagged wasteful. This is purely a content brain-rotting exercise. Do not lose sight of that."
 
 The user asked how amazon.pl should be labelled. Since Cold Turkey's automatic
-read (DR5.1) and Qbserve (DR5.3), DRBR sees many sources that are not content at
-all: shopping, email, todo apps, Notion, Apple ID, weather, banking, DRBR's own
+read (DR5.1) and Qbserve (DR5.3), dr-brainrot sees many sources that are not content at
+all: shopping, email, todo apps, Notion, Apple ID, weather, banking, dr-brainrot's own
 dashboard, most desktop apps. Forcing each into wasteful or worthwhile would
 turn a content diagnostic into a screen-time tracker. The user approved a third
 source label, **tool** = "not content; out of scope".
@@ -1375,7 +1375,7 @@ this content at all?", which is a question about scope. Content is still
 labelled strictly binary.
 
 **The rule** (the same words on the Labels page and in the Telegram prompt):
-DRBR measures brain-rot content only. Label each source by asking: is this
+dr-brainrot measures brain-rot content only. Label each source by asking: is this
 *content* I consume? If yes, is it brain rot (wasteful) or not (worthwhile)? If
 I only go there to get a task done — buy, pay, book, log in, organise, check
 the weather — it's a tool and isn't counted.
@@ -1398,7 +1398,7 @@ there is no `#tool` token. A captured queue item is content by definition, so
 an override on it (`#wasteful` / `#worthwhile`) still beats a tool source.
 
 **The only automatic tool label.** Migration 0005 labels the `web_domain`
-sources `127.0.0.1` and `localhost` tool, because DRBR's own dashboard is the
+sources `127.0.0.1` and `localhost` tool, because dr-brainrot's own dashboard is the
 measuring instrument, not content (user-approved). It labels only rows that
 already exist when it runs, with `labelled_at` = the migration time. Nothing
 else is labelled for the user.
@@ -1410,7 +1410,7 @@ for entertainment. A relabel re-records every week's overage at once.
 - Migration `0005_tool_label.sql` (schema_version 5) rebuilds `sources` so
   `label` allows `tool`, the same way as 0004 (foreign keys off,
   `foreign_key_check` before commit, whole-step rollback).
-- `drbr_types.TOOL` and `SOURCE_LABELS`. `LABELS` stays the two value labels.
+- `dr_brainrot_types.TOOL` and `SOURCE_LABELS`. `LABELS` stays the two value labels.
 - Dashboard: third button, "tool" filter, and the scope line on the Overview.
   Telegram: third button, callback `d:lbl:t:<id>`.
 - **Wording.** User-facing text now says "wasteful content minutes" where it said
@@ -1427,7 +1427,7 @@ User framing (2026-09-22), which governs this decision:
 > days, saying there is content to be tagged in the desktop app, but I don't
 > want to be doing it in the Telegram app itself."
 
-Two separate failures, with one cause. DRBR had grown five sources with three
+Two separate failures, with one cause. dr-brainrot had grown five sources with three
 different collection modes (automatic daily, automatic continuous, manual
 weekly) and never said anywhere which was which. And labelling — the one act
 the whole diagnostic depends on — was happening in the medium worst suited to
@@ -1435,7 +1435,7 @@ it: one message per source, each a decision made without seeing the minutes,
 the provenance, or the other nineteen sources.
 
 **What Telegram keeps.** Captures, Sunday triage, allowance alerts, and the
-Monday reminder for the two sources DRBR genuinely cannot fetch (Screen Time,
+Monday reminder for the two sources dr-brainrot genuinely cannot fetch (Screen Time,
 YouTube). That is the whole list. Everything else is a page.
 
 **The 3-day label digest.** `handlers_labels.send_label_digest` replaces
@@ -1451,7 +1451,7 @@ sends would only make `bot.build_app`'s wiring lie.
 
 **Labelling is ordered by minutes now.** The bot asked oldest-first
 deliberately: a *prompt* ordered by size would have told the user which
-sources DRBR thought mattered. A queue the user opens himself is a different
+sources dr-brainrot thought mattered. A queue the user opens himself is a different
 act — he is choosing where to spend attention — so `labels.label_queue` sorts
 by measured minutes in the diagnostic window, biggest decision first. The
 exclusions are unchanged and are exclusions of *fact*, not of prompting
@@ -1472,7 +1472,7 @@ tier, and what it cannot see (reusing `GROUP_BLIND_SPOTS`, so the caveats
 cannot drift from the ones on cost per keeper). It says in full that **X is
 measured twice and counted once**: desktop x.com through Cold Turkey, the X
 iPhone app through Screen Time, folded into one source by `normalise_key` —
-the single most confusing thing in DRBR, now stated rather than discovered.
+the single most confusing thing in dr-brainrot, now stated rather than discovered.
 
 **The Monday reminder is now the only import reminder**, so each message
 carries the whole picture: what is missing, that this source is manual, the
@@ -1523,7 +1523,7 @@ day's slot.
 The overview defaulted to the last complete week while the allowance section
 always described the current one, so two different weeks sat side by side with
 nothing saying which was which. In week 1 the default was also a week *before*
-`DRBR_GO_LIVE`, i.e. outside the diagnostic. Now: the default is the current
+`DR_BRAINROT_GO_LIVE`, i.e. outside the diagnostic. Now: the default is the current
 week; a `?week=` earlier than the diagnostic window clamps forward; a future
 week clamps back; and the "previous week" link disappears in the first week
 rather than leading nowhere. `test_overview_defaults_to_the_last_complete_week...`
@@ -1537,18 +1537,18 @@ template so `/labels` keeps its table as the page's first `<tbody>`),
 reading OCR could not). Flash messages travel as whitelisted `?msg=` codes
 rather than a Flask session, so the app still needs no secret key.
 
-### DR5.8 — The Overview opens with a written summary, generated weekly from DRBR's own figures
+### DR5.8 — The Overview opens with a written summary, generated weekly from dr-brainrot's own figures
 User request (2026-09-22), which governs this decision:
 
 > "I'd like 'overview' to be a summary based on LLM findings parsed findings (Opus 5) on my activity, e.g. 'brainrot activity is decreasing but reflex content consumption remains an issue' or whatever"
 
 The Overview shows ten panels of figures and leaves the reading of them to the
-user. Once a week, DRBR now writes the reading down: three to five plain
+user. Once a week, dr-brainrot now writes the reading down: three to five plain
 sentences at the top of the page, generated by Claude Opus 5 from the numbers
-DRBR already computed.
+dr-brainrot already computed.
 
 **Why this does not breach "never infer value" (DR1.22, DR5.5, DR5.6).** The
-rule DRBR is built on is that *the system counts and the person labels*. A
+rule dr-brainrot is built on is that *the system counts and the person labels*. A
 generated paragraph would breach it if it decided what was worth the time. This
 one does not, for four reasons that are enforced rather than hoped for:
 
@@ -1582,7 +1582,7 @@ Nothing that identifies a source or a piece of content leaves this Mac. The
 payload may contain report **group** names (podcasts, YouTube, X, iPhone apps,
 desktop web, desktop apps), minutes by label per group per week, week-on-week
 changes, allowance and overage, reflex (ungated wasteful) minutes and share,
-gated vs ungated per group, cost per keeper per group, the POP and vault funnel
+gated vs ungated per group, cost per keeper per group, the queue and vault funnel
 counts, and per-week coverage gaps. It never contains a podcast show, a YouTube
 channel, an app name, a domain, a Mac app bundle id, an item title, a video id,
 a note title, a path, or anything at all from the vault — and never a stored
@@ -1606,7 +1606,7 @@ tokens: a few cents a month at Opus 5 rates. `POST /insights/refresh` on the
 Overview rewrites it on demand with `force=True`.
 
 **Turning it off.** Remove `ANTHROPIC_API_KEY` from `.env`. Nothing is called,
-nothing is sent, and the panel shows DRBR's own computed sentences with the
+nothing is sent, and the panel shows dr-brainrot's own computed sentences with the
 reason printed beside them. `check_env.py` reports the key as optional and
 checks its shape only; it never makes a live call.
 
@@ -1618,7 +1618,7 @@ a missing paragraph is not a data failure and must not turn the morning launchd
 log red next to real ones.
 
 **The view branches on one field.** `Insight.model is None` **is** the fallback:
-a model run always names its model, DRBR's own sentences never do. There is no
+a model run always names its model, dr-brainrot's own sentences never do. There is no
 second boolean that could disagree with it. `Insight.fallback_reason` carries
 the reason verbatim and printable ("No ANTHROPIC_API_KEY is set…", "API call
 failed: …", "Too little data: …"), because every other failure on this dashboard
@@ -1654,7 +1654,7 @@ low`, the third succeeded again. Nothing had been fixed in between — the
 balance was simply brushing the floor.
 
 Under the old rule, if that middle attempt had been the morning's only one, the
-Overview would have shown DRBR's own computed sentences for a further seven
+Overview would have shown dr-brainrot's own computed sentences for a further seven
 days, and only a person noticing the amber line and pressing refresh would have
 recovered it. A summary that reads "no model involved" for a week because of a
 four-minute outage is not honest reporting, it is a stuck flag.
@@ -1681,7 +1681,7 @@ retry supersedes the fallback with no further change.
 Tuesday the 22nd, looking at a week that was two days old, Jacob asked: "It
 says 'missing and incomplete,' but do I owe anything yet?"
 
-He did not. DRBR asks for manual evidence on the Monday *after* a measurement
+He did not. dr-brainrot asks for manual evidence on the Monday *after* a measurement
 week ends, and never asks for a week in progress. iPhone apps read `missing`
 because Screen Time is a weekly screenshot that cannot exist yet, and would
 have read `missing` every day of every week by construction. YouTube read
@@ -1700,7 +1700,7 @@ nothing arrived, `so_far`/`incomplete` for coverage that does not span the
 week. The threshold is `report.week_is_due`, read from the two rules
 `handlers_imports.send_due_prompts` already prompts on — the Monday after the
 week, and never a week that ended before go-live (DR2.2). Sharing one rule is
-the point: a page that says "missing" on a day DRBR would not ask is the bug
+the point: a page that says "missing" on a day dr-brainrot would not ask is the bug
 being fixed, and two copies of the threshold would let it return.
 
 `week.due_on` carries that Monday to the page, because the label alone still
@@ -1846,7 +1846,7 @@ system that leaves the device at all. Everything after that stays local.
 the apportionment and the import. `report_group(web_domain, iphone)` is the
 phone group, not desktop web, so the sites land where the block they replace
 was. `jobs.run_sync` gains a `phone_browser` step, configured by
-`DRBR_BRAVE_HISTORY_DB`; unset, the phone browser stays one block and nothing
+`DR_BRAINROT_BRAVE_HISTORY_DB`; unset, the phone browser stays one block and nothing
 changes.
 
 ### DR5.14 — The scheduled job applies whatever is in the working tree
@@ -1856,7 +1856,7 @@ was committed, and both times it was blamed on a dashboard restart. The second
 time that was wrong, and finding out why matters more than the attribution.
 
 `migrations/0007_phone_browser.sql` appeared at 09:24:46. The launchd job
-`com.jacob.drbr.jobs` runs at 09:30 daily, and `logs/jobs.log` has it starting
+`com.jacob.dr-brainrot.jobs` runs at 09:30 daily, and `logs/jobs.log` has it starting
 at 09:30:04 — four minutes later. `jobs.py` calls `db.migrate` at start, so that
 run applied 0007. The log line proves it was running uncommitted code, not just
 an uncommitted schema: `phone_browser: no phone browser figures to attribute`, a
@@ -2271,7 +2271,7 @@ between 29 Sep and 6 Oct; it put the week of 27 Sep at 383 minutes (23 over)
 instead of 362.5 (2.5 over), up 17% instead of 13%, and 13–19 Sep over the
 allowance. Reddit's pseudo-app was labelled tool, so it had not counted yet.
 
-`drbr_types.covered_elsewhere()` now answers what `COVERED_ELSEWHERE` answered,
+`dr_brainrot_types.covered_elsewhere()` now answers what `COVERED_ELSEWHERE` answered,
 plus a rule: every `com.qotoqot.qbserve.*` desktop app is already measured —
 YouTube by its history, any other site by the Mac's browser per site — except
 Qbserve's manual-activity wrapper, which is time entered by hand. A rule, not
@@ -2531,12 +2531,12 @@ so the Mac was in use, and Thursday's desktop-app time is lost: Qbserve records
 live and cannot fill a gap afterwards. The Mac had not restarted, so the old
 advice, "set it to open at login", would not have helped.
 
-**A keeper agent.** `launchd/com.jacob.drbr.qbserve.plist` runs at login and
+**A keeper agent.** `launchd/com.jacob.dr-brainrot.qbserve.plist` runs at login and
 every 10 minutes. If no process is named exactly `Qbserve`, it opens it hidden
 and in the background (`open -g -j -a Qbserve`) and logs one line to
 `logs/qbserve.log`. It runs only `pgrep` and `open`: no code from this
 repository (so DR5.14's working-tree risk doesn't apply), and it never reads or
-writes Qbserve's data. It is in `./drbr`'s agent list, so `start`, `stop` and
+writes Qbserve's data. It is in `./dr-brainrot`'s agent list, so `start`, `stop` and
 `status` include it. The price: quitting Qbserve on purpose is undone within 10
 minutes unless the agent is stopped first, which the README and the plist say
 how to do.
@@ -2584,7 +2584,7 @@ database that holds full URLs, and two rules. The witness sees browsers only:
 Mac use with no browsing at all goes unnoticed, however long. If Qbserve is
 ever uninstalled, the keeper logs one error line every 10 minutes.
 
-The agent is not installed by this change. Merging adds the file; `./drbr
+The agent is not installed by this change. Merging adds the file; `./dr-brainrot
 start` (or `cp` and `launchctl bootstrap`) loads it.
 
 ### DR5.28 — Audiobooks are measured, and never counted as brain rot
@@ -2697,7 +2697,7 @@ failed import, fails its own step in the log, and adds one plain line to the
 blind spots naming the days now unmeasured. Only a refused sign-in asks
 anything of him: "what needs you" carries the action, and the Sunday list,
 when it goes anyway, gains one un-numbered line with the exact command, `cd
-~/Projects/drbr && .venv/bin/python audible_login.py --again`. It is never a
+~/Projects/dr-brainrot && .venv/bin/python audible_login.py --again`. It is never a
 reason to send. Audible being unreachable asks nothing: the next morning
 tries again.
 
@@ -2719,7 +2719,7 @@ the first read has written rows, every Screen Time or Cold Turkey import the
 old bot takes is saved but its week is not recomputed, and the reply wrongly
 says nothing was recorded. So right after the merge, before Sync now or the
 next 00:15 or 09:30 run, both are restarted (`launchctl kickstart -k` on
-`com.jacob.drbr.dashboard` and `com.jacob.pop.bot`, README "Start
+`com.jacob.dr-brainrot.dashboard` and `com.jacob.dr-brainrot.bot`, README "Start
 everything"), and the bot's start time is checked to be after the merge.
 
 If he signs out, Screen Time's Audible app stays covered elsewhere. Its
@@ -2728,13 +2728,13 @@ minutes stay visible in that column, and the source is labelled tool anyway.
 **Mechanics.** Migration `0008_audiobooks.sql` (schema_version 8) widens
 `sources.kind` with `audiobook`, `measurements.provenance` with
 `audible_stats` and `imports.kind` with `audible`, by the rebuild of 0007.
-`drbr_types` gains the kind, the Audiobooks group (device `account`), the
+`dr_brainrot_types` gains the kind, the Audiobooks group (device `account`), the
 provenance ("Audible's own listening stats") and the import kind.
 `sources/audible.py` holds the read, the evidence document (the stats answers
 verbatim, the library reduced to titles and places), the split, the import and
 `reparse`. `jobs.SYNC_STEPS` ends with `audible`: last, as the one read that
 needs the internet, and adding it is what arms it (DR5.14). The dashboard
-shows a `listening stats` badge of its own. `DRBR_AUDIBLE_AUTH` overrides where
+shows a `listening stats` badge of its own. `DR_BRAINROT_AUDIBLE_AUTH` overrides where
 the sign-in is (default `data/audible_auth.json`); set but empty, it turns
 audiobooks off.
 
@@ -2756,7 +2756,7 @@ week", knowing some sources are weekly.
 
 **The refresh.** `jobs.py sync` runs every automatic read and sends nothing —
 no Telegram, no reminders, no summary — under a new agent,
-`com.jacob.drbr.nightly`, at 00:15. Cold Turkey and Qbserve deliberately read
+`com.jacob.dr-brainrot.nightly`, at 00:15. Cold Turkey and Qbserve deliberately read
 finished days only, so the morning job could not show a day until 09:30 the
 next morning; just after midnight is the first moment the day just ended is
 whole. launchd runs a missed calendar job at the next wake, so on a Mac asleep
@@ -2796,7 +2796,7 @@ affected.
 Residual, stated: a day Qbserve was quit part-way through still counts as read,
 because its read of that day succeeded. The keeper (DR5.27) is what prevents it.
 
-**Mechanics:** `jobs.main` gains `sync`; `launchd/com.jacob.drbr.nightly.plist`;
-`./drbr`'s AGENTS list and the README's agent table; `pace.py` (`Pace`,
+**Mechanics:** `jobs.main` gains `sync`; `launchd/com.jacob.dr-brainrot.nightly.plist`;
+`./dr-brainrot`'s AGENTS list and the README's agent table; `pace.py` (`Pace`,
 `pace()`); `pace` is the last argument of the Overview's render call.
 Rendering it in the week-summary strip is the UI session's.

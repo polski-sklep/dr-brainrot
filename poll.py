@@ -31,7 +31,7 @@ Four things in this module are load-bearing.
    which is most deadlines. `deadline_notices` is the same bookkeeping idea as
    `alerts_sent`: once per item, ever. See `surface_deadlines` and D5.1.
 
-DRBR (CONTRACTS.md Part II §7, Agent D) changes three things and nothing else:
+dr-brainrot (CONTRACTS.md Part II §7, Agent D) changes three things and nothing else:
 
 * **Alerts read pooled wasteful minutes** across every source
   (`allowance.pooled_minutes`), not Spotify's `listened_min`. Worthwhile
@@ -39,7 +39,7 @@ DRBR (CONTRACTS.md Part II §7, Agent D) changes three things and nothing else:
 * **YouTube queue items are never polled and never auto-`played`**: Spotify
   has no opinion about them and YouTube has no `fully_played` flag (DR1.14).
 * **Sources are backfilled** for active queue items, so a show captured before
-  DRBR existed can still be offered for labelling. Identity only, never a label.
+  dr-brainrot existed can still be offered for labelling. Identity only, never a label.
 
 Positions, deadline posts and alerts run as three isolated steps (DR5.25), so
 neither a Spotify nor a Telegram outage stops the others or the bookkeeping.
@@ -59,7 +59,7 @@ from config import Settings
 from spotify import clamped_delta
 from triage import SyncBot, render_deadline_notice, send
 
-log = logging.getLogger("pop.poll")
+log = logging.getLogger("dr-brainrot.poll")
 
 APPROACHING = "approaching"
 EXCEEDED = "exceeded"
@@ -330,7 +330,7 @@ def check_alerts(conn, clk: Clock, settings: Settings, bot) -> None:
     it. `INSERT OR IGNORE` on the composite key makes the write itself safe to
     repeat.
 
-    DRBR: the figure compared is pooled **wasteful** minutes across every
+    dr-brainrot: the figure compared is pooled **wasteful** minutes across every
     source, rounded to whole minutes the same way the recorded overage is
     (`allowance.whole_minutes`), so an alert and the overage it reports never
     disagree. Worthwhile minutes are never counted here. Nothing carries into

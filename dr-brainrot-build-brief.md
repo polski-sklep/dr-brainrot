@@ -1,12 +1,12 @@
-# Build brief: DRBR (Doctor Brain Rot)
+# Build brief: dr-brainrot (Doctor Brain Rot)
 
 An eight-week diagnostic that measures where attention actually goes across
 Spotify, YouTube, iPhone, desktop, and X, classifies it as wasteful or
 worthwhile, gates only the wasteful, and reports the results on a desktop
 dashboard.
 
-**This is a delta spec against the existing POP codebase, not a new build.**
-POP is built and working. DRBR absorbs it. Read the POP source before
+**This is a delta spec against the existing podcast-queue codebase, not a new build.**
+The podcast queue is built and working. dr-brainrot absorbs it. Read the queue's source before
 designing anything.
 
 Personal tool. Single user. Never productised.
@@ -15,11 +15,11 @@ Personal tool. Single user. Never productised.
 
 ## Read this first
 
-**POP already exists.** Its Telegram bot, SQLite layer, Spotify auth,
+**The podcast queue already exists.** Its Telegram bot, SQLite layer, Spotify auth,
 `resume_point` poller, capture flow, why-note gate, 48h lock, weekly triage and
-allowance accounting are all implemented. DRBR extends them. Phase 1 is
+allowance accounting are all implemented. dr-brainrot extends them. Phase 1 is
 reconnaissance of what is actually there, because this brief was written
-without sight of the final POP code and its assumptions may be wrong.
+without sight of the final queue code and its assumptions may be wrong.
 
 **This is a diagnostic with an end date, not a product.** Eight weeks from
 first data, then it stops and the user either names a decision it should change
@@ -45,7 +45,7 @@ front-loaded. Where this brief is silent, choose and document in
 Five sources. They differ enormously in how clean the data is. Do not paper
 over that in the reporting.
 
-### 1. Spotify podcasts (automatic, exists in POP)
+### 1. Spotify podcasts (automatic, exists in the queue)
 
 Already built. `resume_point` polled daily, clamped delta
 (`max(0, current - previous)`), `fully_played` for completion. No change except
@@ -126,7 +126,7 @@ Measures whether captured material was ever processed.
 
 - **The existing Telegram bot writes a capture ID into the note's frontmatter
   at creation.** This requires extending that bot.
-- DRBR scans the vault weekly, locates each capture ID, and records the folder
+- dr-brainrot scans the vault weekly, locates each capture ID, and records the folder
   the note currently sits in.
 - **Track by capture ID, never by path or filename.** Renames are common and
   happen precisely on the notes that mattered enough to develop. Path-based
@@ -181,14 +181,14 @@ captured into Obsidian and counted there instead.
 unrestricted and uncounted.**
 
 This is the one behaviour-changing mechanism in the system and it is confined
-to exactly the behaviour being limited. POP's existing lock and allocation
+to exactly the behaviour being limited. The queue's existing lock and allocation
 ceiling become conditional on the label.
 
 - One pooled weekly allowance across all sources, not per-source. Forces the
   tradeoff between a wasteful podcast and a wasteful YouTube save.
   (Author's decision where the brief was silent. Default 180 minutes, config
   value.)
-- Spending it requires the existing POP path: capture rather than play, one
+- Spending it requires the existing queue path: capture rather than play, one
   line saying why, wait out the lock, then choose at triage against everything
   else competing.
 - **Impulse consumption bypasses the gate entirely and is measured but
@@ -219,7 +219,7 @@ more, and the metric dies. Trend and comparison only.
 
 ### Funnels
 
-- Capture → survived lock → promoted → played (inherited from POP)
+- Capture → survived lock → promoted → played (inherited from the queue)
 - Capture → kept in vault (excluding vanished notes)
 - Gated consumption vs ungated consumption, per source
 
@@ -270,7 +270,7 @@ hour not spent finding out whether the measurement is even true.
 ```
 Spotify API ────────┐
 Telegram bot ───────┤  (screenshots, Cold Turkey JSON, captures)
-Chrome extension ───┼──►  DRBR backend (VPS)  ──►  SQLite
+Chrome extension ───┼──►  dr-brainrot backend (VPS)  ──►  SQLite
 Obsidian vault ─────┘                              │
                                                    └──► Flask dashboard
 ```
@@ -281,13 +281,13 @@ VPS (synced via git, Syncthing or similar), everything runs server-side. If
 not, build a small local agent that posts vault state to the VPS weekly. Phase
 0 determines which.
 
-Repo layout, extending POP's:
+Repo layout, extending the queue's:
 
 ```
-drbr/
+dr-brainrot/
 ├── pop/                    existing, absorbed
 ├── sources/
-│   ├── spotify.py          exists in POP, reused
+│   ├── spotify.py          exists in the queue, reused
 │   ├── youtube.py          extension payload ingestion
 │   ├── screentime.py       vision parse of weekly screenshot
 │   ├── coldturkey.py       JSON export parser

@@ -2,7 +2,7 @@
 
 There is no programmatic route to Screen Time data (brief §3), so the user
 sends the scrolled per-device week view as screenshots and Apple Vision reads
-them on the Mac (DR0.4). OCR is the least trustworthy provenance in DRBR, so
+them on the Mac (DR0.4). OCR is the least trustworthy provenance in dr-brainrot, so
 this module is built to under-claim:
 
 * **Only a complete past week writes minutes** (DR1.13). "This Week", an
@@ -35,7 +35,7 @@ from datetime import date, timedelta
 from typing import Callable
 
 import clock
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 from clock import Clock

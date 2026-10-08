@@ -1,31 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  DRBR dashboard — Flask on 127.0.0.1:DRBR_DASHBOARD_PORT, always on.
+  dr-brainrot dashboard — Flask on 127.0.0.1:DR_BRAINROT_DASHBOARD_PORT, always on.
 
   Also serves the browser extension's ingest API (/api/youtube/*), so it must
   be running whenever a weekly YouTube sync is made. KeepAlive restarts it on
   crash and after a reboot. It binds loopback only; reach it from elsewhere
   over Tailscale, never by changing the bind address.
 
-  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.drbr.dashboard.plist
-  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.drbr.dashboard
-  Status:   launchctl print     gui/$(id -u)/com.jacob.drbr.dashboard | head -20
+  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.dr-brainrot.dashboard.plist
+  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.dr-brainrot.dashboard
+  Status:   launchctl print     gui/$(id -u)/com.jacob.dr-brainrot.dashboard | head -20
 -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.jacob.drbr.dashboard</string>
+    <string>com.jacob.dr-brainrot.dashboard</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Jacob/Projects/drbr/.venv/bin/python</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/.venv/bin/python</string>
         <string>-m</string>
         <string>dashboard.app</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Jacob/Projects/drbr</string>
+    <string>/Users/Jacob/Projects/dr-brainrot</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -38,8 +38,8 @@
     <integer>30</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/dashboard.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/dashboard.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/drbr/logs/dashboard.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/dashboard.log</string>
 </dict>
 </plist>

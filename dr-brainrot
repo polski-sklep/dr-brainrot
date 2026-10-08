@@ -1,38 +1,38 @@
 #!/usr/bin/env bash
-# drbr — the one command that runs DRBR (and the POP queue it absorbed) on this Mac.
+# dr-brainrot — the one command that runs dr-brainrot (and the podcast queue it absorbed) on this Mac.
 #
-#   ./drbr start     validate the environment, install and (re)load every launchd agent
-#   ./drbr stop      unload DRBR's and POP's agents (obsidian-ingest is left alone)
-#   ./drbr restart   stop, then start
-#   ./drbr status    what is loaded, running, and answering
+#   ./dr-brainrot start     validate the environment, install and (re)load every launchd agent
+#   ./dr-brainrot stop      unload all of dr-brainrot's agents (obsidian-ingest is left alone)
+#   ./dr-brainrot restart   stop, then start
+#   ./dr-brainrot status    what is loaded, running, and answering
 #
-# Everything runs under launchd, POP's existing convention (README "Start everything"):
-#   com.jacob.pop.bot        Telegram bot: capture, triage buttons, imports, labels  (KeepAlive)
-#   com.jacob.pop.poll       daily 09:17  Spotify resume_point deltas, alerts
-#   com.jacob.pop.triage     Sunday 18:00 weekly rollover and triage post
-#   com.jacob.drbr.dashboard dashboard + extension ingest on 127.0.0.1               (KeepAlive)
-#   com.jacob.drbr.jobs      daily 09:30  vault scan, Cold Turkey and Qbserve reads, Sunday check-in
-#   com.jacob.drbr.qbserve   every 10 min reopens Qbserve in the background if it isn't running
+# Everything runs under launchd, the queue's existing convention (README "Start everything"):
+#   com.jacob.dr-brainrot.bot        Telegram bot: capture, triage buttons, imports, labels  (KeepAlive)
+#   com.jacob.dr-brainrot.poll       daily 09:17  Spotify resume_point deltas, alerts
+#   com.jacob.dr-brainrot.triage     Sunday 18:00 weekly rollover and triage post
+#   com.jacob.dr-brainrot.dashboard dashboard + extension ingest on 127.0.0.1               (KeepAlive)
+#   com.jacob.dr-brainrot.jobs      daily 09:30  vault scan, Cold Turkey and Qbserve reads, Sunday check-in
+#   com.jacob.dr-brainrot.qbserve   every 10 min reopens Qbserve in the background if it isn't running
 # obsidian-ingest (com.jacob.obsidian-ingest) lives in its own repo; start only
-# makes sure it is loaded, because DRBR's vault measurement depends on it.
+# makes sure it is loaded, because dr-brainrot's vault measurement depends on it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="$ROOT/.venv/bin/python"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
-AGENTS=(com.jacob.pop.bot com.jacob.pop.poll com.jacob.pop.triage com.jacob.drbr.dashboard com.jacob.drbr.jobs
-        com.jacob.drbr.qbserve com.jacob.drbr.nightly)
+AGENTS=(com.jacob.dr-brainrot.bot com.jacob.dr-brainrot.poll com.jacob.dr-brainrot.triage com.jacob.dr-brainrot.dashboard com.jacob.dr-brainrot.jobs
+        com.jacob.dr-brainrot.qbserve com.jacob.dr-brainrot.nightly)
 INGEST=com.jacob.obsidian-ingest
 
 say() { printf '%s\n' "$*"; }
-die() { printf 'drbr: %s\n' "$*" >&2; exit 1; }
+die() { printf 'dr-brainrot: %s\n' "$*" >&2; exit 1; }
 
 loaded() { launchctl print "$DOMAIN/$1" >/dev/null 2>&1; }
 
 port() {
   local p
-  p="$(grep -E '^DRBR_DASHBOARD_PORT=' "$ROOT/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')"
+  p="$(grep -E '^DR_BRAINROT_DASHBOARD_PORT=' "$ROOT/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')"
   printf '%s' "${p:-8750}"
 }
 
@@ -93,7 +93,7 @@ print('    schema version', c.execute(\"SELECT value FROM meta WHERE key='schema
     if [ -f "$AGENTS_DIR/$INGEST.plist" ]; then
       launchctl bootstrap "$DOMAIN" "$AGENTS_DIR/$INGEST.plist" && say "  loaded   $INGEST"
     else
-      say "  WARNING  $INGEST is not installed: vault captures will not be logged for DRBR"
+      say "  WARNING  $INGEST is not installed: vault captures will not be logged for dr-brainrot"
     fi
   fi
 
@@ -137,5 +137,5 @@ case "${1:-}" in
   stop) stop_agents; say "stopped (obsidian-ingest untouched)" ;;
   restart) stop_agents; start ;;
   status) status ;;
-  *) say "usage: ./drbr start|stop|restart|status"; exit 2 ;;
+  *) say "usage: ./dr-brainrot start|stop|restart|status"; exit 2 ;;
 esac

@@ -1,4 +1,4 @@
-"""jobs.py — DRBR's daily entry point, alongside POP's poll.py and triage.py.
+"""jobs.py — dr-brainrot's daily entry point, alongside the queue's poll.py and triage.py.
 
     .venv/bin/python jobs.py daily
 
@@ -54,7 +54,7 @@ from datetime import timedelta
 import checklist
 import clock
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import insights
 import report
@@ -63,7 +63,7 @@ from config import Settings
 from sources import audible, brave_history, coldturkey_local, qbserve, vault
 from triage import SyncBot, send
 
-log = logging.getLogger("drbr.jobs")
+log = logging.getLogger("dr-brainrot.jobs")
 
 END_KIND = "diagnostic_end"
 QBSERVE_STALE_KIND = "qbserve_stale"
@@ -103,7 +103,7 @@ def _run_step(conn, name: str, fn: Callable[[], object]) -> StepResult:
 
 
 def run_sync(conn, clk: Clock, settings: Settings) -> dict[str, StepResult]:
-    """Fetch everything DRBR can fetch by itself. -> one StepResult per step.
+    """Fetch everything dr-brainrot can fetch by itself. -> one StepResult per step.
 
     The half of the daily run that only *reads* sources: the capture outbox,
     the vault scan, Cold Turkey's own statistics, Qbserve, the phone browser
@@ -127,7 +127,7 @@ def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
     """Run every daily step. Returns the names of steps that failed.
 
     `insights` is deliberately *not* in that list. It is commentary on figures
-    DRBR already has, it depends on a third party, and it is optional (no key,
+    dr-brainrot already has, it depends on a third party, and it is optional (no key,
     no call). A summary that could not be written is recorded in the `insights`
     table and logged; making the morning job exit non-zero over it would turn a
     missing paragraph into a red launchd log next to real data failures.
@@ -217,7 +217,7 @@ def _scan(conn, clk: Clock, settings: Settings) -> str:
 
 def _coldturkey(conn, clk: Clock, settings: Settings) -> str:
     if settings.coldturkey_db is None:
-        return "not configured (DRBR_COLDTURKEY_DB unset): manual exports only"
+        return "not configured (DR_BRAINROT_COLDTURKEY_DB unset): manual exports only"
     outcome = coldturkey_local.sync(conn, clk, settings)
     if outcome is None:
         return "no finished days to read yet"
@@ -233,7 +233,7 @@ def _coldturkey(conn, clk: Clock, settings: Settings) -> str:
 def _qbserve(conn, clk: Clock, settings: Settings) -> str:
     """Read Qbserve's database. Reads only: the warning is its own step."""
     if settings.qbserve_db is None:
-        return "not configured (DRBR_QBSERVE_DB unset): desktop apps not measured"
+        return "not configured (DR_BRAINROT_QBSERVE_DB unset): desktop apps not measured"
     outcome = qbserve.sync(conn, clk, settings)
     if outcome is None:
         return "no finished days to read yet"

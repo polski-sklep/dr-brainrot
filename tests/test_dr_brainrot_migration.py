@@ -1,7 +1,7 @@
-"""Migrations 0002 (DRBR) and 0003 (no debt, DR5.2): upgrade a representative pre-DRBR POP database.
+"""Migrations 0002 (dr-brainrot) and 0003 (no debt, DR5.2): upgrade a representative pre-dr-brainrot queue database.
 
 The fixture database is built from the untouched version-1 `schema.sql` and
-populated with rows in every POP table, in every queue state, so the upgrade
+populated with rows in every queue table, in every queue state, so the upgrade
 is tested against data shaped like the real installation rather than against
 an empty file.
 """
@@ -63,7 +63,7 @@ def _dump(conn: sqlite3.Connection) -> dict[str, list[tuple]]:
 
 @pytest.fixture
 def v1(tmp_path):
-    conn = _v1_database(tmp_path / "pop.db")
+    conn = _v1_database(tmp_path / "dr-brainrot.db")
     yield conn
     conn.close()
 
@@ -88,7 +88,7 @@ def test_upgrade_preserves_every_pop_row_exactly(v1):
         "2026-08-23T16:00:00+00:00"
 
 
-def test_upgrade_sets_version_and_creates_drbr_tables(v1):
+def test_upgrade_sets_version_and_creates_dr_brainrot_tables(v1):
     db.init_db(v1)
     db.migrate(v1)
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
@@ -119,9 +119,9 @@ def test_migrate_twice_is_a_noop(v1):
 
 
 def test_pop_behaviour_survives_upgrade(v1, tmp_path):
-    """The migrated database still runs POP's gate and state machine."""
+    """The migrated database still runs the queue's gate and state machine."""
     db.migrate(v1)
-    settings = config.test_settings(db_path=tmp_path / "pop.db")
+    settings = config.test_settings(db_path=tmp_path / "dr-brainrot.db")
     clk = clock.FrozenClock("2026-08-30T09:00:00+00:00")
     item = db.get_item(v1, 2)
     assert item.state == "promoted"
@@ -151,8 +151,8 @@ def test_fresh_database_reaches_same_schema_as_upgraded(tmp_path):
 def test_failed_migration_rolls_back_whole_step(v1, monkeypatch, tmp_path):
     broken = tmp_path / "migrations"
     broken.mkdir()
-    good = (db.MIGRATIONS_DIR / "0002_drbr.sql").read_text()
-    (broken / "0002_drbr.sql").write_text(good + "\nCREATE TABLE sources (x);\n")  # duplicate -> error
+    good = (db.MIGRATIONS_DIR / "0002_dr_brainrot.sql").read_text()
+    (broken / "0002_dr_brainrot.sql").write_text(good + "\nCREATE TABLE sources (x);\n")  # duplicate -> error
     monkeypatch.setattr(db, "MIGRATIONS_DIR", broken)
     with pytest.raises(sqlite3.Error):
         db.migrate(v1)
@@ -167,7 +167,7 @@ def test_failed_migration_rolls_back_whole_step(v1, monkeypatch, tmp_path):
 def test_failed_0003_rolls_back_whole_step_including_the_debt_reset(v1, monkeypatch, tmp_path):
     broken = tmp_path / "migrations"
     broken.mkdir()
-    (broken / "0002_drbr.sql").write_text((db.MIGRATIONS_DIR / "0002_drbr.sql").read_text())
+    (broken / "0002_dr_brainrot.sql").write_text((db.MIGRATIONS_DIR / "0002_dr_brainrot.sql").read_text())
     good = (db.MIGRATIONS_DIR / "0003_no_debt.sql").read_text()
     (broken / "0003_no_debt.sql").write_text(good + "\nCREATE TABLE sources (x);\n")  # duplicate -> error
     monkeypatch.setattr(db, "MIGRATIONS_DIR", broken)
@@ -221,7 +221,7 @@ def test_measurement_check_rejects_zero_standin(v1):
 
 # --- 0004: desktop apps (DR5.3), tables rebuilt to widen CHECKs ----------------------
 
-DRBR_TABLES = ("sources", "item_labels", "imports", "measurements", "category_measurements",
+DR_BRAINROT_TABLES = ("sources", "item_labels", "imports", "measurements", "category_measurements",
                "vault_captures", "vault_observations", "prompts_sent")
 T0 = "2026-09-16T10:00:00+00:00"
 
@@ -231,7 +231,7 @@ def _schema(c):
         "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"))
 
 
-def _v3_with_drbr_rows(v1, monkeypatch):
+def _v3_with_dr_brainrot_rows(v1, monkeypatch):
     monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
     db.init_db(v1)
     db.migrate(v1)
@@ -268,14 +268,14 @@ def _v3_with_drbr_rows(v1, monkeypatch):
 
 def _all_rows(c):
     return {t: [tuple(r) for r in c.execute(f"SELECT * FROM {t} ORDER BY 1, 2")]
-            for t in (*DRBR_TABLES, *V1_ROWS, "meta") if t != "meta"} | {
+            for t in (*DR_BRAINROT_TABLES, *V1_ROWS, "meta") if t != "meta"} | {
         "meta": [tuple(r) for r in c.execute("SELECT * FROM meta WHERE key != 'schema_version' ORDER BY 1")]}
 
 
 def test_v3_to_v4_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
-    _v3_with_drbr_rows(v1, monkeypatch)
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)
     before = _all_rows(v1)
-    assert all(before[t] for t in DRBR_TABLES)                 # rows in every DRBR table
+    assert all(before[t] for t in DR_BRAINROT_TABLES)                 # rows in every dr-brainrot table
     db.migrate(v1)
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
     assert _all_rows(v1) == before
@@ -303,7 +303,7 @@ def test_v3_to_v4_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tm
 
 def test_v1_to_v4_reaches_the_same_schema_as_v3_to_v4(v1, monkeypatch, tmp_path):
     straight = _v1_database(tmp_path / "straight.db")
-    _v3_with_drbr_rows(v1, monkeypatch)              # leaves SCHEMA_VERSION at 4, for both databases
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)              # leaves SCHEMA_VERSION at 4, for both databases
     db.init_db(straight)
     db.migrate(straight)
     db.migrate(v1)
@@ -338,7 +338,7 @@ def test_v4_accepts_the_new_values_and_still_rejects_garbage(v1):
 def _broken_0004(tmp_path, tail: str):
     broken = tmp_path / "migrations"
     broken.mkdir()
-    for name in ("0002_drbr.sql", "0003_no_debt.sql"):
+    for name in ("0002_dr_brainrot.sql", "0003_no_debt.sql"):
         (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
     good = (db.MIGRATIONS_DIR / "0004_desktop_apps.sql").read_text()
     (broken / "0004_desktop_apps.sql").write_text(good + "\n" + tail + "\n")
@@ -356,7 +356,7 @@ def _assert_still_v3(v1, before):
 
 
 def test_failed_0004_rolls_back_whole(v1, monkeypatch, tmp_path):
-    _v3_with_drbr_rows(v1, monkeypatch)
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)
     before = _all_rows(v1)
     monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0004(tmp_path, "CREATE TABLE sources (x);"))
     with pytest.raises(sqlite3.Error):
@@ -369,7 +369,7 @@ def test_failed_0004_rolls_back_whole(v1, monkeypatch, tmp_path):
 
 
 def test_0004_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, tmp_path):
-    _v3_with_drbr_rows(v1, monkeypatch)
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)
     before = _all_rows(v1)
     orphan = ("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, "
               "minutes) VALUES (999, 2, 'desktop', 'app_tracker', '2026-09-14', '2026-09-14', 1.0);")
@@ -381,9 +381,9 @@ def test_0004_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, 
 
 # --- 0005: the tool source label (DR5.5), sources rebuilt to widen label CHECK -------
 
-def _v4_with_drbr_rows(v1, monkeypatch):
-    """A v4 database with rows in every DRBR table, plus DRBR's own dashboard hosts."""
-    _v3_with_drbr_rows(v1, monkeypatch)
+def _v4_with_dr_brainrot_rows(v1, monkeypatch):
+    """A v4 database with rows in every dr-brainrot table, plus dr-brainrot's own dashboard hosts."""
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)
     db.migrate(v1)                                   # SCHEMA_VERSION is 4 here
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
     v1.executescript(f"""
@@ -409,9 +409,9 @@ def _without_dashboard_label(rows):
 
 
 def test_v4_to_v5_keeps_every_row_and_foreign_key_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
-    _v4_with_drbr_rows(v1, monkeypatch)
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
     before = _all_rows(v1)
-    assert all(before[t] for t in DRBR_TABLES)
+    assert all(before[t] for t in DR_BRAINROT_TABLES)
     db.migrate(v1)
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
     after = _all_rows(v1)
@@ -439,7 +439,7 @@ def test_v4_to_v5_keeps_every_row_and_foreign_key_and_matches_a_fresh_schema(v1,
 
 
 def test_0005_labels_only_the_dashboard_host_tool(v1, monkeypatch):
-    _v4_with_drbr_rows(v1, monkeypatch)
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
     before = {r["id"]: tuple(r) for r in v1.execute("SELECT * FROM sources")}
     db.migrate(v1)
     after = {r["id"]: r for r in v1.execute("SELECT * FROM sources")}
@@ -456,7 +456,7 @@ def test_0005_labels_only_the_dashboard_host_tool(v1, monkeypatch):
 
 def test_v1_to_v5_reaches_the_same_schema_as_v4_to_v5(v1, monkeypatch, tmp_path):
     straight = _v1_database(tmp_path / "straight.db")
-    _v4_with_drbr_rows(v1, monkeypatch)
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
     db.init_db(straight)
     db.migrate(straight)
     db.migrate(v1)
@@ -479,7 +479,7 @@ def test_v5_accepts_tool_on_sources_and_rejects_it_on_item_labels(v1):
 def _broken_0005(tmp_path, tail: str):
     broken = tmp_path / "migrations"
     broken.mkdir()
-    for name in ("0002_drbr.sql", "0003_no_debt.sql", "0004_desktop_apps.sql"):
+    for name in ("0002_dr_brainrot.sql", "0003_no_debt.sql", "0004_desktop_apps.sql"):
         (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
     good = (db.MIGRATIONS_DIR / "0005_tool_label.sql").read_text()
     (broken / "0005_tool_label.sql").write_text(good + "\n" + tail + "\n")
@@ -496,7 +496,7 @@ def _assert_still_v4(v1, before):
 
 
 def test_failed_0005_rolls_back_whole(v1, monkeypatch, tmp_path):
-    _v4_with_drbr_rows(v1, monkeypatch)
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
     before = _all_rows(v1)
     monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0005(tmp_path, "CREATE TABLE sources (x);"))
     with pytest.raises(sqlite3.Error):
@@ -509,7 +509,7 @@ def test_failed_0005_rolls_back_whole(v1, monkeypatch, tmp_path):
 
 
 def test_0005_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, tmp_path):
-    _v4_with_drbr_rows(v1, monkeypatch)
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
     before = _all_rows(v1)
     orphan = "DELETE FROM sources WHERE id = 4;"      # measurement 9 still points at it
     monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0005(tmp_path, orphan))
@@ -520,9 +520,9 @@ def test_0005_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, 
 
 # --- 0006: the weekly insights summary (DR5.8), a new table only ------------
 
-def _v5_with_drbr_rows(v1, monkeypatch):
-    """A v5 database with rows in every DRBR table (the 0005 fixture, migrated)."""
-    _v4_with_drbr_rows(v1, monkeypatch)
+def _v5_with_dr_brainrot_rows(v1, monkeypatch):
+    """A v5 database with rows in every dr-brainrot table (the 0005 fixture, migrated)."""
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
     db.migrate(v1)                                   # SCHEMA_VERSION is 5 here
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
     monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
@@ -530,9 +530,9 @@ def _v5_with_drbr_rows(v1, monkeypatch):
 
 def test_v5_to_v6_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
     """0006 is additive: one new table, nothing rebuilt, nothing else touched."""
-    _v5_with_drbr_rows(v1, monkeypatch)
+    _v5_with_dr_brainrot_rows(v1, monkeypatch)
     before = _all_rows(v1)
-    assert all(before[t] for t in DRBR_TABLES)
+    assert all(before[t] for t in DR_BRAINROT_TABLES)
     assert v1.execute("SELECT name FROM sqlite_master WHERE name='insights'").fetchone() is None
 
     db.migrate(v1)
@@ -552,7 +552,7 @@ def test_v5_to_v6_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tm
 
 def test_v1_to_v6_reaches_the_same_schema_as_v5_to_v6(v1, monkeypatch, tmp_path):
     straight = _v1_database(tmp_path / "straight6.db")
-    _v5_with_drbr_rows(v1, monkeypatch)
+    _v5_with_dr_brainrot_rows(v1, monkeypatch)
     db.init_db(straight)
     db.migrate(straight)
     db.migrate(v1)
@@ -573,7 +573,7 @@ def test_v6_constrains_insight_status(v1):
 def _broken_0006(tmp_path, tail: str):
     broken = tmp_path / "migrations6"
     broken.mkdir()
-    for name in ("0002_drbr.sql", "0003_no_debt.sql", "0004_desktop_apps.sql", "0005_tool_label.sql"):
+    for name in ("0002_dr_brainrot.sql", "0003_no_debt.sql", "0004_desktop_apps.sql", "0005_tool_label.sql"):
         (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
     good = (db.MIGRATIONS_DIR / "0006_insights.sql").read_text()
     (broken / "0006_insights.sql").write_text(good + "\n" + tail + "\n")
@@ -582,7 +582,7 @@ def _broken_0006(tmp_path, tail: str):
 
 def test_failed_0006_rolls_back_whole(v1, monkeypatch, tmp_path):
     """A step that fails part-way leaves the database at v5, table and all, and retries whole."""
-    _v5_with_drbr_rows(v1, monkeypatch)
+    _v5_with_dr_brainrot_rows(v1, monkeypatch)
     before = _all_rows(v1)
     monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0006(tmp_path, "CREATE TABLE sources (x);"))
     with pytest.raises(sqlite3.Error):
@@ -601,9 +601,9 @@ def test_failed_0006_rolls_back_whole(v1, monkeypatch, tmp_path):
 
 # --- 0008: audiobooks from Audible (DR5.28), three tables rebuilt to widen CHECKs ----
 
-def _v7_with_drbr_rows(v1, monkeypatch):
-    """A v7 database with rows in every DRBR table, the phone browser's included."""
-    _v5_with_drbr_rows(v1, monkeypatch)
+def _v7_with_dr_brainrot_rows(v1, monkeypatch):
+    """A v7 database with rows in every dr-brainrot table, the phone browser's included."""
+    _v5_with_dr_brainrot_rows(v1, monkeypatch)
     db.migrate(v1)                                   # SCHEMA_VERSION is 6 here
     monkeypatch.setattr(db, "SCHEMA_VERSION", 7)
     db.migrate(v1)
@@ -630,9 +630,9 @@ def _rows_v7(c):
 
 
 def test_v7_to_v8_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
-    _v7_with_drbr_rows(v1, monkeypatch)
+    _v7_with_dr_brainrot_rows(v1, monkeypatch)
     before = _rows_v7(v1)
-    assert all(before[t] for t in (*DRBR_TABLES, "insights"))
+    assert all(before[t] for t in (*DR_BRAINROT_TABLES, "insights"))
     db.migrate(v1)
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "8"
     assert _rows_v7(v1) == before                    # not one row changed, ids included
@@ -667,7 +667,7 @@ def test_v7_to_v8_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tm
 
 def test_v1_to_v8_reaches_the_same_schema_as_v7_to_v8(v1, monkeypatch, tmp_path):
     straight = _v1_database(tmp_path / "straight8.db")
-    _v7_with_drbr_rows(v1, monkeypatch)              # leaves SCHEMA_VERSION at 8, for both databases
+    _v7_with_dr_brainrot_rows(v1, monkeypatch)              # leaves SCHEMA_VERSION at 8, for both databases
     db.init_db(straight)
     db.migrate(straight)
     db.migrate(v1)
@@ -705,7 +705,7 @@ def test_v8_accepts_the_new_values_and_still_rejects_garbage(v1):
 def _broken_0008(tmp_path, tail: str):
     broken = tmp_path / "migrations8"
     broken.mkdir()
-    for name in ("0002_drbr.sql", "0003_no_debt.sql", "0004_desktop_apps.sql", "0005_tool_label.sql",
+    for name in ("0002_dr_brainrot.sql", "0003_no_debt.sql", "0004_desktop_apps.sql", "0005_tool_label.sql",
                  "0006_insights.sql", "0007_phone_browser.sql"):
         (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
     good = (db.MIGRATIONS_DIR / "0008_audiobooks.sql").read_text()
@@ -724,7 +724,7 @@ def _assert_still_v7(v1, before):
 
 
 def test_failed_0008_rolls_back_whole(v1, monkeypatch, tmp_path):
-    _v7_with_drbr_rows(v1, monkeypatch)
+    _v7_with_dr_brainrot_rows(v1, monkeypatch)
     before = _rows_v7(v1)
     monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0008(tmp_path, "CREATE TABLE sources (x);"))
     with pytest.raises(sqlite3.Error):
@@ -737,7 +737,7 @@ def test_failed_0008_rolls_back_whole(v1, monkeypatch, tmp_path):
 
 
 def test_0008_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, tmp_path):
-    _v7_with_drbr_rows(v1, monkeypatch)
+    _v7_with_dr_brainrot_rows(v1, monkeypatch)
     before = _rows_v7(v1)
     orphan = "DELETE FROM sources WHERE id = 4;"      # measurement 9 still points at it
     monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0008(tmp_path, orphan))

@@ -8,7 +8,7 @@ import pytest
 import clock
 import config
 import db
-import drbr_types as T
+import dr_brainrot_types as T
 import evidence
 import labels
 

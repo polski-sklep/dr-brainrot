@@ -25,7 +25,7 @@ import clock  # noqa: E402
 import db  # noqa: E402
 import evidence  # noqa: E402
 import labels  # noqa: E402
-import drbr_types as T  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
 import insights  # noqa: E402
 import jobs  # noqa: E402
 from tests.test_allowance import label_source, make_settings, measure, open_db  # noqa: E402
@@ -37,7 +37,7 @@ WED = "2026-09-30T10:00:00+00:00"
 
 @pytest.fixture
 def settings(tmp_path):
-    return make_settings(tmp_path, db_path=tmp_path / "drbr.db", weekly_allowance_min=360,
+    return make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db", weekly_allowance_min=360,
                          go_live="2026-09-13")
 
 
@@ -55,7 +55,7 @@ def conn(settings):
 
 # --- the distinctive names the payload must never carry ---------------------
 #: Chosen so a substring match cannot be a false positive: none of these
-#: appears anywhere in DRBR's own vocabulary.
+#: appears anywhere in dr-brainrot's own vocabulary.
 SECRET_NAMES = {
     "app": "Zornblatt Timewaster",           # iPhone app
     "domain": "kwarglepuff-news.example",    # web domain
@@ -152,7 +152,7 @@ def test_payload_shape_and_the_weeks_it_covers(two_weeks, clk, settings):
     assert first["reflex_share_of_wasteful"] == 1.0            # nothing passed through the queue
 
     assert first["allowance_min"] == 360 and first["overage_min"] == 0
-    assert {"pop", "vault"} == set(p["funnels"])
+    assert {"queue", "vault"} == set(p["funnels"])
     assert all(set(k) == {"group", "minutes", "keepers", "minutes_per_keeper"}
                for k in p["cost_per_keeper"])
 
@@ -193,7 +193,7 @@ def test_an_empty_database_builds_a_payload_of_zeros_and_gaps(conn, clk, setting
 
 def test_before_go_live_there_is_no_complete_week_at_all(conn, clk, tmp_path):
     """Nothing to compare, and the fallback says exactly that."""
-    future = make_settings(tmp_path, db_path=tmp_path / "drbr.db", go_live="2026-12-06")
+    future = make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db", go_live="2026-12-06")
     p = insights.build_payload(conn, clk, future)
     assert p["weeks"] == [] and p["complete_weeks"] == 0 and p["based_on_through"] is None
     assert "No week of figures is complete yet" in insights.fallback_summary(p)
@@ -521,7 +521,7 @@ def test_a_summary_is_written_once_a_week_unless_forced(two_weeks, conn, clk, se
 
 
 def test_a_fallback_week_is_retried_by_the_next_run(two_weeks, conn, clk, settings):
-    """A passing failure must not freeze the whole week on DRBR's own sentences."""
+    """A passing failure must not freeze the whole week on dr-brainrot's own sentences."""
     failed = insights.write_summary(
         conn, clk, settings, client=FakeClient(raises=RuntimeError("connection reset by peer")))
     assert failed.model is None
@@ -587,7 +587,7 @@ def test_without_an_api_key_nothing_is_called_and_no_ok_row_is_written(two_weeks
 
 
 def test_the_api_key_never_reaches_the_row_or_the_error(two_weeks, conn, clk, tmp_path, caplog):
-    keyed = make_settings(tmp_path, db_path=tmp_path / "drbr.db", weekly_allowance_min=360,
+    keyed = make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db", weekly_allowance_min=360,
                           go_live="2026-09-13", anthropic_api_key="sk-ant-NOTAREALKEY-0123456789")
     fake = FakeClient(raises=RuntimeError("bad x-api-key: sk-ant-NOTAREALKEY-0123456789"))
     with caplog.at_level("WARNING"):
@@ -720,7 +720,7 @@ def test_check_env_anthropic_step_is_shape_only_and_optional(capsys):
 # The three fields the dashboard branches on
 # --------------------------------------------------------------------------
 
-def test_model_is_none_exactly_when_the_summary_is_drbrs_own(two_weeks, conn, clk, settings):
+def test_model_is_none_exactly_when_the_summary_is_dr_brainrots_own(two_weeks, conn, clk, settings):
     """One fact, one field: there is no second flag that could disagree."""
     written = insights.write_summary(conn, clk, settings, client=FakeClient("Model text."))
     assert written.model == insights.MODEL and written.fallback_reason is None
@@ -733,12 +733,12 @@ def test_model_is_none_exactly_when_the_summary_is_drbrs_own(two_weeks, conn, cl
 
 def test_the_fallback_reason_is_the_real_reason_not_a_code(two_weeks, conn, clk, tmp_path):
     no_key = insights.write_summary(conn, clk, make_settings(
-        tmp_path, db_path=tmp_path / "drbr.db", go_live="2026-09-13"))
+        tmp_path, db_path=tmp_path / "dr-brainrot.db", go_live="2026-09-13"))
     assert no_key.fallback_reason == insights.REASON_NO_KEY
     assert "ANTHROPIC_API_KEY" in no_key.fallback_reason
 
     failed = insights.write_summary(conn, clk, make_settings(
-        tmp_path, db_path=tmp_path / "drbr.db", go_live="2026-09-13"), force=True,
+        tmp_path, db_path=tmp_path / "dr-brainrot.db", go_live="2026-09-13"), force=True,
         client=FakeClient(raises=RuntimeError("502 Bad Gateway from upstream")))
     assert failed.fallback_reason == "API call failed: RuntimeError: 502 Bad Gateway from upstream"
 
@@ -749,7 +749,7 @@ def test_the_fallback_reason_is_the_real_reason_not_a_code(two_weeks, conn, clk,
 
 def test_too_little_data_is_a_reason_and_costs_no_api_call(conn, clk, tmp_path):
     """Nothing complete to summarise: nothing is sent, nothing is spent."""
-    future = make_settings(tmp_path, db_path=tmp_path / "drbr.db", go_live="2026-12-06")
+    future = make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db", go_live="2026-12-06")
     fake = FakeClient("should never be asked for")
     result = insights.write_summary(conn, clk, future, client=fake)
     assert fake.calls == []

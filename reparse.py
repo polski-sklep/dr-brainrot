@@ -1,9 +1,9 @@
-"""reparse.py — re-run a parser over evidence DRBR already stored.
+"""reparse.py — re-run a parser over evidence dr-brainrot already stored.
 
     .venv/bin/python reparse.py list [kind]      # recent imports: id, kind, status, warnings
     .venv/bin/python reparse.py <import_id>      # re-parse that import's raw evidence
 
-Every import keeps its original bytes under DRBR_RAW_DIR (evidence.store_raw),
+Every import keeps its original bytes under DR_BRAINROT_RAW_DIR (evidence.store_raw),
 so a parser fix never needs the user to send a screenshot, export or history
 capture again. A re-parse writes a NEW import row whose facts replace the old
 ones on their natural key; the old row and its raw file stay as history.
