@@ -257,14 +257,15 @@ def _coverage_gaps(conn: sqlite3.Connection, settings: Settings, week_start: str
     """One line per weekly import that never arrived for this week.
 
     The words are the group's, not the source's: "iPhone apps (Screen Time)",
-    never an app name. Qbserve is only expected while it is configured — with
-    `DRBR_QBSERVE_DB` unset, desktop apps are deliberately unmeasured rather
-    than an import the user owes, exactly as `report.weekly_totals` treats it.
+    never an app name. Qbserve is only expected while it is configured and
+    Audible only while he is signed in (`report.expects`): without them those
+    groups are deliberately unmeasured rather than an import the user owes,
+    exactly as `report.weekly_totals` treats them.
     """
     mweek = T.measurement_week_for_allowance_week(week_start, settings.tz)
     out: list[str] = []
     for kind, group, _prov, _device, name in report.EXPECTED_WEEKLY:
-        if kind == "qbserve" and getattr(settings, "qbserve_db", None) is None:
+        if not report.expects(kind, settings):
             continue
         if report._covering_import(conn, settings, kind, mweek) is None:
             out.append(f"{report.GROUP_TEXT.get(group, group)} ({name}) was not received "

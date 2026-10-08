@@ -102,6 +102,11 @@ COLDTURKEY_MANUAL = "Cold Turkey. Export last week by hand: "
 AUTOMATIC_LINE = "Everything else ({what}) collects itself."
 #: No "this week": the reminder is about last week, sent in the new one.
 LAST_REMINDER = "That's the only reminder. The dashboard keeps showing what's missing: {url}"
+#: The one Audible line there ever is (DR5.28), un-numbered and never a reason
+#: to send: audiobooks are optional and read themselves. Said only when Audible
+#: refused the sign-in, because then nothing but him can fix it.
+AUDIBLE_SIGNIN_LINE = ("Audiobooks aren't being read: the Audible sign-in needs redoing. When you have a "
+                       "minute, in Terminal: cd ~/Projects/drbr && .venv/bin/python audible_login.py --again")
 
 #: How each evidence step is named when the labels line refers back to it.
 _BRINGS = {"screentime": ("the screenshots", "add", "bring"),
@@ -144,6 +149,8 @@ class WeekNeeds:
     `coldturkey` is None while Cold Turkey reads itself successfully: it is
     then not part of the list at all. `recapture` holds older weeks whose
     Screen Time capture was cut off and can still be taken again.
+    `audible_signin` is true when Audible refused the saved sign-in: the list
+    then says so in one un-numbered line, but it is never owed (DR5.28).
     """
 
     week: T.MeasurementWeek
@@ -154,6 +161,7 @@ class WeekNeeds:
     unlabelled: labels.Summary
     final: bool                     # the diagnostic's last week
     recapture: tuple[T.MeasurementWeek, ...] = ()
+    audible_signin: bool = False    # the Audible sign-in needs redoing; mentioned, never owed
 
     @property
     def evidence_missing(self) -> bool:
@@ -264,7 +272,8 @@ def week_needs(conn: sqlite3.Connection, clk: Clock, settings: Settings, week: T
     return WeekNeeds(week, screentime, youtube, coldturkey,
                      len(report.needs_your_eye(conn, clk, settings)),
                      labels.unlabelled_summary(conn, clk, settings), final,
-                     _recapture(conn, clk, settings, week))
+                     _recapture(conn, clk, settings, week),
+                     report.audible_needs_signin(conn, settings))
 
 
 # --------------------------------------------------------------------------
@@ -347,7 +356,10 @@ def _automatic(needs: WeekNeeds, settings: Settings) -> str:
     what = ["Mac apps"] if settings.qbserve_db is not None else []
     if needs.coldturkey is None:
         what.append("websites")
-    what += ["podcasts", "your vault"]
+    what.append("podcasts")
+    if report.expects("audible", settings) and not needs.audible_signin:
+        what.append("audiobooks")
+    what.append("your vault")
     return AUTOMATIC_LINE.format(what=", ".join(what))
 
 
@@ -379,11 +391,12 @@ def render(needs: WeekNeeds, settings: Settings, *, nudge: bool, late: bool = Fa
     if done:
         # With an older week in the list, say which week these are in for.
         tail.append(f"Already in{' for last week' if needs.recapture else ''}: {', '.join(done)}.")
-    if needs.evidence_missing:
-        if not nudge:
-            tail.append(_automatic(needs, settings))
-        if nudge or late:
-            tail.append(LAST_REMINDER.format(url=url(settings, f"/?week={needs.week.start}#coverage")))
+    if needs.evidence_missing and not nudge:
+        tail.append(_automatic(needs, settings))
+    if needs.audible_signin and not nudge:
+        tail.append(AUDIBLE_SIGNIN_LINE)
+    if needs.evidence_missing and (nudge or late):
+        tail.append(LAST_REMINDER.format(url=url(settings, f"/?week={needs.week.start}#coverage")))
     if tail:
         parts.append("\n".join(tail))
     return "\n\n".join(parts)

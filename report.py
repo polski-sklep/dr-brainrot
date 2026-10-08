@@ -72,7 +72,27 @@ EXPECTED_WEEKLY = (
     # Expected only while DRBR_QBSERVE_DB is configured (see weekly_totals): unconfigured,
     # desktop apps are deliberately unmeasured, not an import the user owes.
     ("qbserve", T.GROUP_DESKTOP_APPS, T.PROV_APP_TRACKER, T.DEVICE_DESKTOP, "Qbserve"),
+    # Expected only while he is signed in to Audible (DR5.28): signed out,
+    # audiobooks are deliberately unmeasured, an option and not a gap.
+    ("audible", T.GROUP_AUDIOBOOKS, T.PROV_AUDIBLE_STATS, T.DEVICE_ACCOUNT, "Audible"),
 )
+
+
+def expects(kind: str, settings: Settings) -> bool:
+    """Is an import of `kind` expected at all, given how this Mac is set up?
+
+    Qbserve only while `DRBR_QBSERVE_DB` is configured, Audible only while he
+    is signed in (DR5.28). Without them those groups are unmeasured by choice,
+    so their absence is not an import he owes. Every other kind always is.
+    """
+    if kind == "qbserve":
+        return getattr(settings, "qbserve_db", None) is not None
+    if kind == "audible":
+        from sources import audible  # noqa: PLC0415 — lazy keeps report's imports light
+
+        return audible.setup(settings) is not None
+    return True
+
 
 #: Qbserve (DR5.3) is read daily. A read older than this means the read is not
 #: happening; a newest record older than this is the stopped-Qbserve rule when
@@ -480,7 +500,7 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
     for kind, group, provenance, device, _name in EXPECTED_WEEKLY:
         if (group, provenance, device) in present:
             continue
-        if kind == "qbserve" and getattr(settings, "qbserve_db", None) is None:
+        if not expects(kind, settings):
             continue
         imp = _covering_import(conn, settings, kind, mweek)
         if imp is None:
@@ -877,6 +897,7 @@ def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> lis
                 out.append(f"{names[kind]} for the week {week.start} to {week.end} has not been received.")
         sunday += timedelta(days=7)
     out.extend(_qbserve_blind_spots(conn, clk, settings))
+    out.extend(_audible_blind_spots(conn, clk, settings))
     return out
 
 
@@ -994,6 +1015,89 @@ def _qbserve_blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Setting
     if silence is not None:
         return [f"Qbserve has not recorded since {clock.fmt_local(silence.latest_record_at, settings.tz)}"
                 f"{_witness_clause(silence)}; desktop app time after that is unmeasured, not zero."]
+    return []
+
+
+@dataclass(frozen=True)
+class AudibleFailure:
+    """The newest read of Audible failed, and nothing has reached Audible since (DR5.28).
+
+    `kind` is `sources.audible.FAIL_*`: the sign-in needs redoing, Audible
+    couldn't be reached, or its answer changed shape. `covered_through` is the
+    last day a successful read vouched for; days after it are unmeasured.
+    """
+
+    kind: str
+    at: str
+    error: str
+    covered_through: str | None
+
+
+def _audible_last_read(conn: sqlite3.Connection) -> str | None:
+    """When a read last reached Audible: its stamp, or the newest successful import."""
+    from sources import audible  # noqa: PLC0415 — the key's owner
+
+    row = _latest_import_row(conn, "audible")
+    reads = [t for t in (evidence.get_meta(conn, audible.READ_AT_KEY),
+                         row["received_at"] if row is not None else None) if t]
+    return max(reads, key=clock.parse) if reads else None
+
+
+def audible_failure(conn: sqlite3.Connection) -> AudibleFailure | None:
+    """The failed read that is the last word on audiobooks, or None.
+
+    A failure stops counting once any later read reaches Audible, even one
+    that found nothing new and so recorded no import (`READ_AT_KEY`).
+    """
+    failed = _latest_import_row(conn, "audible", include_failed=True)
+    if failed is None or failed["status"] != T.IMPORT_FAILED:
+        return None
+    last_read = _audible_last_read(conn)
+    if last_read is not None and clock.parse(last_read) > clock.parse(failed["received_at"]):
+        return None
+    try:
+        kind = json.loads(failed["meta"] or "{}").get("failure") or "unexpected"
+    except ValueError:
+        kind = "unexpected"
+    (covered,) = conn.execute("SELECT MAX(period_end) FROM imports WHERE kind = 'audible' "
+                              "AND status IN ('ok', 'partial')").fetchone()
+    return AudibleFailure(kind, failed["received_at"], failed["error"] or "", covered)
+
+
+def audible_needs_signin(conn: sqlite3.Connection, settings: Settings) -> bool:
+    """Is the Audible sign-in the thing to redo? The only Audible ask there ever is."""
+    if not expects("audible", settings):
+        return False
+    failure = audible_failure(conn)
+    return failure is not None and failure.kind == "sign_in"
+
+
+def _audible_blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[str]:
+    """One plain line while audiobooks aren't being read, otherwise nothing (DR5.28).
+
+    Nothing at all when he isn't signed in (optional, so never a nag) or
+    before the first read. A failed read says what failed and which days are
+    unmeasured; a sign-in to redo carries the exact command.
+    """
+    from sources import audible  # noqa: PLC0415 — the command's owner
+
+    if not expects("audible", settings):
+        return []
+    failure = audible_failure(conn)
+    if failure is not None:
+        when = clock.fmt_local(failure.at, settings.tz)
+        after = (f"days after {failure.covered_through} are unmeasured, not zero" if failure.covered_through
+                 else "audiobook listening is unmeasured, not zero")
+        if failure.kind == "sign_in":
+            return [f"Audiobook listening couldn't be read on {when}: the Audible sign-in needs redoing "
+                    f"({audible.SIGN_IN_COMMAND}). {after[0].upper()}{after[1:]}."]
+        return [f"Audible's listening stats couldn't be read on {when}; {after}. "
+                "The next morning's read tries again."]
+    last = _audible_last_read(conn)
+    hours = _hours_since(clk, last)
+    if hours is not None and hours > STALE_HOURS:
+        return [f"Audible's listening stats were last read on {clock.fmt_local(last, settings.tz)}; "
+                "later days are unmeasured, not zero."]
     return []
 
 
@@ -1299,6 +1403,33 @@ QBSERVE_ACTION = "Open Qbserve and check it's recording; it is reopened automati
 QBSERVE_UNCONFIGURED_ACTION = ("Desktop app time is not measured: set DRBR_QBSERVE_DB in .env and let the "
                                "next daily run pick it up.")
 VAULT_ACTION = "Check DRBR_VAULT_PATH and logs/jobs.log: the vault has not been scanned."
+AUDIBLE_SIGNIN_ACTION = ("Sign in to Audible again, in Terminal: "
+                         "cd ~/Projects/drbr && .venv/bin/python audible_login.py --again")
+AUDIBLE_NOT_SET_UP = "Not set up, so audiobook listening isn't measured. That's optional."
+
+
+def _audible_state(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> tuple[str, str, str, str | None]:
+    """-> (state, action_text, detail, last_data_at) for audiobooks, once he is signed in (DR5.28).
+
+    The only action ever asked of him is the sign-in, and only when Audible
+    refused it. Audible being unreachable is shown but owes nothing: the next
+    morning's read tries again by itself.
+    """
+    tz = settings.tz
+    last = _audible_last_read(conn)
+    failure = audible_failure(conn)
+    if failure is not None:
+        through = (f" Figures run to {failure.covered_through}; later days are unmeasured, not zero."
+                   if failure.covered_through else "")
+        return (STATE_ATTENTION, AUDIBLE_SIGNIN_ACTION if failure.kind == "sign_in" else "",
+                f"The last read of Audible's listening stats failed: {failure.error}{through}", last)
+    if last is None:
+        return STATE_WAITING, "", "Audible's listening stats haven't been read yet; the morning job reads them.", None
+    hours = _hours_since(clk, last)
+    if hours is not None and hours > STALE_HOURS:
+        return (STATE_STALE, "", f"Audible's listening stats were last read on {clock.fmt_local(last, tz)}; "
+                                 "later listening is unmeasured, not zero.", last)
+    return STATE_OK, "", f"Read on {clock.fmt_local(last, tz)}.", last
 
 
 def needs_attention(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[NeedsRow]:
@@ -1386,6 +1517,16 @@ def needs_attention(conn: sqlite3.Connection, clk: Clock, settings: Settings) ->
         rows.append(NeedsRow(T.GROUP_DESKTOP_APPS, GROUP_TEXT[T.GROUP_DESKTOP_APPS], MODE_AUTOMATIC,
                              SCHEDULE_CONTINUOUS, last, qb_covered, state, action, detail))
 
+    # --- Audiobooks: Audible's own listening stats, read every morning once he is signed in.
+    ab_covered = _covering_import(conn, settings, "audible", this_week) is not None
+    if not expects("audible", settings):
+        rows.append(NeedsRow(T.GROUP_AUDIOBOOKS, GROUP_TEXT[T.GROUP_AUDIOBOOKS], MODE_AUTOMATIC,
+                             SCHEDULE_DAILY_JOB, None, ab_covered, STATE_WAITING, "", AUDIBLE_NOT_SET_UP))
+    else:
+        state, action, detail, last = _audible_state(conn, clk, settings)
+        rows.append(NeedsRow(T.GROUP_AUDIOBOOKS, GROUP_TEXT[T.GROUP_AUDIOBOOKS], MODE_AUTOMATIC,
+                             SCHEDULE_DAILY_JOB, last, ab_covered, state, action, detail))
+
     # --- Vault: scanned by the same daily job; counts, never minutes.
     state, action, detail, last = _automatic_state(
         conn, clk, "vault_scan", what="the Obsidian vault", tz=tz,
@@ -1406,14 +1547,15 @@ def needs_attention(conn: sqlite3.Connection, clk: Clock, settings: Settings) ->
 def provenance_map(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[ProvenanceRow]:
     """Where each number on the dashboard comes from, and what it cannot see.
 
-    Static except for the two settings that change how a source is fed
-    (`coldturkey_db`, `qbserve_db`); `conn` and `clk` are part of the report
+    Static except for the settings that change how a source is fed
+    (`coldturkey_db`, `qbserve_db`, the Audible sign-in); `conn` and `clk` are part of the report
     signature convention. Limits reuse `GROUP_BLIND_SPOTS` rather than
     restating them, so the caveats on this table and on cost per keeper can
     never drift apart.
     """
     ct_auto = getattr(settings, "coldturkey_db", None) is not None
     qb_on = getattr(settings, "qbserve_db", None) is not None
+    ab_on = expects("audible", settings)
     rows = [
         ProvenanceRow(
             T.GROUP_PODCASTS, GROUP_TEXT[T.GROUP_PODCASTS],
@@ -1463,6 +1605,12 @@ def provenance_map(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> 
             MODE_AUTOMATIC, SCHEDULE_CONTINUOUS,
             GROUP_BLIND_SPOTS[T.GROUP_DESKTOP_APPS]
             + (() if qb_on else ("Qbserve is not configured, so desktop apps are unmeasured, not zero.",))),
+        ProvenanceRow(
+            T.GROUP_AUDIOBOOKS, GROUP_TEXT[T.GROUP_AUDIOBOOKS],
+            "Minutes listened to audiobooks, across every device signed in to your Audible account.",
+            "Audible's own daily listening stats, split across books by how far each one's place moved",
+            T.PROV_AUDIBLE_STATS, T.PROVENANCE_TEXT[T.PROV_AUDIBLE_STATS], MODE_AUTOMATIC, SCHEDULE_DAILY_JOB,
+            GROUP_BLIND_SPOTS[T.GROUP_AUDIOBOOKS] + (() if ab_on else (AUDIBLE_NOT_SET_UP,))),
         ProvenanceRow(
             T.GROUP_VAULT, GROUP_TEXT[T.GROUP_VAULT],
             "Counts of captures kept, edited or dropped. Never minutes.",

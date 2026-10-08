@@ -34,6 +34,10 @@ def _dispatch(kind: str, settings) -> Callable:
         from sources import qbserve
 
         return qbserve.reparse
+    if kind == "audible":
+        from sources import audible
+
+        return audible.reparse
     if kind == "screentime":
         from sources import screentime
 

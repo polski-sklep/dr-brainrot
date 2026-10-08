@@ -286,8 +286,9 @@ STALE_RELABELLED = "relabelled"
 SENT_BY_HAND = ("screentime", "youtube_history", "coldturkey")
 #: The automatic reads that re-read their last eight days every morning and
 #: carry a period: Cold Turkey's own statistics (`local_db`), Qbserve, the phone
-#: browser. They count only when catching up (`_new_data_since`, rule 4).
-READ_DAILY = ("coldturkey", "qbserve", "brave_sync")
+#: browser, Audible's listening stats. They count only when catching up
+#: (`_new_data_since`, rule 4).
+READ_DAILY = ("coldturkey", "qbserve", "brave_sync", "audible")
 
 
 def insight_staleness(conn: sqlite3.Connection, insight, last_complete_sunday: str,
@@ -345,7 +346,7 @@ def insight_staleness(conn: sqlite3.Connection, insight, last_complete_sunday: s
 
 #: Is import `i` (or `j`) one of the automatic reads in `READ_DAILY`? Cold
 #: Turkey only as its own statistics; an export sent by hand has no origin or another one.
-_AUTO = """({a}.kind IN ('qbserve', 'brave_sync')
+_AUTO = """({a}.kind IN ('qbserve', 'brave_sync', 'audible')
             OR ({a}.kind = 'coldturkey'
                 AND COALESCE(CASE WHEN json_valid({a}.meta) THEN json_extract({a}.meta, '$.origin') END,
                              'export') = 'local_db'))"""

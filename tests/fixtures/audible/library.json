@@ -1,0 +1,98 @@
+{
+ "items": [
+  {
+   "asin": "B0TEST0001",
+   "asset_details": [],
+   "content_delivery_type": "SinglePartBook",
+   "content_type": "Product",
+   "format_type": "unabridged",
+   "has_children": false,
+   "is_adult_product": false,
+   "is_finished": false,
+   "is_listenable": true,
+   "issue_date": "2026-01-01",
+   "language": "english",
+   "library_status": {
+    "date_added": "2026-01-02T10:00:00.000Z",
+    "is_pending": null,
+    "is_preordered": null,
+    "is_removable": null,
+    "is_visible": null
+   },
+   "listening_status": {
+    "finished_at_timestamp": null,
+    "is_finished": false,
+    "percent_complete": 0.0,
+    "time_remaining_seconds": 36000
+   },
+   "percent_complete": 0.0,
+   "runtime_length_min": 600,
+   "title": "Test Book One"
+  },
+  {
+   "asin": "B0TEST0002",
+   "asset_details": [],
+   "content_delivery_type": "SinglePartBook",
+   "content_type": "Product",
+   "format_type": "unabridged",
+   "has_children": false,
+   "is_adult_product": false,
+   "is_finished": true,
+   "is_listenable": true,
+   "issue_date": "2026-01-01",
+   "language": "english",
+   "library_status": {
+    "date_added": "2026-01-02T10:00:00.000Z",
+    "is_pending": null,
+    "is_preordered": null,
+    "is_removable": null,
+    "is_visible": null
+   },
+   "listening_status": {
+    "finished_at_timestamp": "2026-09-20T10:00:00.000Z",
+    "is_finished": true,
+    "percent_complete": 0.0,
+    "time_remaining_seconds": 30000
+   },
+   "percent_complete": 0.0,
+   "runtime_length_min": 500,
+   "title": "Test Book Two"
+  },
+  {
+   "asin": "B0TEST0003",
+   "asset_details": [],
+   "content_delivery_type": "SinglePartBook",
+   "content_type": "Product",
+   "format_type": "unabridged",
+   "has_children": false,
+   "is_adult_product": false,
+   "is_finished": false,
+   "is_listenable": true,
+   "issue_date": "2026-01-01",
+   "language": "english",
+   "library_status": {
+    "date_added": "2026-01-02T10:00:00.000Z",
+    "is_pending": null,
+    "is_preordered": null,
+    "is_removable": null,
+    "is_visible": null
+   },
+   "listening_status": {
+    "finished_at_timestamp": "2026-09-25T10:00:00.000Z",
+    "is_finished": false,
+    "percent_complete": 0.0,
+    "time_remaining_seconds": 24000
+   },
+   "percent_complete": 0.0,
+   "runtime_length_min": 400,
+   "title": "Test Book Three"
+  }
+ ],
+ "response_groups": [
+  "product_desc",
+  "listening_status",
+  "percent_complete",
+  "is_finished"
+ ],
+ "total_results": 3
+}

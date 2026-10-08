@@ -85,8 +85,9 @@ def row_for(rows, group):
 def test_needs_attention_covers_every_source_group_once(conn, clk, settings):
     rows = report.needs_attention(conn, clk, settings)
     assert {r.group for r in rows} == {T.GROUP_PODCASTS, T.GROUP_YOUTUBE, T.GROUP_IPHONE,
-                                       T.GROUP_DESKTOP, T.GROUP_DESKTOP_APPS, T.GROUP_VAULT}
-    assert len(rows) == 6
+                                       T.GROUP_DESKTOP, T.GROUP_DESKTOP_APPS, T.GROUP_AUDIOBOOKS,
+                                       T.GROUP_VAULT}
+    assert len(rows) == 7
     assert row_for(rows, T.GROUP_IPHONE).label == "iPhone apps"
     assert row_for(rows, T.GROUP_DESKTOP).label == "Desktop web"
 
