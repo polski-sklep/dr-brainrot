@@ -60,6 +60,7 @@ IMPORT_KIND_FOR_PROVENANCE = {
     T.PROV_EXPORT: "coldturkey",
     T.PROV_APP_TRACKER: "qbserve",
     T.PROV_BROWSER_SYNC: "brave_sync",
+    T.PROV_AUDIBLE_STATS: "audible",
 }
 
 #: The rows a week *should* have from weekly evidence, so an absent import
@@ -148,6 +149,12 @@ GROUP_BLIND_SPOTS: dict[str, tuple[str, ...]] = {
         "Measured only while Qbserve is running on this Mac.",
         "Browsers are left out here: Cold Turkey measures them per site instead (Desktop web).",
         "No keeper path: vault captures are not attributed to desktop apps.",
+    ),
+    T.GROUP_AUDIOBOOKS: (
+        "Labelled worthwhile by your standing decision: counted as content, never charged as brain rot.",
+        "The day's total is Audible's own; its split across books is estimated from how far each "
+        "book's place moved.",
+        "No keeper path: vault captures are not attributed to audiobooks.",
     ),
     T.GROUP_WEB: ("No minutes source: articles are counted as keepers only.",),
     T.GROUP_OTHER: ("No minutes source: captures with no attributable source.",),
@@ -1120,6 +1127,7 @@ GROUP_TEXT = {
     T.GROUP_IPHONE: "iPhone apps",
     T.GROUP_DESKTOP: "Desktop web",
     T.GROUP_DESKTOP_APPS: "Desktop apps",
+    T.GROUP_AUDIOBOOKS: "Audiobooks",
     T.GROUP_VAULT: "Vault (Obsidian)",
 }
 
@@ -1140,7 +1148,7 @@ DIAGNOSTIC_ENDED_NOTE = "The diagnostic has ended, so nothing more is asked for.
 
 #: The order groups are considered in, before the "needs you first" sort.
 ATTENTION_ORDER = (T.GROUP_IPHONE, T.GROUP_YOUTUBE, T.GROUP_DESKTOP, T.GROUP_DESKTOP_APPS,
-                   T.GROUP_PODCASTS, T.GROUP_VAULT)
+                   T.GROUP_PODCASTS, T.GROUP_AUDIOBOOKS, T.GROUP_VAULT)
 
 
 @dataclass(frozen=True)

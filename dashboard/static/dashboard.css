@@ -597,6 +597,10 @@ tr.covered:hover td { background: var(--surface-hover); }
 /* Phone sync: the browser's own history, measured in total but apportioned.
    Its dot is split down the middle, which is what the figure is. */
 .prov-browsersync { --dot: #C3C8D0; --dot-edge: #6E747E; color: #555B66; font-weight: 450; font-style: normal; }
+/* Audiobook listening stats: Audible's own daily total, measured; only its
+   split across books is estimated. A filled mid-grey dot, a step firmer than
+   phone sync, because the total comes from the service itself. */
+.prov-audiblestats { --dot: #8A9099; --dot-edge: #555B66; color: #555B66; font-weight: 500; font-style: normal; }
 .prov-vault { --dot: #E1E4E8; --dot-edge: #C6CBD2; color: var(--text-muted); }
 .prov-label { --dot: #E1E4E8; --dot-edge: #C6CBD2; color: var(--text-muted); }
 .prov-unknown { --dot: transparent; --dot-edge: var(--border-strong); color: var(--text-muted); }

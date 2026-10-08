@@ -91,6 +91,7 @@ GROUP_NAMES = {
     T.GROUP_IPHONE: "iPhone apps",
     T.GROUP_DESKTOP: "Desktop web",
     T.GROUP_DESKTOP_APPS: "Desktop apps",
+    T.GROUP_AUDIOBOOKS: "Audiobooks",
     T.GROUP_WEB: "Web articles",
     T.GROUP_OTHER: "Other captures",
 }
@@ -102,6 +103,7 @@ KIND_NAMES = {
     T.KIND_WEB_DOMAIN: "web domain",
     T.KIND_X: "X",
     T.KIND_DESKTOP_APP: "Mac app",
+    T.KIND_AUDIOBOOK: "audiobook",
 }
 
 IMPORT_KIND_NAMES = {
@@ -110,6 +112,7 @@ IMPORT_KIND_NAMES = {
     "coldturkey": "Cold Turkey",
     "vault_scan": "Vault scan",
     "qbserve": "Qbserve",
+    "audible": "Audible",
 }
 
 #: (short text, css tier) per provenance. The long text is T.PROVENANCE_TEXT.
@@ -120,6 +123,7 @@ PROVENANCE_BADGES = {
     T.PROV_EXPORT: ("manual export", "export"),
     T.PROV_APP_TRACKER: ("app tracker", "apptracker"),
     T.PROV_BROWSER_SYNC: ("phone sync", "browsersync"),
+    T.PROV_AUDIBLE_STATS: ("listening stats", "audiblestats"),
     T.PROV_VAULT: ("vault scan · count", "vault"),
     T.PROV_LABEL: ("your label", "label"),
 }
@@ -1472,7 +1476,8 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
     app.jinja_env.globals.update(
         GROUP_NAMES=GROUP_NAMES, KIND_NAMES=KIND_NAMES, IMPORT_KIND_NAMES=IMPORT_KIND_NAMES,
         PROVENANCE_BADGES=PROVENANCE_BADGES, PROVENANCE_TEXT=T.PROVENANCE_TEXT, BASIS_TEXT=BASIS_TEXT,
-        PROV_SCREENSHOT=T.PROV_SCREENSHOT, PROV_BROWSER_SYNC=T.PROV_BROWSER_SYNC, HTMX_URL=HTMX_URL, HTMX_SRI=HTMX_SRI,
+        PROV_SCREENSHOT=T.PROV_SCREENSHOT, PROV_BROWSER_SYNC=T.PROV_BROWSER_SYNC,
+        PROV_AUDIBLE_STATS=T.PROV_AUDIBLE_STATS, HTMX_URL=HTMX_URL, HTMX_SRI=HTMX_SRI,
         UNKNOWN_CHANNEL_REASON=UNKNOWN_CHANNEL_REASON, WASTEFUL=T.WASTEFUL, WORTHWHILE=T.WORTHWHILE,
         TOOL=T.TOOL, TOOL_TEXT=TOOL_TEXT,
         BRAIN={"outline": BRAIN_OUTLINE, "folds": BRAIN_FOLDS},

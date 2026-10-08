@@ -52,6 +52,10 @@ class Settings:
     #: The desktop browser's own history, which carries the phone's synced
     #: visits (DR5.13). None = the phone browser stays one unattributed block.
     brave_history_db: pathlib.Path | None = None
+    #: The Audible sign-in `audible_login.py` saves (DR5.28), beside the
+    #: `audible_store.json` naming the store that holds the books. None, or a
+    #: file that isn't there, means audiobooks are not measured. Tests keep None.
+    audible_auth: pathlib.Path | None = None
     go_live: str = ""              # local date DRBR measurement starts; earlier data is not counted
     #: Optional. Only the weekly insights summary uses it (DR5.8); empty means the
     #: Overview shows DRBR's own computed sentences instead. Never logged, never stored.
@@ -107,6 +111,7 @@ def load(env_path: pathlib.Path | None = None, **overrides) -> Settings:
         anthropic_api_key=get("ANTHROPIC_API_KEY"),
         qbserve_db=_path_or_none(get("DRBR_QBSERVE_DB")),
         brave_history_db=_path_or_none(get("DRBR_BRAVE_HISTORY_DB")),
+        audible_auth=_resolve(get("DRBR_AUDIBLE_AUTH", "data/audible_auth.json")),
     )
 
 
@@ -130,7 +135,7 @@ _KEYS = {
     "YOUTUBE_API_KEY", "DRBR_VAULT_PATH", "DRBR_VAULT_INBOX", "DRBR_CAPTURE_OUTBOX",
     "DRBR_RAW_DIR", "DRBR_DIAGNOSTIC_WEEKS", "DRBR_DASHBOARD_PORT", "DRBR_INGEST_TOKEN",
     "DRBR_GO_LIVE", "DRBR_COLDTURKEY_DB", "DRBR_QBSERVE_DB", "DRBR_BRAVE_HISTORY_DB",
-    "ANTHROPIC_API_KEY",
+    "DRBR_AUDIBLE_AUTH", "ANTHROPIC_API_KEY",
 }
 
 

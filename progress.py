@@ -79,6 +79,7 @@ CHANNEL_NAMES = {
     T.PROV_EXPORT: "the Mac's browser",
     T.PROV_APP_TRACKER: "Mac apps",
     T.PROV_BROWSER_SYNC: "the phone browser by site",
+    T.PROV_AUDIBLE_STATS: "audiobook listening",
 }
 
 _BRAIN_ROT = (T.WASTEFUL, None)          # labelled wasteful, or not decided yet

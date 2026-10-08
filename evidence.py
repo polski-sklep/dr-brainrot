@@ -190,7 +190,7 @@ def upsert_measurement(conn: sqlite3.Connection, rec: ImportRecord, *, source_id
     if minutes is not None and minutes < 0:
         raise EvidenceError(f"negative minutes {minutes}")
     if provenance not in (T.PROV_PAGE, T.PROV_SCREENSHOT, T.PROV_EXPORT, T.PROV_APP_TRACKER,
-                          T.PROV_BROWSER_SYNC):
+                          T.PROV_BROWSER_SYNC, T.PROV_AUDIBLE_STATS):
         raise EvidenceError(f"provenance {provenance!r} does not write measurements")
     T.parse_date(period_start), T.parse_date(period_end)  # validate shape
     conn.execute(

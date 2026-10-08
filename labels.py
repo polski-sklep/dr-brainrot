@@ -105,6 +105,8 @@ def normalise_key(kind: str, raw: str) -> tuple[str, str]:
         return kind, re.sub(r"\s+", " ", value).casefold()
     if kind == T.KIND_YOUTUBE_CHANNEL:
         return kind, value            # channel ids (UC...) are case-sensitive
+    if kind == T.KIND_AUDIOBOOK:
+        return kind, value            # an ASIN, as Audible gives it (DR5.28)
     return T.KIND_X, "x"
 
 
@@ -116,12 +118,24 @@ def _to_source(row: sqlite3.Row) -> Source:
 
 
 def ensure_source(conn: sqlite3.Connection, clk: Clock, kind: str, raw_key: str,
-                  display_name: str | None = None) -> Source:
-    """Get or create a source, normalised. Does not commit (callers batch)."""
+                  display_name: str | None = None, *, label_on_create: str | None = None) -> Source:
+    """Get or create a source, normalised. Does not commit (callers batch).
+
+    `label_on_create` is written only when this call creates the row: a
+    standing decision the user made for a whole kind of source, such as
+    "audiobooks are worthwhile" (DR5.28). It is his label, not a default. An
+    existing row, labelled or not, is never touched, so a label he sets on one
+    source later always wins.
+    """
     kind, key = normalise_key(kind, raw_key)
+    if label_on_create is not None:
+        _check_source_label(label_on_create)
+    now = clock.iso(clk.now())
     conn.execute(
-        "INSERT OR IGNORE INTO sources (kind, source_key, display_name, first_seen_at) VALUES (?, ?, ?, ?)",
-        (kind, key, (display_name or raw_key).strip() or key, clock.iso(clk.now())),
+        "INSERT OR IGNORE INTO sources (kind, source_key, display_name, first_seen_at, label, labelled_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (kind, key, (display_name or raw_key).strip() or key, now,
+         label_on_create, now if label_on_create is not None else None),
     )
     row = conn.execute("SELECT * FROM sources WHERE kind = ? AND source_key = ?", (kind, key)).fetchone()
     return _to_source(row)
@@ -353,6 +367,7 @@ PROVENANCE_SEEN = {
     T.PROV_SCREENSHOT: "Screen Time screenshots",
     T.PROV_EXPORT: "Cold Turkey (desktop web)",
     T.PROV_APP_TRACKER: "Qbserve (Mac apps)",
+    T.PROV_AUDIBLE_STATS: "Audible listening stats",
 }
 
 

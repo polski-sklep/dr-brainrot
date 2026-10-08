@@ -158,7 +158,7 @@ therefore describes only the part that has been labelled — state it as a limit
 read from the figures, not as something the person should go and fix.
 
 The payload names report groups only: podcasts, YouTube, X, iPhone apps, desktop web, desktop \
-apps. You are not told the name of any show, channel, app, site, video or note, and must not \
+apps, audiobooks. You are not told the name of any show, channel, app, site, video or note, and must not \
 guess at one or refer to one.
 
 Write 3 to 5 short sentences of plain English, as one paragraph. Name the trend across the weeks, \

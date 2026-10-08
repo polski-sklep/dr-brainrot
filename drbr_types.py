@@ -44,7 +44,9 @@ KIND_IPHONE_APP = "iphone_app"
 KIND_WEB_DOMAIN = "web_domain"
 KIND_X = "x"
 KIND_DESKTOP_APP = "desktop_app"      # a native Mac app, from Qbserve (DR5.3); key = bundle id, casefolded
-SOURCE_KINDS = (KIND_PODCAST_SHOW, KIND_YOUTUBE_CHANNEL, KIND_IPHONE_APP, KIND_WEB_DOMAIN, KIND_X, KIND_DESKTOP_APP)
+KIND_AUDIOBOOK = "audiobook"          # one title in the Audible library (DR5.28); key = ASIN
+SOURCE_KINDS = (KIND_PODCAST_SHOW, KIND_YOUTUBE_CHANNEL, KIND_IPHONE_APP, KIND_WEB_DOMAIN, KIND_X, KIND_DESKTOP_APP,
+                KIND_AUDIOBOOK)
 
 #: Keeper / reporting groups: the rows of the cost-per-keeper table.
 GROUP_PODCASTS = "podcasts"
@@ -53,13 +55,15 @@ GROUP_X = "x"
 GROUP_IPHONE = "iphone_apps"
 GROUP_DESKTOP = "desktop_web"
 GROUP_DESKTOP_APPS = "desktop_apps"   # native Mac apps (Qbserve, DR5.3); browsers stay in desktop_web
+GROUP_AUDIOBOOKS = "audiobooks"       # Audible's own listening stats, account-wide (DR5.28)
 GROUP_WEB = "web"          # vault keepers from articles; has no minutes source
 GROUP_OTHER = "other"      # vault keepers with no attributable source
 #: Not a minutes group: the Obsidian vault produces counts only. Named here so the
 #: "where does each number come from" and "what needs you" tables (DR5.6) can list it
 #: beside the measured groups without inventing a string per caller.
 GROUP_VAULT = "vault"
-REPORT_GROUPS = (GROUP_PODCASTS, GROUP_YOUTUBE, GROUP_X, GROUP_IPHONE, GROUP_DESKTOP, GROUP_DESKTOP_APPS)
+REPORT_GROUPS = (GROUP_PODCASTS, GROUP_YOUTUBE, GROUP_X, GROUP_IPHONE, GROUP_DESKTOP, GROUP_DESKTOP_APPS,
+                 GROUP_AUDIOBOOKS)
 KEEPER_GROUPS = ("x", "youtube", "podcasts", "web", "other")
 
 # --- provenance -------------------------------------------------------------
@@ -72,10 +76,11 @@ PROV_SCREENSHOT = "screenshot_ocr"       # Screen Time via on-device Apple Visio
 PROV_EXPORT = "manual_export"            # Cold Turkey statistics (local database read or JSON export)
 PROV_APP_TRACKER = "app_tracker"         # Qbserve's per-app time on this Mac (DR5.3)
 PROV_BROWSER_SYNC = "browser_sync"        # the phone browser's own synced history, minutes apportioned (DR5.13)
+PROV_AUDIBLE_STATS = "audible_stats"     # Audible's daily listening totals; the split across books is estimated (DR5.28)
 PROV_VAULT = "vault_scan"                # Obsidian capture-ID scan (counts, never minutes)
 PROV_LABEL = "user_label"                # explicit user labels
 PROVENANCES = (PROV_API, PROV_PAGE, PROV_SCREENSHOT, PROV_EXPORT, PROV_APP_TRACKER,
-               PROV_BROWSER_SYNC, PROV_VAULT, PROV_LABEL)
+               PROV_BROWSER_SYNC, PROV_AUDIBLE_STATS, PROV_VAULT, PROV_LABEL)
 
 PROVENANCE_TEXT = {
     PROV_API: "API (Spotify resume position)",
@@ -84,17 +89,18 @@ PROVENANCE_TEXT = {
     PROV_EXPORT: "Cold Turkey statistics (this Mac)",
     PROV_APP_TRACKER: "App tracker (Qbserve, this Mac)",
     PROV_BROWSER_SYNC: "Phone browser sync (total measured, split across sites estimated)",
+    PROV_AUDIBLE_STATS: "Audible's own listening stats",
     PROV_VAULT: "Vault scan (count, not minutes)",
     PROV_LABEL: "Your label",
 }
 
 DEVICE_IPHONE = "iphone"
 DEVICE_DESKTOP = "desktop"
-DEVICE_ACCOUNT = "account"   # account-level: YouTube history spans every device
+DEVICE_ACCOUNT = "account"   # account-level: YouTube history and Audible span every device
 
 MEASUREMENT_STATUSES = ("ok", "progress_missing", "duration_missing", "unreadable")
 
-IMPORT_KINDS = ("youtube_history", "screentime", "coldturkey", "vault_scan", "qbserve", "brave_sync")
+IMPORT_KINDS = ("youtube_history", "screentime", "coldturkey", "vault_scan", "qbserve", "brave_sync", "audible")
 IMPORT_OK, IMPORT_PARTIAL, IMPORT_FAILED = "ok", "partial", "failed"
 
 # --- double counting --------------------------------------------------------
@@ -113,6 +119,11 @@ COVERED_ELSEWHERE: dict[tuple[str, str], str] = {
     # (DR5.13). Like the entries above, the minutes stay visible in the
     # "covered elsewhere" column, so an exclusion can never hide them.
     (KIND_IPHONE_APP, "brave"): "phone browser history (per site)",
+    # Audible counts listening on every device, screen on or off (DR5.28): in
+    # the weeks of 20 and 27 Sep Screen Time saw the app for 2 and 7 minutes
+    # while Audible counted 144 and 273 minutes of listening.
+    (KIND_IPHONE_APP, "audible"): ("Audible's own listening stats (Screen Time only sees the app while the "
+                                   "screen is on)"),
 }
 
 #: Qbserve files some websites it recognises in a browser tab under pseudo-apps
@@ -157,6 +168,8 @@ def report_group(kind: str, device: str | None = None) -> str:
         return GROUP_IPHONE if device == DEVICE_IPHONE else GROUP_DESKTOP
     if kind == KIND_DESKTOP_APP:
         return GROUP_DESKTOP_APPS
+    if kind == KIND_AUDIOBOOK:
+        return GROUP_AUDIOBOOKS
     raise ValueError(f"unknown source kind {kind!r}")
 
 
@@ -164,6 +177,13 @@ def report_group(kind: str, device: str | None = None) -> str:
 #: attributes to one channel. Its minutes are real; it is never offered for a
 #: label, because a label on "unknown" would apply to unrelated channels.
 UNKNOWN_YOUTUBE_CHANNEL_KEY = "unknown"
+
+#: Audiobook listening no book could be matched to: every day before the first
+#: read of the library, or a day on which no book's place moved (DR5.28). Its
+#: minutes are real and keep the standing worthwhile label. Unlike the YouTube
+#: bucket it may be labelled: it is all audiobook listening, so a label on it
+#: means one thing. Real ASINs are ten upper-case characters, never this.
+UNKNOWN_AUDIOBOOK_KEY = "unknown"
 
 # --- YouTube video facts ------------------------------------------------------
 
