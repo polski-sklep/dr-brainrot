@@ -19,13 +19,54 @@ stop working if Amazon changes things, and that is the only cost.
 from __future__ import annotations
 
 import pathlib
+import readline  # noqa: F401  -- without it, macOS Terminal cuts a pasted line off at 1,024 characters
 import sys
+import webbrowser
 
 import audible
 
 STORES = {"uk": "uk", "de": "de", "us": "us", "fr": "fr", "it": "it", "es": "es",
           "ca": "ca", "au": "au", "in": "in", "jp": "jp", "br": "br"}
 AUTH_FILE = pathlib.Path(__file__).resolve().parent / "data" / "audible_auth.json"
+
+
+LANDING = "openid.oa2.authorization_code="
+
+STEPS = """
+Your browser is opening Amazon's sign-in page (if it doesn't, open the link
+below yourself). Sign in there; Amazon may ask twice and show a puzzle.
+
+When you are signed in, the browser shows "Page not found". That is expected.
+Copy the whole address of THAT page from the address bar. It starts with
+https://www.amazon.../ap/maplanding and is very long.
+
+Sign-in link:
+{url}
+"""
+
+
+def _landing_address(url: str) -> str:
+    """Open Amazon's sign-in page and take back the address it ends on.
+
+    Asks again, saying why, when the pasted address isn't the one after sign-in
+    (the commonest slip is pasting the sign-in link itself back).
+    """
+    print(STEPS.format(url=url))
+    try:
+        webbrowser.open(url)
+    except Exception:  # noqa: BLE001 -- the printed link is the fallback
+        pass
+    while True:
+        pasted = input("Paste the address of the \"Page not found\" page here: ").strip()
+        if LANDING in pasted:
+            return pasted
+        if "/ap/signin" in pasted:
+            print("\nThat's the sign-in link itself. Finish signing in first, then copy the "
+                  "address of the \"Page not found\" page you end on.\n")
+        else:
+            print("\nThat address doesn't carry the sign-in result. Copy the whole address of "
+                  "the \"Page not found\" page after signing in (it contains "
+                  "\"authorization_code\").\n")
 
 
 def main() -> None:
@@ -36,7 +77,8 @@ def main() -> None:
                   "(uk, de, us, fr, it, es, ca, au, in, jp, br) [uk]: ").strip().lower() or "uk"
     if store not in STORES:
         sys.exit(f"Unknown store {store!r}.")
-    auth = audible.Authenticator.from_login_external(locale=STORES[store])
+    auth = audible.Authenticator.from_login_external(locale=STORES[store],
+                                                     login_url_callback=_landing_address)
     AUTH_FILE.parent.mkdir(exist_ok=True)
     auth.to_file(AUTH_FILE, encryption=False)
     AUTH_FILE.chmod(0o600)
