@@ -2420,3 +2420,49 @@ written since 27 Sep, so there was no way to tell whether later Sundays ran.
 
 `bot.py` is unchanged: it is not scheduled, and launchd's KeepAlive restarts
 it until the network is back.
+
+### DR5.26 — A summary also goes stale when the week's data arrives after it
+
+**8 October 2026.** Jacob approved "mark the summary as out of date when new
+data lands after it's written", fourth in his order for the Sunday session.
+
+Summary #8 was written by the 09:30 job on Mon 5 Oct, at 07:30:11Z, from
+figures through Sat 3 Oct. The YouTube sync (import #85, watches 29 Sep – 4
+Oct) landed at 07:30:59Z, 48 seconds later. For the rest of the week the
+Overview kept saying the week was down 19.8% and that YouTube never arrived,
+beside panels that had the YouTube minutes. Neither reason from DR5.18 fired:
+no newer week had finished, and nothing had been relabelled.
+
+So `insight_staleness` gains a third reason, `new_data`, with its own chip:
+"new data has arrived since this was written". It holds when, after the
+summary was written:
+
+* an import he **sends** arrived for the summarised week: Screen Time, a
+  YouTube sync, or a Cold Turkey export made by hand, whose period overlaps
+  the week. A YouTube sync also counts when it is the first to cover the week
+  at all, whatever its watch dates, because then the paragraph named the gap
+  ("never arrived") and this sync fills it;
+* a reading for the week was settled (`detail.corrections[].at`);
+* listening was heard inside the week's allowance week. This is almost never
+  true, but it is right for a Rewrite pressed on a Sunday morning, before the
+  week closes at 18:00.
+
+**The automatic reads don't count, by design.** Cold Turkey's own
+statistics, Qbserve, the browser sync and the vault re-read their last eight
+days every morning. On the live data they overlapped summary #8's week on
+each of the following mornings (imports #87–#93), so a plain "any import
+after the summary that covers its week" rule would show the chip almost
+every day, and it would mean nothing. That is the trap `insight_is_stale`'s
+own note warns about (DR5.9). The cost: an automatic read that catches up
+after an outage is not flagged. That is rare, and the failing read already
+shows on the page.
+
+**Order:** `newer_week`, then `new_data`, then `relabelled`, and only the
+first that holds is named. A finished week replaces the whole paragraph. New
+data can make a sentence in it false. A relabel reclassifies figures that were
+right when they were written. Checked against a copy of the live database,
+summary #8 now says "new data"; summaries #5–#7 still say "a newer week".
+
+It is derived on every render, like DR5.18: no new state and no migration.
+The chip only says so; Rewrite stays the person's choice. The dashboard needs
+a restart to show it.

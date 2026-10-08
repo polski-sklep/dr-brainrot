@@ -26,7 +26,9 @@
       {% else %}
       <span class="state state-computed">computed on this Mac</span>
       {% endif %}
+      {# In the order insight_staleness checks them (DR5.26). #}
       {% if insight_stale_reason == "newer_week" %}<span class="state state-unlabelled">a newer week has finished since this was written</span>
+      {% elif insight_stale_reason == "new_data" %}<span class="state state-unlabelled">new data has arrived since this was written</span>
       {% elif insight_stale_reason == "relabelled" %}<span class="state state-unlabelled">you have relabelled since — these figures no longer match</span>{% endif %}
       <span class="spacer"></span>
       <form method="post" action="{{ url_for('refresh_insight') }}" class="generated-refresh">
@@ -43,7 +45,7 @@
     <p class="generated-meta">
       Written {{ insight.created_at|local_dt }}{% if insight.model %} by {{ insight.model }}{% endif %},
       from the figures as they stood then, covering up to {{ insight.based_on_through }}.
-      Labelling a source changes those figures; this paragraph does not change with them.
+      New data and new labels change those figures; this paragraph does not change with them.
       Use <strong>Rewrite</strong>, above, to bring it up to date.
       {% if insight.model %}Only group-level totals were sent: minutes per group per week, and nothing else.
       No show, channel, app, site, video or note name leaves this Mac.{% else %}

@@ -579,12 +579,19 @@ thing recognisable without guessing at the model's phrasing. Dates are left
 alone. The weight is 650, not a full bold: a typical paragraph has nine
 figures, and at 700 the emphasis stops meaning anything.
 
-**A stale summary says which kind of stale.** Two different things make a
+**A stale summary says which kind of stale.** Three different things make a
 generated paragraph wrong, and they need different sentences: a newer week has
-finished, or the labels under the week it describes have changed. The second is
-the common case — labelling is what the user does most — and it is the one that
-produces a visible contradiction, because the paragraph sits directly above a
-panel computing the same comparison live. Both chips point at Rewrite.
+finished, new data for the week it describes has arrived, or the labels under
+that week have changed. One chip shows, for the first that holds in that order.
+A newer week replaces the whole paragraph. New data can make one of its
+sentences false: on 5 Oct the YouTube sync landed 48 seconds after the summary
+was written, and the paragraph kept saying YouTube never arrived. A relabel
+reclassifies figures that were right when written. It is still the common case
+(labelling is what the user does most) and the one that produces a visible
+contradiction, because the paragraph sits directly above a panel computing the
+same comparison live. Only data a person sends counts as new: the automatic
+morning re-reads would light the chip every day. All three chips point at
+Rewrite.
 
 **Progress.** The one section allowed to feel like something. A fall is the
 point of the whole diagnostic, and reporting it in the same grey as everything

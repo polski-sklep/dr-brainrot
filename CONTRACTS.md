@@ -1314,3 +1314,31 @@ def run_sync(conn, clk, settings) -> dict[str, StepResult]       # no bot: sends
 `_weekly_manual_state` uses `week_is_due`. `prompts_sent` no longer receives
 `screentime`, `youtube`, `coldturkey` or `labels` rows; old rows stay and the
 CHECK constraint is untouched.
+
+### Summary staleness (DR5.26)
+
+```python
+# dashboard/app.py
+STALE_NEWER_WEEK = "newer_week"; STALE_NEW_DATA = "new_data"; STALE_RELABELLED = "relabelled"
+SENT_BY_HAND = ("screentime", "youtube_history", "coldturkey")
+def insight_staleness(conn, insight, last_complete_sunday, tz) -> str | None
+    # checks, in order: newer_week, then new_data, then relabelled; the first that holds wins
+def _new_data_since(conn, written, week: T.MeasurementWeek, tz) -> bool
+```
+
+`week` is the summary's week, `T.measurement_week(based_on_through)`;
+`written` is `insight.created_at`. `new_data` holds when any of:
+
+* an ok/partial import of a `SENT_BY_HAND` kind with `received_at > written`
+  (Cold Turkey only when `meta.origin` is not `local_db`; none = manual
+  export) whose period overlaps `week`, or a YouTube sync received after the
+  week's Saturday when none had been received between that Saturday and
+  `written`;
+* a measurement overlapping `week` with a `detail.corrections[].at > written`;
+* a `listening` row with `delta_ms > 0` polled after `written`, inside the
+  week's allowance week (`allowance_week_start_for_day(week.sunday)` to the
+  next week start).
+
+Cold Turkey `local_db`, `qbserve`, `brave_sync` and `vault_scan` imports never
+count: they re-read eight days every morning. Read-only, no new state, derived
+on every render. `overview.html` names the reason in the same order.

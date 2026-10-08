@@ -358,7 +358,25 @@ stored beside it so any sentence can be checked.
 **Cadence.** The daily job writes it once per allowance week, after the week has
 rolled over, so it always summarises **complete** weeks; the current, unfinished
 week is left out. Six mornings out of seven the step is a single database read.
-The **Refresh** button on the panel rewrites it on demand.
+The **Rewrite** button on the panel rewrites it on demand.
+
+**When it is out of date.** The paragraph never changes by itself. When it no
+longer matches the page, a chip above it says why, naming one reason, checked
+in this order:
+
+1. "a newer week has finished since this was written": a later week is complete.
+2. "new data has arrived since this was written": something you send arrived
+   for the summarised week after it was written. That means Screen Time
+   screenshots, a YouTube sync (including the first sync after that week, even
+   with no watches from it), a Cold Turkey export sent by hand, a reading you
+   settled, or podcast listening still inside that week. The automatic morning
+   reads (Cold Turkey's own statistics, Qbserve, the browser sync, the vault)
+   don't count. They re-read the last eight days every morning, so they would
+   mark every summary out of date for a week.
+3. "you have relabelled since — these figures no longer match": a label under
+   the summarised figures changed.
+
+Press **Rewrite** to bring it up to date.
 
 **What is sent.** Aggregates only — report *group* names (podcasts, YouTube, X,
 iPhone apps, desktop web, desktop apps), minutes by label per group per week,

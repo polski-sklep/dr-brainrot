@@ -507,6 +507,167 @@ def test_no_summary_is_never_stale(conn, settings):
     assert dashboard_app.insight_staleness(conn, None, "2026-09-20", settings.tz) is None
 
 
+# --- staleness by new data (DR5.26) -------------------------------------------
+# Same summary: written 2026-09-21T10:00Z, describing Sun 13 – Sat 19 Sep. The
+# live case: summary #8 was written at 07:30:11Z on Mon 5 Oct and the YouTube
+# sync landed 48 s later, so the paragraph kept saying "YouTube never arrived".
+
+import evidence  # noqa: E402
+
+GENERATED_IN = "2026-09-20T16:00:00+00:00"     # the allowance week it was written in
+
+
+def _import_at(conn, clk, settings, when, kind, start=None, end=None, *, failed=False, **meta):
+    """One import row as a source module leaves it, received at `when`."""
+    clk.set(when)
+    rec = evidence.begin_import(conn, clk, kind=kind, parser_version="test-1")
+    if failed:
+        evidence.fail_import(conn, rec, "could not parse")
+        return rec
+    rec.meta.update(meta)
+    evidence.finish_import(conn, clk, settings, rec, period_start=start, period_end=end)
+    return rec
+
+
+def _staleness(conn, settings, insight=None):
+    return dashboard_app.insight_staleness(conn, insight or _insight(GENERATED_IN), "2026-09-13",
+                                           settings.tz)
+
+
+def test_a_youtube_sync_landing_just_after_the_summary_makes_it_stale(conn, clk, settings):
+    _import_at(conn, clk, settings, "2026-09-21T10:00:48+00:00", "youtube_history",
+               "2026-09-15", "2026-09-20")
+    assert _staleness(conn, settings) == dashboard_app.STALE_NEW_DATA
+    # The week-based flag keeps its one meaning.
+    assert dashboard_app.insight_is_stale(_insight(GENERATED_IN), "2026-09-13", settings.tz) is False
+
+
+def test_the_first_sync_to_cover_the_week_counts_though_it_has_no_watches_in_it(conn, clk, settings):
+    """It fills the gap the paragraph named ("YouTube never arrived"), whatever its watch dates."""
+    _import_at(conn, clk, settings, "2026-09-22T08:00:00+00:00", "youtube_history",
+               "2026-09-20", "2026-09-21")
+    assert _staleness(conn, settings) == dashboard_app.STALE_NEW_DATA
+
+
+def test_a_later_sync_about_the_next_week_does_not(conn, clk, settings):
+    """The week was already covered when the summary was written; this one is about the next."""
+    _import_at(conn, clk, settings, "2026-09-20T08:00:00+00:00", "youtube_history",
+               "2026-09-14", "2026-09-19")
+    _import_at(conn, clk, settings, "2026-09-24T08:00:00+00:00", "youtube_history",
+               "2026-09-21", "2026-09-23")
+    assert _staleness(conn, settings) is None
+
+
+def test_the_automatic_morning_reads_never_make_it_stale(conn, clk, settings):
+    """The regression guard. They re-read their last eight days every morning.
+
+    On the live data Cold Turkey's own statistics, Qbserve and the browser
+    sync overlapped the summarised week on every morning after summary #8
+    (imports #87–#93); counting them would leave every summary marked out of
+    date for a week, and the chip would mean nothing.
+    """
+    for day in ("2026-09-21", "2026-09-22", "2026-09-23"):
+        at = f"{day}T10:30:00+00:00"
+        _import_at(conn, clk, settings, at, "coldturkey", "2026-09-13", day, origin="local_db")
+        _import_at(conn, clk, settings, at, "qbserve", "2026-09-13", day)
+        _import_at(conn, clk, settings, at, "brave_sync", "2026-09-13", day)
+        _import_at(conn, clk, settings, at, "vault_scan")
+    assert _staleness(conn, settings) is None
+
+
+@pytest.mark.parametrize("kind, meta", [
+    ("coldturkey", {"origin": "export"}),
+    ("coldturkey", {}),                      # no origin: a manual export, as in blind spots
+    ("screentime", {"most_used_complete": True}),
+])
+def test_evidence_sent_by_hand_for_the_week_makes_it_stale(conn, clk, settings, kind, meta):
+    _import_at(conn, clk, settings, "2026-09-21T11:00:00+00:00", kind, "2026-09-13", "2026-09-19",
+               **meta)
+    assert _staleness(conn, settings) == dashboard_app.STALE_NEW_DATA
+
+
+def test_evidence_for_another_week_or_none_does_not(conn, clk, settings):
+    _import_at(conn, clk, settings, "2026-09-21T11:00:00+00:00", "screentime",
+               "2026-09-20", "2026-09-26")
+    _import_at(conn, clk, settings, "2026-09-21T11:05:00+00:00", "screentime")   # "This Week": no period
+    _import_at(conn, clk, settings, "2026-09-21T11:10:00+00:00", "coldturkey",
+               "2026-09-06", "2026-09-12")
+    assert _staleness(conn, settings) is None
+
+
+def test_data_before_the_summary_or_a_failed_import_does_not(conn, clk, settings):
+    _import_at(conn, clk, settings, "2026-09-20T09:00:00+00:00", "screentime",
+               "2026-09-13", "2026-09-19")
+    _import_at(conn, clk, settings, "2026-09-21T09:59:59+00:00", "youtube_history",
+               "2026-09-14", "2026-09-20")
+    _import_at(conn, clk, settings, "2026-09-21T11:00:00+00:00", "screentime", failed=True)
+    _import_at(conn, clk, settings, "2026-09-21T11:00:00+00:00", "youtube_history", failed=True)
+    assert _staleness(conn, settings) is None
+
+
+def _unreadable_reading(conn, clk, settings, *, at="2026-09-20T09:00:00+00:00"):
+    """A Screen Time row for the week that OCR couldn't read for sure."""
+    clk.set(at)
+    measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Facebook", day="2026-09-13",
+            period_end="2026-09-19", minutes=None, status="unreadable")
+    return conn.execute("SELECT id FROM measurements WHERE status = 'unreadable'").fetchone()["id"]
+
+
+def test_settling_a_reading_after_the_summary_makes_it_stale(conn, clk, settings):
+    from sources import screentime
+
+    mid = _unreadable_reading(conn, clk, settings)
+    assert _staleness(conn, settings) is None
+    clk.set("2026-09-21T13:00:00+00:00")
+    screentime.correct_measurement(conn, clk, settings, mid, 157.0)
+    assert _staleness(conn, settings) == dashboard_app.STALE_NEW_DATA
+
+
+def test_a_reading_settled_before_the_summary_does_not(conn, clk, settings):
+    from sources import screentime
+
+    mid = _unreadable_reading(conn, clk, settings)
+    clk.set("2026-09-21T09:00:00+00:00")
+    screentime.correct_measurement(conn, clk, settings, mid, 157.0)
+    assert _staleness(conn, settings) is None
+
+
+def _listen_at(conn, clk, when, delta_min):
+    db.upsert_episode(conn, "ep0000000000000000000a", "Episode", "A Show", None, None, 3_600_000)
+    clk.set(when)
+    db.record_listening(conn, clk, "ep0000000000000000000a", delta_min * 60_000, delta_min * 60_000,
+                        None)
+    conn.commit()
+
+
+def test_listening_after_a_sunday_rewrite_inside_the_weeks_allowance_week(conn, clk, settings):
+    """Rewrite pressed at 10:00 on Sunday: listening until 18:00 still belongs to that week."""
+    sunday_rewrite = insights.Insight(summary="s", created_at="2026-09-20T08:00:00+00:00",
+                                      model="claude-opus-5", week_start="2026-09-13T16:00:00+00:00",
+                                      fallback_reason=None, based_on_through="2026-09-19")
+    _listen_at(conn, clk, "2026-09-20T07:17:00+00:00", 20)          # before it was written
+    _listen_at(conn, clk, "2026-09-20T12:00:00+00:00", 0)           # polled, nothing new heard
+    _listen_at(conn, clk, "2026-09-21T07:17:00+00:00", 30)          # the next allowance week
+    assert _staleness(conn, settings, sunday_rewrite) is None
+    _listen_at(conn, clk, "2026-09-20T12:30:00+00:00", 15)          # Sunday afternoon, same week
+    assert _staleness(conn, settings, sunday_rewrite) == dashboard_app.STALE_NEW_DATA
+
+
+def test_the_reasons_rank_newer_week_then_new_data_then_relabelled(conn, clk, settings):
+    """A finished week replaces the whole paragraph; new data can make a sentence in it
+    false ("never arrived"); a relabel reclassifies figures that were right when written."""
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-15",
+            minutes=40.0)
+    _relabel_at(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", "2026-09-21T13:00:00+00:00")
+    assert _staleness(conn, settings) == dashboard_app.STALE_RELABELLED
+
+    _import_at(conn, clk, settings, "2026-09-21T14:00:00+00:00", "youtube_history",
+               "2026-09-18", "2026-09-21")
+    assert _staleness(conn, settings) == dashboard_app.STALE_NEW_DATA
+    assert dashboard_app.insight_staleness(conn, _insight(GENERATED_IN), "2026-09-20", settings.tz) \
+        == dashboard_app.STALE_NEWER_WEEK
+
+
 # ==========================================================================
 # The brain against your peak week: geometry and wording (rot_view)
 # ==========================================================================

@@ -271,25 +271,39 @@ def flash_from(args) -> list[tuple[str, str]]:
     return [FLASH_TEXT[code] for code in args.getlist("msg") if code in FLASH_TEXT]
 
 
-#: Why a stored summary no longer describes the figures beside it (DR5.18).
+#: Why a stored summary no longer describes the figures beside it (DR5.18,
+#: DR5.26), in the order `insight_staleness` checks them.
 STALE_NEWER_WEEK = "newer_week"
+STALE_NEW_DATA = "new_data"
 STALE_RELABELLED = "relabelled"
+
+#: The imports a person sends. Cold Turkey counts only as a manual export:
+#: `meta.origin` other than `local_db`, or none, as `report._coldturkey_blind_spots` reads it.
+SENT_BY_HAND = ("screentime", "youtube_history", "coldturkey")
 
 
 def insight_staleness(conn: sqlite3.Connection, insight, last_complete_sunday: str,
                       tz: str) -> str | None:
     """None when the summary still describes the page; otherwise why it doesn't.
 
-    Two reasons, and they want different sentences, so they are returned
-    rather than folded into one boolean:
+    Three reasons, and they want different sentences, so they are returned
+    rather than folded into one boolean. They are checked in this order, and
+    the first that holds is the one named:
 
-    * `newer_week` — a later week has finished (`insight_is_stale`).
-    * `relabelled` — a label that feeds the summarised figures changed after
-      the paragraph was written. Labelling is the thing Jacob does most, and
-      it moves every figure: forty-three sources bulk-labelled tool three
-      hours after a summary was written left it saying "181 to 131" beside a
-      panel saying "177 to 119", both claiming like for like, with no data
-      having arrived. Staleness per week never sees that.
+    1. `newer_week` — a later week has finished (`insight_is_stale`). It
+       replaces the whole paragraph, so it is the most urgent news.
+    2. `new_data` — data for the summarised week arrived after the paragraph
+       was written (`_new_data_since`, DR5.26). It can make a sentence in it
+       false: summary #8 was written at 07:30:11Z on 5 Oct, the YouTube sync
+       landed 48 s later, and the paragraph went on saying YouTube never
+       arrived.
+    3. `relabelled` — a label that feeds the summarised figures changed after
+       the paragraph was written. Labelling is the thing Jacob does most, and
+       it moves every figure: forty-three sources bulk-labelled tool three
+       hours after a summary was written left it saying "181 to 131" beside a
+       panel saying "177 to 119", both claiming like for like, with no data
+       having arrived. Staleness per week never sees that. It ranks last
+       because it reclassifies figures that were right when they were written.
 
     Only labels that could have changed the summarised figures count: a source
     with a measurement on or before the last summarised day, any podcast show
@@ -303,6 +317,8 @@ def insight_staleness(conn: sqlite3.Connection, insight, last_complete_sunday: s
     if insight_is_stale(insight, last_complete_sunday, tz):
         return STALE_NEWER_WEEK
     written, through = insight.created_at, insight.based_on_through
+    if _new_data_since(conn, written, T.measurement_week(T.parse_date(through)), tz):
+        return STALE_NEW_DATA
     relabelled = conn.execute(
         """
         SELECT 1 FROM sources s
@@ -317,6 +333,70 @@ def insight_staleness(conn: sqlite3.Connection, insight, last_complete_sunday: s
         (written, T.KIND_PODCAST_SHOW, through, written),
     ).fetchone()
     return STALE_RELABELLED if relabelled else None
+
+
+def _new_data_since(conn: sqlite3.Connection, written: str, week: T.MeasurementWeek,
+                    tz: str) -> bool:
+    """Did data for the summarised `week` arrive after the summary was `written`?
+
+    Any one of three things (DR5.26):
+
+    1. An import a person sends (`SENT_BY_HAND`), ok or partial, received after
+       the summary, whose period overlaps the week. Or a YouTube sync that is
+       the first to cover the week at all: no sync had arrived since the
+       week's Saturday when the summary was written, so the paragraph named
+       the gap, and this one fills it whatever its watch dates. Imports have
+       no finish time; `received_at` is stamped by `evidence.begin_import`.
+    2. A reading for the week that a person settled after the summary
+       (`detail.corrections[].at`, written by `screentime.correct_measurement`).
+    3. Listening heard in the week's allowance week, polled after the summary.
+       Almost never true: it is for a Rewrite pressed on a Sunday morning,
+       before that allowance week closes at 18:00.
+
+    The automatic reads are left out by design. Cold Turkey's own statistics
+    (`local_db`), Qbserve, the browser sync and the vault re-read their last
+    eight days every morning, so they overlap the summarised week on each of
+    the mornings after it is written (imports #87–#93 after summary #8).
+    Counting them would mark every summary out of date for most of a week —
+    the trap `insight_is_stale`'s note describes. Their catch-up after an
+    outage goes unflagged; the failing read already shows on the page.
+    """
+    after_saturday = report._local_midnight(week.saturday + timedelta(days=1), tz)
+    opens = T.allowance_week_start_for_day(week.sunday, tz)
+    closes = clock.iso(clock.next_week_start(clock.parse(opens), tz))    # as allowance.week_end
+    kinds = {f"kind{n}": kind for n, kind in enumerate(SENT_BY_HAND)}
+    found = conn.execute(
+        f"""
+        SELECT 1 FROM imports i
+         WHERE i.kind IN ({", ".join(":" + k for k in kinds)})
+           AND i.status IN ('ok', 'partial') AND i.received_at > :written
+           AND (i.kind != 'coldturkey'
+                OR COALESCE(CASE WHEN json_valid(i.meta) THEN json_extract(i.meta, '$.origin') END,
+                            'export') != 'local_db')
+           AND ((i.period_start <= :end AND i.period_end >= :start)
+                OR (i.kind = 'youtube_history' AND i.received_at >= :after_saturday
+                    AND NOT EXISTS (SELECT 1 FROM imports y
+                                     WHERE y.kind = 'youtube_history'
+                                       AND y.status IN ('ok', 'partial')
+                                       AND y.received_at >= :after_saturday
+                                       AND y.received_at <= :written)))
+        UNION ALL
+        SELECT 1 FROM measurements m,
+               json_each(CASE WHEN json_valid(m.detail) THEN m.detail ELSE '{{}}' END,
+                         '$.corrections') c
+         WHERE m.period_start <= :end AND m.period_end >= :start
+           AND instr(m.detail, 'corrections') > 0
+           AND (CASE WHEN c.type = 'object' THEN json_extract(c.value, '$.at') END) > :written
+        UNION ALL
+        SELECT 1 FROM listening l
+         WHERE l.polled_at > :written AND l.polled_at >= :opens AND l.polled_at < :closes
+           AND l.delta_ms > 0
+        LIMIT 1
+        """,
+        {"written": written, "start": week.start, "end": week.end,
+         "after_saturday": after_saturday, "opens": opens, "closes": closes, **kinds},
+    ).fetchone()
+    return found is not None
 
 
 def insight_is_stale(insight, last_complete_sunday: str, tz: str) -> bool:

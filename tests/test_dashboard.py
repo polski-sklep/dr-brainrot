@@ -259,6 +259,46 @@ def test_a_week_not_yet_asked_for_names_the_sunday_it_is(client, clk):
     assert '<strong>missing</strong><span class="sub">nothing has arrived for this week yet</span>' in overview
 
 
+STALE_CHIPS = {
+    dashboard_app.STALE_NEWER_WEEK: "a newer week has finished since this was written",
+    dashboard_app.STALE_NEW_DATA: "new data has arrived since this was written",
+    dashboard_app.STALE_RELABELLED: "you have relabelled since — these figures no longer match",
+}
+
+
+@pytest.mark.parametrize("reason", [*STALE_CHIPS, None])
+def test_a_stale_summary_names_its_one_reason(client, conn, monkeypatch, reason):
+    """DR5.18 / DR5.26: each reason has its own plain chip, and only that one shows."""
+    conn.execute("INSERT INTO insights (created_at, model, week_start, summary, payload, status) "
+                 "VALUES ('2026-09-14T10:00:00+00:00', 'claude-opus-5', '2026-09-06T16:00:00+00:00', "
+                 "'Wasteful content fell.', '{\"based_on_through\": \"2026-09-12\"}', 'ok')")
+    conn.commit()
+    monkeypatch.setattr(dashboard_app, "insight_staleness", lambda *a, **k: reason)
+    panel = section(text(client.get("/")), "insight")
+    chips = re.findall(r'<span class="state state-unlabelled">([^<]*)</span>', panel)
+    if reason is None:
+        assert 'class="generated"' in panel and "generated-stale" not in panel
+        assert chips == []
+    else:
+        assert 'class="generated generated-stale"' in panel
+        assert chips == [STALE_CHIPS[reason]]
+    assert "New data and new labels change those figures" in flat(panel)
+
+
+def test_screenshots_sent_after_the_summary_mark_it_out_of_date(client, conn, clk, settings):
+    """End to end, no stand-ins: the overview works the reason out from the data."""
+    conn.execute("INSERT INTO insights (created_at, model, week_start, summary, payload, status) "
+                 "VALUES ('2026-09-14T10:00:00+00:00', 'claude-opus-5', '2026-09-06T16:00:00+00:00', "
+                 "'Screen Time never arrived.', '{\"based_on_through\": \"2026-09-12\"}', 'ok')")
+    conn.commit()
+    assert "generated-stale" not in section(text(client.get("/")), "insight")
+    rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="test-1")   # Wed 16 Sep
+    evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-06", period_end="2026-09-12")
+    panel = section(text(client.get("/")), "insight")
+    assert re.search(r'<span class="state state-unlabelled">new data has arrived since this was '
+                     r'written</span>', panel)
+
+
 def test_covered_elsewhere_is_shown_as_excluded_with_its_reason(client, conn, clk, settings):
     populate(conn, clk, settings)
     rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))
