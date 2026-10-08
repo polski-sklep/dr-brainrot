@@ -59,7 +59,8 @@ import sqlite3
 import warnings
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import clock
 import drbr_types as T
@@ -224,11 +225,14 @@ def setup(settings: Settings) -> Setup | None:
 
 # --- which days ---------------------------------------------------------------------
 
-def covered_through(conn: sqlite3.Connection) -> date | None:
-    """The last day any successful read vouched for."""
-    (last,) = conn.execute(
-        "SELECT MAX(period_end) FROM imports WHERE kind = ? AND status IN ('ok', 'partial')",
-        (KIND,)).fetchone()
+def covered_through(conn: sqlite3.Connection, *, before: str | None = None) -> date | None:
+    """The last day any successful read vouched for; with `before`, only reads received before it."""
+    sql = "SELECT MAX(period_end) FROM imports WHERE kind = ? AND status IN ('ok', 'partial')"
+    params: tuple = (KIND,)
+    if before is not None:
+        sql += " AND received_at < ?"
+        params += (before,)
+    (last,) = conn.execute(sql, params).fetchone()
     return T.parse_date(last) if last else None
 
 
@@ -237,12 +241,15 @@ def window(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> tuple[da
 
     The last `LOOKBACK_DAYS`, ending yesterday. The first read reaches back to
     go-live; a read after a gap reaches back to the day after the last one
-    covered. Never a day before go-live.
+    covered. Never a day before go-live. Only reads from before today decide
+    it, so every read on one day asks for the same days, and a Sync now that
+    finds nothing new is a duplicate even on the day of the first read.
     """
     today = T.local_date(clk.now(), settings.tz)
     last = today - timedelta(days=1)
     first = today - timedelta(days=LOOKBACK_DAYS)
-    covered = covered_through(conn)
+    midnight = clock.iso(datetime.combine(today, time(0), tzinfo=ZoneInfo(settings.tz)))
+    covered = covered_through(conn, before=midnight)
     if covered is None:
         if settings.go_live:
             first = T.parse_date(settings.go_live)

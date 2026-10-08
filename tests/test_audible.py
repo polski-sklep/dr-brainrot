@@ -315,6 +315,8 @@ def test_window_backfills_from_go_live_then_reads_eight_days_and_catches_up_afte
     clk = clock.FrozenClock("2026-10-09T07:30:00+00:00")
     assert audible.window(conn, clk, signed_in) == (date(2026, 9, 13), date(2026, 10, 8))
     audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
+    clk.advance(hours=3)                                                # Sync now, the same day: same days
+    assert audible.window(conn, clk, signed_in) == (date(2026, 9, 13), date(2026, 10, 8))
     clk.set("2026-10-10T07:30:00+00:00")
     assert audible.window(conn, clk, signed_in) == (date(2026, 10, 2), date(2026, 10, 9))
     audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
@@ -897,3 +899,4 @@ def test_new_words_are_plain_and_never_name_the_tool_itself(conn, signed_in):
     ]
     assert len(words) > 15 and not [w for w in words if "DRBR" in w]
     assert audible.SIGN_IN_COMMAND in report.AUDIBLE_SIGNIN_ACTION
+
