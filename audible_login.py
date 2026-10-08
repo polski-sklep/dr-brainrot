@@ -1,0 +1,51 @@
+"""One-time Audible sign-in for the daily Audible read. Run it yourself, in Terminal:
+
+    cd ~/Projects/drbr && .venv/bin/python audible_login.py
+
+It prints an Amazon sign-in link. Open it in your browser and sign in there: your
+password and two-step code go to Amazon only, never to this program. When the
+browser ends on a page that looks like an error, copy that page's whole address
+from the address bar and paste it back here.
+
+The sign-in is saved to data/audible_auth.json (data/ is never committed, and the
+file is readable by you only). Amazon lists it as a new device under your
+account's devices, where you can remove it at any time; delete the file too.
+Nothing is bought, changed or read beyond one test call to your library.
+
+Audible listening is measured but never counted as brain rot (user decision,
+7 Oct 2026). The unofficial `audible` library (mkb79) does the talking; it can
+stop working if Amazon changes things, and that is the only cost.
+"""
+from __future__ import annotations
+
+import pathlib
+import sys
+
+import audible
+
+STORES = {"uk": "uk", "de": "de", "us": "us", "fr": "fr", "it": "it", "es": "es",
+          "ca": "ca", "au": "au", "in": "in", "jp": "jp", "br": "br"}
+AUTH_FILE = pathlib.Path(__file__).resolve().parent / "data" / "audible_auth.json"
+
+
+def main() -> None:
+    if AUTH_FILE.exists() and "--again" not in sys.argv:
+        print(f"Already signed in ({AUTH_FILE}). Run with --again to sign in afresh.")
+        return
+    store = input("Which Audible store do you use? "
+                  "(uk, de, us, fr, it, es, ca, au, in, jp, br) [uk]: ").strip().lower() or "uk"
+    if store not in STORES:
+        sys.exit(f"Unknown store {store!r}.")
+    auth = audible.Authenticator.from_login_external(locale=STORES[store])
+    AUTH_FILE.parent.mkdir(exist_ok=True)
+    auth.to_file(AUTH_FILE, encryption=False)
+    AUTH_FILE.chmod(0o600)
+    with audible.Client(auth=auth) as client:
+        library = client.get("1.0/library", num_results=1, response_groups="product_desc")
+    count = library.get("total_results", len(library.get("items", [])))
+    print(f"Signed in to Audible ({store}); your library answered ({count} titles). "
+          "You can close this window.")
+
+
+if __name__ == "__main__":
+    main()

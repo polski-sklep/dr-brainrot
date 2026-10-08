@@ -24,3 +24,5 @@ pytest-asyncio==1.4.0
 python-telegram-bot==22.8
 typing_extensions==4.16.0
 Werkzeug==3.1.8
+# Audible listening (DR5.28): the unofficial client, read-only use.
+audible==0.12.0
