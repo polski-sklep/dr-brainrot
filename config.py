@@ -111,7 +111,8 @@ def load(env_path: pathlib.Path | None = None, **overrides) -> Settings:
         anthropic_api_key=get("ANTHROPIC_API_KEY"),
         qbserve_db=_path_or_none(get("DRBR_QBSERVE_DB")),
         brave_history_db=_path_or_none(get("DRBR_BRAVE_HISTORY_DB")),
-        audible_auth=_resolve(get("DRBR_AUDIBLE_AUTH", "data/audible_auth.json")),
+        # Set but empty turns audiobooks off, the same as no sign-in file (DR5.28).
+        audible_auth=_resolve(auth) if (auth := get("DRBR_AUDIBLE_AUTH", "data/audible_auth.json")) else None,
     )
 
 

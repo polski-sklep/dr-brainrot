@@ -883,6 +883,23 @@ def test_the_coverage_list_names_audiobooks_only_when_signed_in_and_owed(conn, s
     assert "Audiobooks" not in _flat(_coverage(client_html))
 
 
+def test_the_first_read_dates_a_summary_but_a_routine_morning_read_does_not(conn, signed_in):
+    """Audible is one of the daily reads (DR5.26 rule 4): only catching up counts as new data."""
+    week = T.measurement_week(date(2026, 9, 27))
+    written = "2026-10-05T07:30:11+00:00"                              # Monday's summary of 27 Sep - 3 Oct
+    clk = clock.FrozenClock("2026-10-09T07:30:00+00:00")
+    assert not dashboard_app._new_data_since(conn, written, week, TZ)
+    audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
+    assert dashboard_app._new_data_since(conn, written, week, TZ)     # it fills in what the summary described
+
+    clk.set("2026-10-12T07:30:00+00:00")                                # Monday: the job reads, then writes
+    audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
+    later_week, later_written = T.measurement_week(date(2026, 10, 4)), "2026-10-12T07:30:11+00:00"
+    clk.set("2026-10-13T07:30:00+00:00")
+    audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
+    assert not dashboard_app._new_data_since(conn, later_written, later_week, TZ)
+
+
 def test_new_words_are_plain_and_never_name_the_tool_itself(conn, signed_in):
     clk = clock.FrozenClock("2026-10-09T07:30:00+00:00")
     audible.sync(conn, clk, signed_in, client=FakeClient({}, stats_error=Unauthorized()))

@@ -123,3 +123,14 @@ def test_test_settings_is_unaffected_by_the_environment(monkeypatch):
     monkeypatch.setenv("TZ", "UTC")
     monkeypatch.setenv("POP_TZ", "UTC")
     assert config.test_settings().tz == "Europe/Lisbon"
+
+
+# ==========================================================================
+# The Audible sign-in (DR5.28)
+# ==========================================================================
+
+def test_the_audible_sign_in_defaults_beside_the_database_and_empty_turns_it_off(env_file, tmp_path):
+    assert config.load(env_file()).audible_auth == config.ROOT / "data" / "audible_auth.json"
+    assert config.load(env_file(DRBR_AUDIBLE_AUTH=str(tmp_path / "a.json"))).audible_auth == tmp_path / "a.json"
+    assert config.load(env_file(DRBR_AUDIBLE_AUTH="")).audible_auth is None
+    assert config.test_settings().audible_auth is None              # tests are never signed in
