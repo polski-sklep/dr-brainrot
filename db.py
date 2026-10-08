@@ -65,7 +65,7 @@ from config import Settings
 ROOT = pathlib.Path(__file__).resolve().parent
 SCHEMA_PATH = ROOT / "schema.sql"
 MIGRATIONS_DIR = ROOT / "migrations"
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 ACTIVE_STATES = ("locked", "queued", "promoted")
 TERMINAL_STATES = ("dropped", "expired", "played")

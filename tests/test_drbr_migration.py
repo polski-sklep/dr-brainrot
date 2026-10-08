@@ -92,7 +92,7 @@ def test_upgrade_sets_version_and_creates_drbr_tables(v1):
     db.init_db(v1)
     db.migrate(v1)
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
-    assert db.SCHEMA_VERSION == 7
+    assert db.SCHEMA_VERSION == 8
     assert "overage_min" in [r[1] for r in v1.execute("PRAGMA table_info(weeks)")]
     names = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"sources", "item_labels", "imports", "measurements", "category_measurements",
@@ -597,3 +597,150 @@ def test_failed_0006_rolls_back_whole(v1, monkeypatch, tmp_path):
     assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
     assert _all_rows(v1) == before
     assert v1.execute("SELECT COUNT(*) FROM insights").fetchone()[0] == 0
+
+
+# --- 0008: audiobooks from Audible (DR5.28), three tables rebuilt to widen CHECKs ----
+
+def _v7_with_drbr_rows(v1, monkeypatch):
+    """A v7 database with rows in every DRBR table, the phone browser's included."""
+    _v5_with_drbr_rows(v1, monkeypatch)
+    db.migrate(v1)                                   # SCHEMA_VERSION is 6 here
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 7)
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "7"
+    v1.executescript(f"""
+        INSERT INTO sources (id, kind, source_key, display_name, label, labelled_at, first_seen_at, prompted_at)
+        VALUES (8, 'iphone_app', 'audible', 'Audible', 'tool', '{T0}', '{T0}', NULL);
+        INSERT INTO imports (id, kind, received_at, raw_path, raw_sha256, parser_version, status, period_start,
+                             period_end, warnings, error, meta)
+        VALUES (4, 'brave_sync', '{T0}', 'brave_sync/c.json', 'cc', 'b-1', 'ok', '2026-09-13', '2026-09-19',
+                '[]', NULL, '{{}}');
+        INSERT INTO measurements (id, import_id, source_id, device, provenance, item_key, item_title, period_start,
+                                  period_end, minutes, status, detail)
+        VALUES (10, 4, 7, 'iphone', 'browser_sync', '', NULL, '2026-09-13', '2026-09-19', 4.5, 'ok', '{{}}'),
+               (11, 3, 8, 'iphone', 'screenshot_ocr', '', NULL, '2026-09-13', '2026-09-19', 2.0, 'ok', '{{}}');
+        INSERT INTO insights (created_at, week_start, status) VALUES ('{T0}', '2026-09-13T16:00:00+00:00', 'ok');
+    """)
+    v1.commit()
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 8)
+
+
+def _rows_v7(c):
+    return _all_rows(c) | {"insights": [tuple(r) for r in c.execute("SELECT * FROM insights ORDER BY 1")]}
+
+
+def test_v7_to_v8_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
+    _v7_with_drbr_rows(v1, monkeypatch)
+    before = _rows_v7(v1)
+    assert all(before[t] for t in (*DRBR_TABLES, "insights"))
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "8"
+    assert _rows_v7(v1) == before                    # not one row changed, ids included
+    assert v1.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert v1.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+
+    fresh = sqlite3.connect(str(tmp_path / "fresh8.db"))
+    fresh.row_factory = sqlite3.Row
+    db.init_db(fresh)
+    db.migrate(fresh)
+    assert _schema(fresh) == _schema(v1)
+    indexes = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"idx_imports_kind", "idx_imports_sha", "uq_measurements_fact", "idx_measurements_period"} <= indexes
+    # The natural key, the unique source identity and the foreign keys all survive.
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, item_key, period_start, "
+                   "period_end, minutes) VALUES (1, 2, 'desktop', 'manual_export', 'google.com', '2026-09-14', "
+                   "'2026-09-14', 2.0)")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) "
+                   f"VALUES ('iphone_app', 'audible', 'dup', '{T0}')")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, "
+                   "minutes) VALUES (999, 2, 'account', 'audible_stats', '2026-09-14', '2026-09-14', 1.0)")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("DELETE FROM sources WHERE id = 8")     # still referenced by measurement 11
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("DELETE FROM imports WHERE id = 2")     # still referenced by a vault observation
+
+
+def test_v1_to_v8_reaches_the_same_schema_as_v7_to_v8(v1, monkeypatch, tmp_path):
+    straight = _v1_database(tmp_path / "straight8.db")
+    _v7_with_drbr_rows(v1, monkeypatch)              # leaves SCHEMA_VERSION at 8, for both databases
+    db.init_db(straight)
+    db.migrate(straight)
+    db.migrate(v1)
+    assert _schema(straight) == _schema(v1)
+
+
+def test_v8_accepts_the_new_values_and_still_rejects_garbage(v1):
+    db.init_db(v1)
+    db.migrate(v1)
+    good = [
+        f"INSERT INTO sources (id, kind, source_key, display_name, label, labelled_at, first_seen_at) VALUES "
+        f"(60, 'audiobook', 'B0TEST0001', 'Test Book One', 'worthwhile', '{T0}', '{T0}')",
+        f"INSERT INTO imports (id, kind, received_at, parser_version, status) VALUES (60, 'audible', '{T0}', 'a', 'ok')",
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes) "
+        "VALUES (60, 60, 'account', 'audible_stats', '2026-09-14', '2026-09-14', 56.53)",
+    ]
+    for sql in good:
+        v1.execute(sql)
+    bad = [
+        f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) VALUES ('ebook', 'k', 'k', '{T0}')",
+        f"INSERT INTO imports (kind, received_at, parser_version, status) VALUES ('kindle', '{T0}', 'a', 'ok')",
+        # The import kind is not a provenance, and the provenance is not an import kind.
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes) "
+        "VALUES (60, 60, 'account', 'audible', '2026-09-15', '2026-09-15', 2.5)",
+        f"INSERT INTO imports (kind, received_at, parser_version, status) VALUES ('audible_stats', '{T0}', 'a', 'ok')",
+        # The rebuilt CHECKs still hold their old rules: NULL is not zero.
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes, "
+        "status) VALUES (60, 60, 'account', 'audible_stats', '2026-09-16', '2026-09-16', 0, 'unreadable')",
+    ]
+    for sql in bad:
+        with pytest.raises(sqlite3.IntegrityError):
+            v1.execute(sql)
+
+
+def _broken_0008(tmp_path, tail: str):
+    broken = tmp_path / "migrations8"
+    broken.mkdir()
+    for name in ("0002_drbr.sql", "0003_no_debt.sql", "0004_desktop_apps.sql", "0005_tool_label.sql",
+                 "0006_insights.sql", "0007_phone_browser.sql"):
+        (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
+    good = (db.MIGRATIONS_DIR / "0008_audiobooks.sql").read_text()
+    (broken / "0008_audiobooks.sql").write_text(good + "\n" + tail + "\n")
+    return broken
+
+
+def _assert_still_v7(v1, before):
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "7"
+    assert _rows_v7(v1) == before
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    with pytest.raises(sqlite3.IntegrityError):              # the old, narrower CHECK is still in place
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) "
+                   f"VALUES ('audiobook', 'B0TEST0001', 'a', '{T0}')")
+
+
+def test_failed_0008_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v7_with_drbr_rows(v1, monkeypatch)
+    before = _rows_v7(v1)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0008(tmp_path, "CREATE TABLE sources (x);"))
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    _assert_still_v7(v1, before)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "8"
+    assert _rows_v7(v1) == before
+
+
+def test_0008_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v7_with_drbr_rows(v1, monkeypatch)
+    before = _rows_v7(v1)
+    orphan = "DELETE FROM sources WHERE id = 4;"      # measurement 9 still points at it
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0008(tmp_path, orphan))
+    with pytest.raises(db.MigrationError, match="foreign key"):
+        db.migrate(v1)
+    _assert_still_v7(v1, before)
