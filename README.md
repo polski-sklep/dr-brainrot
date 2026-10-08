@@ -130,6 +130,7 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 | `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read, phone browser read, Audible read; then, as separate steps, Qbserve's stale warning, the Sunday check-in and its one Monday reminder (or the whole list late, on the first morning after a missed Sunday and Monday), end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
 | `com.jacob.drbr.qbserve` | every 10 min | Reopens Qbserve in the background if it isn't running; never touches its data (DR5.27) |
+| `com.jacob.drbr.nightly` | daily 00:15 | The automatic reads only — outbox, vault, Cold Turkey, Qbserve, phone browser — so each finished day is in the figures just after midnight; sends nothing (DR5.29) |
 
 Telegram being unreachable never stops a data step. Each scheduled run reads
 and records first and sends after; a message that can't go is logged, the run

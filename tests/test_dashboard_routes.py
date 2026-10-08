@@ -950,7 +950,8 @@ def test_the_overview_carries_the_brain_last(client, conn, clk, settings, monkey
 
     monkeypatch.setattr(dashboard_app, "render_template", capture)
     assert client.get("/").status_code == 200
-    assert seen[0][-1] == "rot" and seen[0][-2] == "insight_stale_reason"
+    # Appended, never reordered: each new key goes on the end (pace, DR5.29).
+    assert seen[0][-3:] == ["insight_stale_reason", "rot", "pace"]
 
 
 def test_settling_is_only_offered_when_there_is_a_reading_to_settle():

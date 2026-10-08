@@ -152,7 +152,8 @@
       <span class="headline-value">{% if week_split %}{{ week_split.charged_min|min }}{% else %}<span class="absent">outside the window</span>{% endif %}</span>
       {% if week_split and prev %}
       <span class="headline-delta">
-        {%- if week.is_current %}last week was {{ prev.charged_min|min }} <span class="muted">— this week is still running, so it is not a comparison yet</span>
+        {%- if week.is_current and pace %}last week was {{ prev.charged_min|min }} in all <span class="muted">— the same days so far are just below</span>
+        {%- elif week.is_current %}last week was {{ prev.charged_min|min }} <span class="muted">— this week is still running, so it is not a comparison yet</span>
         {%- elif week_split.charged_min > prev.charged_min %}<span class="dir-up">up</span> {{ (week_split.charged_min - prev.charged_min)|min }} on last week <span class="muted">({{ prev.charged_min|min }})</span>
         {%- elif week_split.charged_min < prev.charged_min %}<span class="dir-down">down</span> {{ (prev.charged_min - week_split.charged_min)|min }} on last week <span class="muted">({{ prev.charged_min|min }})</span>
         {%- else %}the same as last week{% endif %}
@@ -173,6 +174,18 @@
           {% if week_split %}{{ week_split.allowance_min }} min{% else %}—{% endif %}</li>
     </ul>
   </div>
+  {#- This week so far against the same days last week (DR5.29): only on the
+      current week, and only once a day of it has finished. A part-week, so a
+      quiet inset under the headline, never a second hero. -#}
+  {%- if pace and week.is_current %}{% set pp = pace_parts(pace) %}
+  <div class="pace{% if pace.direction == 'down' %} pace-down{% endif %}">
+    <p class="pace-text">{% if pp.lead %}<span class="pace-lead">{{ pp.lead }}</span> {% endif %}{{ pp.rest|emphasise }}</p>
+    <p class="pace-basis">
+      {%- if pp.counted %}Counted on {{ pp.counted }}.{% endif %}
+      {%- if pp.left_out %} Left out: {% for x in pp.left_out %}{{ x.text }}{% if x.sync %} — <a href="{{ YOUTUBE_HISTORY_URL }}" target="_blank" rel="noopener noreferrer">open your YouTube history</a> and press Sync in the extension to include it{% endif %}{{ "." if loop.last else "; " }}{% endfor %}{% endif %}
+      {%- if pp.joins_later %} {{ pp.joins_later[:1]|upper }}{{ pp.joins_later[1:] }} join once the week is in.{% endif %}</p>
+  </div>
+  {%- endif %}
   <p class="note">Undecided time still counts against the allowance — it is charged as wasteful until you say
   otherwise. It is shown separately so you can see how much of the week is a measurement you have not made yet.</p>
 </section>
