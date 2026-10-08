@@ -134,7 +134,7 @@ def get_source(conn: sqlite3.Connection, source_id: int) -> Source | None:
 
 def is_covered_elsewhere(source: Source) -> str | None:
     """Reason text if this source's minutes are measured by a better source."""
-    return T.COVERED_ELSEWHERE.get((source.kind, source.source_key))
+    return T.covered_elsewhere(source.kind, source.source_key)
 
 
 # --- explicit label writes -------------------------------------------------

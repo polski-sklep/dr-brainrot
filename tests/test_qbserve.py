@@ -535,3 +535,40 @@ def test_a_window_with_no_records_is_uncovered_even_if_qbserve_recorded_later(co
     out = qb.sync(conn, clock.FrozenClock("2026-09-17T12:00:00+00:00"), s)
     assert out.status == "partial" and out.measurements_written == 0
     assert (out.period_start, out.period_end) == (None, None)
+
+
+# --- Qbserve's own website pseudo-apps (DR5.23) --------------------------------------------
+
+def test_qbserves_website_pseudo_apps_are_covered_elsewhere_but_its_manual_time_is_not():
+    yt = T.covered_elsewhere(T.KIND_DESKTOP_APP, "com.qotoqot.qbserve.youtube")
+    assert yt == T.COVERED_ELSEWHERE[(T.KIND_WEB_DOMAIN, "youtube.com")]       # YouTube history
+    assert T.covered_elsewhere(T.KIND_DESKTOP_APP, "com.qotoqot.qbserve.reddit") == "the Mac's browser (per site)"
+    assert T.covered_elsewhere(T.KIND_DESKTOP_APP, "com.qotoqot.qbserve.facebook")       # any site, not a list
+    assert T.covered_elsewhere(T.KIND_DESKTOP_APP, "com.qotoqot.qbserve.manualactivitywrapper") is None
+    assert T.covered_elsewhere(T.KIND_DESKTOP_APP, "com.qotoqot.qbserve") is None        # Qbserve itself
+    assert T.covered_elsewhere(T.KIND_DESKTOP_APP, "com.apple.mail") is None
+    assert T.covered_elsewhere(T.KIND_WEB_DOMAIN, "com.qotoqot.qbserve.youtube") is None  # only desktop apps
+    assert T.covered_elsewhere(T.KIND_DESKTOP_APP, "com.spotify.client")                  # the table still counts
+
+
+def test_youtube_in_a_browser_tab_is_never_charged_twice(conn, clk, settings, qb_db):
+    """Qbserve files browser YouTube under its own "YouTube" app; YouTube history
+    already counts those minutes, so the pseudo-app is reported, never charged."""
+    c = sqlite3.connect(str(qb_db))
+    c.executemany("INSERT INTO Apps VALUES (?, ?, ?, 1, 1, 0, 0, 0)",
+                  [(7, "com.qotoqot.qbserve.youtube", "YouTube"),
+                   (8, "com.qotoqot.qbserve.manualactivitywrapper", "Manual Activity Wrapper")])
+    c.executemany("INSERT INTO Activities VALUES (?, ?, ?, ?, ?, 1, 0, 0)",
+                  [(9, "YouTube", 101, 7, 2), (10, "Manual", 101, 8, 1)])
+    c.executemany("INSERT INTO z_HistoryLog_2026_9 (activity_id, start_time, duration) VALUES (?, ?, ?)",
+                  [(9, _epoch("2026-09-14T15:00:00"), 60), (9, _epoch("2026-09-14T15:01:00"), 60),
+                   (10, _epoch("2026-09-14T16:00:00"), 60)])
+    c.commit()
+    c.close()
+    qb.sync(conn, clk, settings)
+    week = T.allowance_week_start_for_day(date(2026, 9, 13), TZ)
+    apps = allowance.pooled_minutes(conn, settings, week).by_group[T.GROUP_DESKTOP_APPS]
+    assert apps.covered_excluded_min == pytest.approx(4.0)    # Spotify client 2.0 + Qbserve's YouTube 2.0
+    assert apps.charged_min == pytest.approx(6.0)             # Slack 2.5 + Mail 2.5 + manual 1.0
+    yt = labels.ensure_source(conn, clk, T.KIND_DESKTOP_APP, "com.qotoqot.qbserve.youtube")
+    assert labels.is_covered_elsewhere(yt)

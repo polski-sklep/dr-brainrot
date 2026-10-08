@@ -2258,3 +2258,24 @@ Motion as DR5.21: once the mould has grown in, the mushrooms come up one by one
 from their feet (a stretch, a squash, one small wobble) and are still. Opt-in,
 transform only, once; reduced motion and print draw them full grown. No red:
 the caps and their outline sit at hue 25–42, tested against the danger red.
+
+### DR5.23 — Qbserve's website pseudo-apps are measured elsewhere
+
+**8 October 2026.** Qbserve files some websites it recognises in a browser tab
+under pseudo-apps of its own: `com.qotoqot.qbserve.youtube` ("YouTube"),
+`com.qotoqot.qbserve.reddit`. The Qbserve reader skips browsers because Cold
+Turkey measures them per site, but these pseudo-apps are not browsers, so they
+came through as desktop apps — and YouTube watched in a browser was charged
+twice: once as the "YouTube" app, once from YouTube history. 155 minutes
+between 29 Sep and 6 Oct; it put the week of 27 Sep at 383 minutes (23 over)
+instead of 362.5 (2.5 over), up 17% instead of 13%, and 13–19 Sep over the
+allowance. Reddit's pseudo-app was labelled tool, so it had not counted yet.
+
+`drbr_types.covered_elsewhere()` now answers what `COVERED_ELSEWHERE` answered,
+plus a rule: every `com.qotoqot.qbserve.*` desktop app is already measured —
+YouTube by its history, any other site by the Mac's browser per site — except
+Qbserve's manual-activity wrapper, which is time entered by hand. A rule, not
+a list, so a site Qbserve starts recognising later is never double counted
+either. Like every covered-elsewhere source, the minutes stay visible in the
+"covered elsewhere" column and are never charged. Applied at read time, so
+every past week is corrected without reimporting.

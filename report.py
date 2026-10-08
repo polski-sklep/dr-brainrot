@@ -434,7 +434,7 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
 
     for r in allowance._measurement_rows(conn, settings, week_start):
         b = row((T.report_group(r["kind"], r["device"]), r["provenance"], r["device"]))
-        reason = T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"]))
+        reason = T.covered_elsewhere(r["kind"], r["source_key"])
         if reason:
             if r["status"] == "ok":
                 b["covered_excluded_min"] += float(r["minutes"])
@@ -548,7 +548,7 @@ def top_sources(conn: sqlite3.Connection, clk: Clock, settings: Settings,
 
     go_live = getattr(settings, "go_live", "") or ""
     for row in allowance._measurement_rows(conn, settings, week_start):
-        if row["status"] != "ok" or T.COVERED_ELSEWHERE.get((row["kind"], row["source_key"])):
+        if row["status"] != "ok" or T.covered_elsewhere(row["kind"], row["source_key"]):
             continue
         if go_live and row["period_end"] < go_live:
             continue
@@ -725,7 +725,7 @@ def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
         sql += " AND m.period_end >= ?"
         params.append(since_day)
     for r in conn.execute(sql, params).fetchall():
-        if T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"])):
+        if T.covered_elsewhere(r["kind"], r["source_key"]):
             continue
         if allowance.measurement_label(conn, r).label == T.TOOL:
             continue
@@ -987,7 +987,7 @@ def records(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, group: 
             source=r["display_name"], item=r["item_title"] or (r["item_key"] or None),
             minutes=None if r["minutes"] is None else float(r["minutes"]), status=r["status"],
             label=resolved.label, label_basis=resolved.basis, provenance=r["provenance"],
-            device=r["device"], covered_elsewhere=T.COVERED_ELSEWHERE.get((r["kind"], r["source_key"])),
+            device=r["device"], covered_elsewhere=T.covered_elsewhere(r["kind"], r["source_key"]),
             import_id=r["import_id"], source_key=r["source_key"],
         ))
 

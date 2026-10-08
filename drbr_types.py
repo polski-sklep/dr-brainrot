@@ -115,6 +115,31 @@ COVERED_ELSEWHERE: dict[tuple[str, str], str] = {
     (KIND_IPHONE_APP, "brave"): "phone browser history (per site)",
 }
 
+#: Qbserve files some websites it recognises in a browser tab under pseudo-apps
+#: of its own (com.qotoqot.qbserve.youtube, .reddit, ...). The Mac's browser is
+#: measured per site by Cold Turkey, and YouTube by its history, so counting
+#: these too would charge the same minutes twice: 155 min of YouTube between
+#: 29 Sep and 6 Oct 2026 (DR5.23). Qbserve's manual-activity wrapper holds time
+#: you entered by hand, not a website, and Qbserve itself is a real app.
+QBSERVE_PSEUDO_APP = "com.qotoqot.qbserve."
+QBSERVE_NOT_A_SITE = frozenset({"com.qotoqot.qbserve.manualactivitywrapper"})
+
+
+def covered_elsewhere(kind: str, key: str | None) -> str | None:
+    """Which other channel already measures this source, or None.
+
+    COVERED_ELSEWHERE by exact key, plus every Qbserve website pseudo-app, so a
+    site Qbserve starts recognising tomorrow is never double counted either.
+    """
+    reason = COVERED_ELSEWHERE.get((kind, key))
+    if reason or kind != KIND_DESKTOP_APP or not key:
+        return reason
+    if key.startswith(QBSERVE_PSEUDO_APP) and key not in QBSERVE_NOT_A_SITE:
+        if key == QBSERVE_PSEUDO_APP + "youtube":
+            return COVERED_ELSEWHERE[(KIND_WEB_DOMAIN, "youtube.com")]
+        return "the Mac's browser (per site)"
+    return None
+
 
 def report_group(kind: str, device: str | None = None) -> str:
     """The cost-per-keeper row a source's minutes belong to."""

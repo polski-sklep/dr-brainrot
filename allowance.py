@@ -390,7 +390,7 @@ def pooled_minutes(conn: sqlite3.Connection, settings: Settings, week_start: str
             continue
         group = T.report_group(row["kind"], row["device"])
         b = bucket(group)
-        if T.COVERED_ELSEWHERE.get((row["kind"], row["source_key"])):
+        if T.covered_elsewhere(row["kind"], row["source_key"]):
             if row["status"] == "ok":
                 b["covered_excluded_min"] += float(row["minutes"])
             continue
@@ -460,7 +460,7 @@ def gated_split(conn: sqlite3.Connection, settings: Settings,
 
     go_live = getattr(settings, "go_live", "") or ""
     for row in _measurement_rows(conn, settings, week_start):
-        if row["status"] != "ok" or T.COVERED_ELSEWHERE.get((row["kind"], row["source_key"])):
+        if row["status"] != "ok" or T.covered_elsewhere(row["kind"], row["source_key"]):
             continue
         if go_live and row["period_end"] < go_live:
             continue            # same rule as pooled_minutes: pre-go-live evidence is not diagnostic data
