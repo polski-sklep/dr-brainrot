@@ -17,9 +17,8 @@ import clock
 import config
 import db
 import drbr_types as T
+import checklist
 import evidence
-import handlers_imports
-import handlers_labels
 import jobs
 import labels
 import report
@@ -83,25 +82,30 @@ def test_daily_job_isolates_a_failing_step(conn, clk, settings, tmp_path):
     broken = config.test_settings(**{**settings.__dict__, "vault_path": tmp_path / "nope"})
     failed = jobs.run_daily(conn, clk, broken, RecordingBot())
     assert "vault_scan" in failed
-    assert "import_prompts" not in failed and "label_batch" not in failed
+    assert "checklist" not in failed
 
 
 def test_no_prompt_for_a_week_before_go_live(conn, clk, settings):
-    # Wednesday 16 Sep: the last complete week is 6–12 Sep, before go-live on the 13th.
-    assert handlers_imports.send_due_prompts(conn, clk, settings, RecordingBot()) == []
-    clk.set("2026-09-21T08:00:00+00:00")        # Monday after the first live week
-    sent = handlers_imports.send_due_prompts(conn, clk, settings, RecordingBot())
-    assert len(sent) == 3
+    clk.set("2026-09-13T08:00:00+00:00")        # Sunday: the week just ended, 6–12 Sep, is before go-live
+    assert checklist.send_due(conn, clk, settings, RecordingBot()) == []
+    clk.set("2026-09-20T08:00:00+00:00")        # the Sunday after the first live week
+    bot = RecordingBot()
+    sent = checklist.send_due(conn, clk, settings, bot)
+    assert sent == ["sunday checklist for week 2026-09-13: screentime, youtube, coldturkey, labels"]
+    assert len(bot.sent) == 1
 
 
 def test_end_notice_is_sent_once_and_only_after_the_end(conn, clk, settings):
     evidence.ensure_diagnostic_start(conn, "2026-09-13")
     b = RecordingBot()
     assert jobs.send_end_notice(conn, clk, settings, b) == "diagnostic running"
-    clk.set("2026-11-08T10:00:00+00:00")
+    clk.set("2026-11-08T10:00:00+00:00")        # ended, but the final week is still being asked for
+    assert jobs.send_end_notice(conn, clk, settings, b) == "end notice waits for the final week's evidence"
+    clk.set("2026-11-10T10:00:00+00:00")        # the Tuesday after: regardless
     assert jobs.send_end_notice(conn, clk, settings, b) == "end notice sent"
     assert jobs.send_end_notice(conn, clk, settings, b) == "end notice already sent"
     assert len(b.sent) == 1 and "switch the whole thing off" in b.sent[0]["text"]
+    assert "Nothing more will be asked for." in b.sent[0]["text"]
 
 
 # --- relabel re-records overage ------------------------------------------------
@@ -180,17 +184,23 @@ def test_no_telegram_message_names_the_product():
     import pathlib
     import re
 
+    import checklist as checklist_module
     import handlers_imports
     import handlers_labels
     import jobs as jobs_module
+    import poll
+    import triage
 
     sources = {
         "handlers_labels.CONTENT_QUESTION": handlers_labels.CONTENT_QUESTION,
-        "handlers_imports.AUTOMATIC_TRAILER": handlers_imports.AUTOMATIC_TRAILER,
+        "checklist.AUTOMATIC_LINE": checklist_module.AUTOMATIC_LINE,
+        "checklist.SCREENTIME_TODO": checklist_module.SCREENTIME_TODO,
+        "checklist.COLDTURKEY_FAILING": checklist_module.COLDTURKEY_FAILING,
+        "checklist.LAST_REMINDER": checklist_module.LAST_REMINDER,
     }
     # Message bodies built inline: read them from the source, skipping comments,
     # docstrings and config-key names such as DRBR_COLDTURKEY_DB.
-    for module in (handlers_imports, handlers_labels, jobs_module):
+    for module in (checklist_module, handlers_imports, handlers_labels, jobs_module, triage, poll):
         text = pathlib.Path(module.__file__).read_text()
         text = re.sub(r'""".*?"""', "", text, flags=re.S)
         for n, line in enumerate(text.splitlines(), 1):

@@ -8,24 +8,25 @@ the functions each source owns:
 1. `vault.read_outbox` then `vault.scan` — new obsidian-ingest captures first,
    so a note captured yesterday is already in the denominator when scanned.
 2. `coldturkey_local.sync` — this Mac's Cold Turkey statistics, hostnames only
-   (DR5.1), before the prompts so a week it covers is never asked for.
+   (DR5.1), before the check-in so a week it covers is never asked for.
 3. `qbserve.sync` — desktop app minutes from Qbserve, browsers skipped
    (DR5.3), with a once-a-day Telegram warning while Qbserve has not
    recorded for more than 36 hours.
-4. `handlers_imports.send_due_prompts` — Screen Time / Cold Turkey / YouTube
-   for the last complete week, once per day until each arrives.
-5. `handlers_labels.send_label_digest` — one line about unlabelled sources,
-   at most every third day, pointing at the dashboard (DR5.6).
-6. One diagnostic-end notice, ever.
-7. `insights.write_summary` — the Overview's weekly written summary (DR5.8),
+4. `checklist.send_due` — the Sunday check-in for the week just finished
+   (Screen Time, YouTube, Cold Turkey only as a fallback, readings to settle,
+   labels), and its one Monday reminder while evidence is still missing
+   (DR5.24). The only thing that asks the user for anything.
+5. One diagnostic-end notice, ever, once the final week's evidence is in (or
+   from the Tuesday after it).
+6. `insights.write_summary` — the Overview's weekly written summary (DR5.8),
    which writes at most one row a week and never fails the run.
 
 Steps 1-3 are the *data-fetching* half and are also callable on their own as
 `run_sync`, so a dashboard "Sync now" button can do exactly what the morning
 run does without sending anything.
 
-Each step is isolated: a vault failure must not cost the user their Monday
-prompt, and a Telegram outage must not stop the scan. Every failure is logged
+Each step is isolated: a vault failure must not cost the user their Sunday
+check-in, and a Telegram outage must not stop the scan. Every failure is logged
 and makes the process exit non-zero, so launchd's log shows it; none is
 swallowed into a success.
 """
@@ -36,13 +37,13 @@ import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 
+import checklist
 import clock
 import db
 import drbr_types as T
 import evidence
-import handlers_imports
-import handlers_labels
 import insights
 from clock import Clock
 from config import Settings
@@ -94,7 +95,7 @@ def run_sync(conn, clk: Clock, settings: Settings, bot=None) -> dict[str, StepRe
 
     The half of the daily run that only *reads* sources: the capture outbox,
     the vault scan, Cold Turkey's own statistics and Qbserve. It sends no
-    prompts and no digest, so it is safe to run on demand — a dashboard "Sync
+    check-in and no reminder, so it is safe to run on demand — a dashboard "Sync
     now" button is exactly this function — and `run_daily` calls it rather than
     keeping a second copy of the order. `bot` is optional: given one, the
     Qbserve step may also send its once-a-day staleness warning (the warning is
@@ -122,32 +123,13 @@ def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
     results = run_sync(conn, clk, settings, bot)
     failed = [name for name, result in results.items() if not result.ok]
     for name, fn in (
-        ("import_prompts", lambda: _prompts_with_digest(conn, clk, settings, bot)),
-        ("label_digest", lambda: handlers_labels.send_label_digest(conn, clk, settings, bot)),
+        ("checklist", lambda: checklist.send_due(conn, clk, settings, bot)),
         ("diagnostic_end", lambda: send_end_notice(conn, clk, settings, bot)),
     ):
         if not _run_step(conn, name, fn).ok:
             failed.append(name)
     _run_step(conn, "insights", lambda: _insights(conn, clk, settings))
     return failed
-
-
-def _prompts_with_digest(conn, clk: Clock, settings: Settings, bot) -> list[str]:
-    """Monday's import reminders, carrying the label note when it is due (DR5.19).
-
-    One predictable morning, one fewer message: when reminders go out, the
-    label digest rides on the last of them and is recorded as sent, so the
-    `label_digest` step that follows finds nothing to do. When no reminder is
-    due, that step sends the digest on its own.
-    """
-    digest = handlers_labels.due_digest(conn, clk, settings)
-    trailer = handlers_labels.digest_text(digest, settings, mode="folded") if digest else None
-    sent = handlers_imports.send_due_prompts(conn, clk, settings, bot, trailer=trailer)
-    if sent and digest is not None:
-        handlers_labels.record_digest(conn, clk, settings)
-        sent = [*sent, f"label digest folded in: {digest.count} unlabelled source(s), "
-                       f"{round(digest.minutes)} min"]
-    return sent
 
 
 def _insights(conn, clk: Clock, settings: Settings) -> str:
@@ -268,17 +250,28 @@ def _qbserve_stale_warning(conn, clk: Clock, settings: Settings, bot) -> str:
 
 
 def send_end_notice(conn, clk: Clock, settings: Settings, bot) -> str:
-    """The diagnostic has an end date, and the tool says so, once."""
+    """The diagnostic has an end date, and the tool says so, once.
+
+    Not before the final week's evidence is in: on the Sunday after the last
+    day the check-in still asks for that week (DR5.24), and "everything has
+    stopped" beside it would contradict it. It waits until nothing is missing
+    for that week, or until the Tuesday after it, whichever comes first.
+    """
     diag = evidence.diagnostic(conn, clk, settings)
     if not diag.ended:
         return "diagnostic running"
     if conn.execute("SELECT 1 FROM prompts_sent WHERE kind = ?", (END_KIND,)).fetchone():
         return "end notice already sent"
+    final = T.measurement_week(T.parse_date(diag.end))  # type: ignore[arg-type]
+    today = T.local_date(clk.now(), settings.tz)
+    if (today < final.saturday + timedelta(days=3)
+            and checklist.week_needs(conn, clk, settings, final).evidence_missing):
+        return "end notice waits for the final week's evidence"
     send(bot, settings, (
         f"The diagnostic ended on {diag.end}, after {settings.diagnostic_weeks} weeks.\n\n"
         "Open the dashboard, look at cost per keeper and the ungated share, and name the "
         "one decision this should change. If there isn't one, switch the whole thing off. "
-        "Prompts and label requests have stopped."
+        "Nothing more will be asked for."
     ))
     today = clock.iso(clk.now())
     conn.execute(

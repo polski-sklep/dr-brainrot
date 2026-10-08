@@ -496,7 +496,7 @@ absence states, and only two of them are problems:
 
 | state | reads | sub-line | colour |
 |---|---|---|---|
-| `not_due` | not due yet | asked for on Monday *date* | neutral |
+| `not_due` | not due yet | asked for on Sunday *date* | neutral |
 | `missing` | missing | nothing has arrived for this week yet | amber |
 | `so_far` | partial | covers part of the week so far | neutral |
 | `incomplete` | incomplete | nothing covering the whole week yet | amber |
@@ -505,7 +505,9 @@ The pairs are the same fact about coverage, split by whether the week has
 been asked for yet. This exists because the earlier wording called a
 two-day-old week "missing and incomplete" in amber, and Jacob asked whether he
 owed anything. He owed nothing. **The label alone could not answer him** — the
-sub-line naming the Monday is what does, so it is not optional decoration.
+sub-line naming the Sunday is what does, so it is not optional decoration. (It
+named a Monday until DR5.24 moved the ask to the Sunday check-in; the page
+says "missing" on the same day the check-in asks.)
 
 A finished week where everything arrived now says so: `(complete)` on the
 week heading and `(complete — every source is in)` in the nav, in `--ok`. A

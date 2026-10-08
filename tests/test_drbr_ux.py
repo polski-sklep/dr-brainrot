@@ -5,7 +5,7 @@ wanted from him — "I don't know how and when I'm supposed to be submitting
 sources like X desktop data, desktop web, any of it" — and that Telegram was
 the wrong place to label content. These tests pin the data behind the answer:
 `report.needs_attention`, `report.provenance_map`, the dashboard label queue,
-`report.needs_your_eye` with `screentime.correct_measurement`, the reminder
+`report.needs_your_eye` with `screentime.correct_measurement`, the check-in
 wording, and `jobs.run_sync`.
 
 Nothing here renders anything: the dashboard session owns the templates.
@@ -22,12 +22,12 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import allowance  # noqa: E402
+import checklist  # noqa: E402
 import clock  # noqa: E402
 import config  # noqa: E402
 import db  # noqa: E402
 import drbr_types as T  # noqa: E402
 import evidence  # noqa: E402
-import handlers_imports  # noqa: E402
 import jobs  # noqa: E402
 import labels  # noqa: E402
 import report  # noqa: E402
@@ -109,13 +109,16 @@ def test_a_manual_week_that_never_arrived_asks_for_it_with_the_steps(conn, clk, 
     assert row.covered is False
 
 
-def test_a_manual_week_not_yet_over_is_waiting_not_missing(conn, clk, settings):
-    """On the Sunday the week closed, the Monday reminder has not come yet."""
+def test_a_manual_week_is_owed_from_the_sunday_it_closes(conn, clk, settings):
+    """The Sunday check-in asks for it that morning, so the page says so the same day (DR5.24)."""
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Chatterbox", minutes=5.0)
-    clk.set("2026-09-13T09:00:00+00:00")             # Sunday, local 13 Sep
+    clk.set("2026-09-12T09:00:00+00:00")             # Saturday 12 Sep: last week ended before go-live
     row = row_for(report.needs_attention(conn, clk, settings), T.GROUP_YOUTUBE)
-    assert (row.state, row.action_text) == (report.STATE_WAITING, "")
-    assert "can be sent from Monday" in row.detail
+    assert (row.state, row.action_text) == (report.STATE_OK, "")
+    clk.set("2026-09-13T07:00:00+00:00")             # Sunday 13 Sep, 09:00 Warsaw: 6-12 Sep is owed
+    row = row_for(report.needs_attention(conn, clk, settings), T.GROUP_YOUTUBE)
+    assert (row.state, row.action_text) == (report.STATE_MISSING, report.YOUTUBE_ACTION)
+    assert "2026-09-06 to 2026-09-12" in row.detail
 
 
 def test_qbserve_that_stopped_recording_is_stale_with_one_thing_to_do(conn, tmp_path, clk, settings):
@@ -397,59 +400,46 @@ def test_needs_attention_flags_screen_time_rows_waiting_for_a_human(conn, clk, s
 
 
 # ==========================================================================
-# the Monday reminder
+# the Sunday check-in's wording (DR5.24; behaviour in tests/test_checklist.py)
 # ==========================================================================
 
-def test_screen_time_reminder_names_the_two_mistakes_that_actually_happened():
-    week = T.measurement_week(date(2026, 9, 6))
-    text = handlers_imports.prompt_text("screentime", week)
+def _needs(**over):
+    base = dict(week=T.measurement_week(date(2026, 9, 6)), screentime=checklist.MISSING,
+                youtube=checklist.MISSING, coldturkey=None, readings=0,
+                unlabelled=labels.Summary(0, 0.0, None), final=False)
+    base.update(over)
+    return checklist.WeekNeeds(**base)
+
+
+def test_screen_time_step_names_the_two_mistakes_that_actually_happened(settings):
+    text = checklist.render(_needs(youtube=checklist.IN), settings, nudge=False)
     assert "Show More until it disappears" in text
-    assert "in one go" in text and "two separate captures" in text
-    assert handlers_imports.MANUAL_LINE in text
+    assert "in one go" in text
     assert "not All Devices" in text and '"Last Week"' in text
-    assert handlers_imports.AUTOMATIC_TRAILER in text
-    assert "collects itself every morning" in text and "dashboard" in text
+    assert "Everything else" in text and "collects itself" in text
 
 
-def test_youtube_reminder_names_the_steps_and_that_it_is_manual():
-    week = T.measurement_week(date(2026, 9, 6))
-    text = handlers_imports.prompt_text("youtube", week)
+def test_youtube_step_names_the_steps(settings):
+    text = checklist.render(_needs(screentime=checklist.IN), settings, nudge=False)
     assert "youtube.com/feed/history" in text and "press Sync" in text
-    assert handlers_imports.MANUAL_LINE in text and handlers_imports.AUTOMATIC_TRAILER in text
+    assert "Already in: Screen Time." in text
 
 
-def test_the_cold_turkey_prompt_is_gone_while_the_automatic_read_is_healthy(conn, tmp_path, clk, settings):
+def test_the_cold_turkey_step_is_gone_while_the_automatic_read_is_healthy(conn, tmp_path, clk, settings):
     configured = config.test_settings(**{**settings.__dict__, "coldturkey_db": tmp_path / "ct.db"})
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="news.example", minutes=30.0,
             day="2026-09-15", provenance=T.PROV_EXPORT, device=T.DEVICE_DESKTOP, import_kind="coldturkey")
-
-    class Bot:
-        def __init__(self):
-            self.sent: list[dict] = []
-
-        def send_message(self, **kwargs):
-            self.sent.append(kwargs)
-
-    bot = Bot()
-    sent = handlers_imports.send_due_prompts(conn, clk, configured, bot)
-    assert not any(s.startswith("coldturkey") for s in sent)
-    assert not any("Cold Turkey for last week" in m["text"] for m in bot.sent)
-    assert any("Screen Time for last week" in m["text"] for m in bot.sent)
+    needs = checklist.week_needs(conn, clk, configured, T.measurement_week(date(2026, 9, 6)))
+    assert needs.coldturkey is None
+    assert "Cold Turkey" not in checklist.render(needs, configured, nudge=False)
 
 
-def test_the_cold_turkey_prompt_returns_as_a_fallback_when_nothing_is_configured(conn, clk, settings):
-    class Bot:
-        def __init__(self):
-            self.sent: list[dict] = []
-
-        def send_message(self, **kwargs):
-            self.sent.append(kwargs)
-
-    bot = Bot()
-    handlers_imports.send_due_prompts(conn, clk, settings, bot)
-    (ct,) = [m["text"] for m in bot.sent if "Cold Turkey for last week" in m["text"]]
-    assert "DRBR_COLDTURKEY_DB is unset" in ct
-    assert "Websites usage (time)" in ct and handlers_imports.AUTOMATIC_TRAILER in ct
+def test_the_cold_turkey_step_returns_as_a_fallback_when_nothing_is_configured(conn, clk, settings):
+    needs = checklist.week_needs(conn, clk, settings, T.measurement_week(date(2026, 9, 6)))
+    assert needs.coldturkey == checklist.MISSING
+    text = checklist.render(needs, settings, nudge=False)
+    assert "Cold Turkey. Export last week by hand:" in text and "Websites usage (time)" in text
+    assert "DRBR" not in text
 
 
 # ==========================================================================

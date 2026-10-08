@@ -199,8 +199,11 @@ def _lever(line: report.SourceLine) -> str:
 def _week_described(clk: Clock, settings: Settings) -> T.MeasurementWeek:
     """The latest finished week whose evidence has been asked for.
 
-    On a Sunday the week just ended cannot have its Screen Time yet (it is asked
-    for on Monday, DR5.10), so the week before it is the latest worth judging.
+    Since DR5.24 that is the week just finished from the Sunday after it, the
+    morning the check-in asks for it; until its Screen Time and YouTube arrive,
+    the comparison sets them aside like for like. The fallback to the week
+    before covers only a week that ended before go-live, which is never asked
+    for (DR2.2).
     """
     week = report._last_complete_measurement_week(clk, settings)
     if not report.week_is_due(clk, settings, week):

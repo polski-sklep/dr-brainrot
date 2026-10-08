@@ -1,4 +1,6 @@
-"""handlers_imports: Telegram routing, album batching, honest replies, weekly prompts.
+"""handlers_imports: Telegram routing, album batching, honest replies.
+
+Asking for the week's evidence moved to the Sunday check-in (tests/test_checklist.py, DR5.24).
 
 No network and no real Telegram objects: updates, messages and files are
 fakes, as in tests/test_bot.py. Batches are released through an injected
@@ -19,7 +21,7 @@ import config
 import db
 import evidence
 import handlers_imports as hi
-from sources import coldturkey, ocr_vision
+from sources import ocr_vision
 
 AUTHORISED = 1
 INTRUDER = 999
@@ -316,53 +318,35 @@ def test_register_adds_photo_document_and_json_handlers():
     assert all(h.callback.__wrapped__ in (hi.on_image, hi.on_json_document) for h in handlers)
 
 
-# --- prompts ---------------------------------------------------------------------------------------
+def test_screen_time_reply_points_at_readings_to_settle(settings, conn, clk):
+    """DR5.24: at 09:30 the check-in can't know them yet, so the import reply says so."""
+    import labels
 
-def test_prompts_from_monday_once_per_day(settings, conn):
-    fake = FakeBot()
-    monday = clock.FrozenClock("2026-09-14T07:00:00+00:00")
-    sent = hi.send_due_prompts(conn, monday, settings, fake)
-    assert sent == ["screentime prompt for week 2026-09-06", "coldturkey prompt for week 2026-09-06",
-                    "youtube prompt for week 2026-09-06"]
-    assert fake.sent[0]["chat_id"] == AUTHORISED
-    assert "Last Week" in fake.sent[0]["text"] and "not All Devices" in fake.sent[0]["text"]
-    assert "Export" in fake.sent[1]["text"] and "Websites Blocked" in fake.sent[1]["text"]
-    assert hi.send_due_prompts(conn, monday, settings, fake) == []            # deduped the same day
-    monday.advance(days=1)
-    assert len(hi.send_due_prompts(conn, monday, settings, fake)) == 3        # again the next day
-    assert conn.execute("SELECT COUNT(*) FROM prompts_sent").fetchone()[0] == 6
+    rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="t")
+    for name in ("Facebook", "Lionfish"):
+        src = labels.ensure_source(conn, clk, "iphone_app", name)
+        evidence.upsert_measurement(conn, rec, source_id=src.id, device="iphone", provenance="screenshot_ocr",
+                                    period_start="2026-09-06", period_end="2026-09-12", minutes=None,
+                                    status="unreadable", detail={"raw": [f"{name} | 2h 27m", "2h 37m"]})
+    evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-06", period_end="2026-09-12")
 
+    def reply_for(outcome):
+        ctx, gate = make_ctx(settings, conn, clk, screentime_ingest=RecordingIngest(outcome))
+        msg = photo_message(b"x")
 
-def test_no_prompt_on_the_sunday_the_week_ends(settings, conn):
-    sunday = clock.FrozenClock("2026-09-13T09:00:00+00:00")
-    assert hi.send_due_prompts(conn, sunday, settings, FakeBot()) == []
+        async def scenario():
+            await hi.on_image(FakeUpdate(msg), ctx)
+            gate.open()
+            await ctx.bot_data[hi.BATCHER_KEY].drain()
 
+        asyncio.run(scenario())
+        return msg.replies[0]
 
-def test_covered_week_is_not_prompted(settings, conn):
-    monday = clock.FrozenClock("2026-09-21T07:00:00+00:00")
-    coldturkey.ingest(conn, monday, settings, (FIXTURES / "coldturkey" / "website_statistics.json").read_bytes())
-    rec = evidence.begin_import(conn, monday, kind="youtube_history", parser_version="t")
-    evidence.finish_import(conn, monday, settings, rec, period_start="2026-09-15", period_end="2026-09-18")
-    sent = hi.send_due_prompts(conn, monday, settings, FakeBot())
-    assert sent == ["screentime prompt for week 2026-09-13"]
-
-
-def test_partial_this_week_capture_does_not_cover_the_week(settings, conn):
-    monday = clock.FrozenClock("2026-09-21T07:00:00+00:00")
-    rec = evidence.begin_import(conn, monday, kind="screentime", parser_version="t")
-    evidence.finish_import(conn, monday, settings, rec, period_start=None, period_end=None, status="partial")
-    assert "screentime prompt for week 2026-09-13" in hi.send_due_prompts(conn, monday, settings, FakeBot())
-
-
-def test_prompts_stop_after_the_diagnostic_ends(settings, conn):
-    evidence.ensure_diagnostic_start(conn, "2026-07-01")
-    after_end = clock.FrozenClock("2026-09-14T07:00:00+00:00")     # 8 weeks from 1 Jul ended 25 Aug
-    assert evidence.diagnostic(conn, after_end, settings).ended
-    fake = FakeBot()
-    assert hi.send_due_prompts(conn, after_end, settings, fake) == [] and fake.sent == []
-
-
-def test_prompts_before_the_diagnostic_has_started(settings, conn):
-    monday = clock.FrozenClock("2026-09-14T07:00:00+00:00")
-    assert not evidence.diagnostic(conn, monday, settings).started
-    assert len(hi.send_due_prompts(conn, monday, settings, FakeBot())) == 3
+    reply = reply_for(OK)
+    assert reply.endswith("(complete).\n\n2 readings couldn't be read for sure. Settle them here: "
+                          f"http://127.0.0.1:{settings.dashboard_port}/#needs-your-eye")
+    # Only this import's own period counts, and never on a duplicate or a failure.
+    other = evidence.Outcome(8, "ok", 3, (), None, "2026-09-13", "2026-09-19")
+    assert "needs-your-eye" not in reply_for(other)
+    assert "needs-your-eye" not in reply_for(evidence.Outcome(7, "ok", 0, (), None, duplicate_of=7))
+    assert "needs-your-eye" not in reply_for(evidence.Outcome(9, "failed", 0, (), "boom"))

@@ -1,9 +1,9 @@
-"""handlers_labels.py: the Monday label digest and /labels (CONTRACTS Part II §8, §19).
+"""handlers_labels.py: /labels (CONTRACTS Part II §8, §19, §21).
 
-Since DR5.6 nothing here labels anything. What is tested is the cadence (DR5.19:
-Monday only, and only with an hour undecided — folded into the import
-reminders when there are any), the content of that one message, and that no
-button or callback survived the move to the dashboard.
+Since DR5.6 nothing here labels anything, and since DR5.24 nothing here sends
+anything of its own either: the label request is the last item of the Sunday
+check-in (tests/test_checklist.py). What is tested is the reply to /labels, its
+gate, and that no button or callback survived the move to the dashboard.
 """
 from __future__ import annotations
 
@@ -67,17 +67,6 @@ class AsyncBot:
 
     async def send_message(self, **kwargs):
         self.sent.append(kwargs)
-
-
-class SyncBot:
-    def __init__(self):
-        self.sent: list[dict] = []
-
-    def send_message(self, **kwargs):
-        self.sent.append(kwargs)
-
-    def texts(self) -> list[str]:
-        return [m["text"] for m in self.sent]
 
 
 class FakeContext:
@@ -152,108 +141,6 @@ def test_no_label_callback_survives_the_move_to_the_dashboard():
     assert "InlineKeyboard" not in source
 
 
-# --- the digest -------------------------------------------------------------
-
-def test_digest_nothing_before_the_diagnostic_started(conn, clk, settings):
-    labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, "Notes")
-    bot = SyncBot()
-    assert H.send_label_digest(conn, clk, settings, bot) == [] and bot.sent == []
-
-
-MONDAY = "2026-09-14T08:00:00+00:00"           # 10:00 Warsaw, eight days after 09-06
-
-
-def test_digest_waits_seven_days(conn, clk, settings):
-    _observed(conn, clk, settings, "Notes", minutes=90.0)
-    clk.set("2026-09-07T08:00:00+00:00")          # a Monday, but only day 1 of the diagnostic
-    bot = SyncBot()
-    assert H.send_label_digest(conn, clk, settings, bot) == []
-    clk.set(MONDAY)                               # the first Monday after seven days
-    assert len(H.send_label_digest(conn, clk, settings, bot)) == 1
-
-
-def test_digest_names_the_count_the_minutes_the_group_and_the_link(conn, clk, settings):
-    _observed(conn, clk, settings, "Notes", minutes=200.0)
-    _observed(conn, clk, settings, "Maps", minutes=140.0)
-    clk.set(MONDAY)
-    bot = SyncBot()
-    assert H.send_label_digest(conn, clk, settings, bot) == \
-        ["label digest: 2 unlabelled source(s), 340 min"]
-    (text,) = bot.texts()
-    assert "2 sources (340 min) are unlabelled, mostly iphone apps." in text
-    assert f"http://127.0.0.1:{settings.dashboard_port}/labels" in text
-    assert "This is the only reminder about it this week." in text
-    assert bot.sent[0].get("reply_markup") is None
-    assert [tuple(r) for r in conn.execute("SELECT kind, period_start, sent_on FROM prompts_sent")] == \
-        [("labels", "2026-09-13", "2026-09-14")]
-
-
-def test_digest_speaks_only_on_mondays_and_once_each(conn, clk, settings):
-    """One predictable morning a week, not a three-day clock drifting across it."""
-    _observed(conn, clk, settings, "Notes", minutes=90.0)
-    clk.set(MONDAY)
-    bot = SyncBot()
-    assert len(H.send_label_digest(conn, clk, settings, bot)) == 1
-    assert H.send_label_digest(conn, clk, settings, bot) == []        # the same Monday again
-    for _ in range(6):                                                 # Tuesday .. Sunday
-        clk.advance(days=1)
-        assert H.send_label_digest(conn, clk, settings, bot) == []
-    clk.advance(days=1)                                                # the next Monday
-    assert len(H.send_label_digest(conn, clk, settings, bot)) == 1
-    assert len(bot.sent) == 2
-
-
-@pytest.mark.parametrize("minutes,speaks", [(59.0, False), (60.0, True)])
-def test_digest_needs_an_hour_undecided(conn, clk, settings, minutes, speaks):
-    """34 minutes spread over 50 sources was not worth a message; an hour is."""
-    _observed(conn, clk, settings, "Notes", minutes=minutes)
-    clk.set(MONDAY)
-    assert bool(H.send_label_digest(conn, clk, settings, SyncBot())) is speaks
-    assert H.DIGEST_MIN_MINUTES == 60.0
-
-
-def test_digest_says_nothing_when_everything_is_labelled(conn, clk, settings):
-    (s,) = _started(conn, clk, settings, "Notes")
-    labels.set_source_label(conn, clk, s.id, T.WASTEFUL)
-    assert H.send_label_digest(conn, clk, settings, SyncBot()) == []
-    assert conn.execute("SELECT COUNT(*) FROM prompts_sent").fetchone()[0] == 0
-
-
-def test_digest_nothing_after_the_diagnostic_ended(conn, clk, settings):
-    _started(conn, clk, settings, "Notes")
-    clk.set("2026-11-01T10:00:00+00:00")         # 8 weeks from 09-06 end 10-31
-    bot = SyncBot()
-    assert H.send_label_digest(conn, clk, settings, bot) == [] and bot.sent == []
-
-
-def test_digest_counts_only_sources_with_evidence(conn, clk, settings):
-    _observed(conn, clk, settings, "Notes", minutes=75.0)
-    labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, "NeverSeen")     # identity only
-    conn.commit()
-    clk.set(MONDAY)
-    bot = SyncBot()
-    assert H.send_label_digest(conn, clk, settings, bot) == ["label digest: 1 unlabelled source(s), 75 min"]
-
-
-def test_on_a_monday_with_reminders_the_note_rides_on_the_last_one(conn, clk, settings):
-    """One fewer message: no separate digest when import reminders are going out."""
-    import jobs
-
-    _observed(conn, clk, settings, "Notes", minutes=90.0)
-    clk.set(MONDAY)                               # the week of 6-12 Sep is now due
-    bot = SyncBot()
-    sent = jobs._prompts_with_digest(conn, clk, settings, bot)
-    texts = bot.texts()
-    assert texts and len(texts) == len(sent) - 1  # every reminder, and no extra message
-    assert texts[-1].endswith(
-        f"Also: 1 source (90 min) is unlabelled, mostly iphone apps. "
-        f"Label them in the dashboard: http://127.0.0.1:{settings.dashboard_port}/labels")
-    assert not any("Also:" in t for t in texts[:-1])
-    # Recorded as sent, so the standalone step that follows stays quiet.
-    assert H.send_label_digest(conn, clk, settings, bot) == []
-    assert len(bot.texts()) == len(texts)
-
-
 # --- /labels ----------------------------------------------------------------
 
 def test_labels_command_replies_with_the_count_and_a_link_and_no_buttons(conn, clk, settings, ctx):
@@ -264,15 +151,6 @@ def test_labels_command_replies_with_the_count_and_a_link_and_no_buttons(conn, c
     assert "1 source (12 min) is unlabelled" in reply
     assert f"http://127.0.0.1:{settings.dashboard_port}/labels" in reply
     assert ctx.bot.sent == []
-
-
-def test_labels_command_does_not_consume_the_monday_digest(conn, clk, settings, ctx):
-    """Asking is not being told: /labels must not silence the next digest."""
-    _observed(conn, clk, settings, "Notes", minutes=90.0)
-    clk.set(MONDAY)
-    asyncio.run(H.cmd_labels(FakeUpdate(), ctx))
-    assert conn.execute("SELECT COUNT(*) FROM prompts_sent").fetchone()[0] == 0
-    assert len(H.send_label_digest(conn, clk, settings, SyncBot())) == 1
 
 
 def test_labels_command_reply_does_not_talk_about_reminders(conn, clk, settings, ctx):
@@ -304,3 +182,20 @@ def test_labels_command_unauthorised_is_silent(conn, clk, settings, ctx):
     asyncio.run(H.cmd_labels(update, ctx))
     assert update.message.replies == [] and ctx.bot.sent == []
 
+
+def test_labels_command_still_answers_while_the_final_week_is_asked_for(conn, clk, settings, ctx):
+    """Sun 8 Nov: the diagnostic has ended, but its final check-in ends with labelling."""
+    _observed(conn, clk, settings, "Notes", day="2026-09-13", minutes=12.0)   # 8 weeks: ends Sat 7 Nov
+    for day, answers in (("2026-11-08", True), ("2026-11-09", True), ("2026-11-15", False)):
+        clk.set(f"{day}T10:00:00+00:00")
+        update = FakeUpdate()
+        asyncio.run(H.cmd_labels(update, ctx))
+        (reply,) = update.message.replies
+        assert ("1 source (12 min) is unlabelled" in reply) is answers, (day, reply)
+    assert "no longer requested" in reply
+
+
+def test_no_label_message_is_sent_by_this_module_any_more():
+    """The DR5.19 Monday digest folded into the Sunday check-in (DR5.24)."""
+    for name in ("send_label_digest", "due_digest", "record_digest", "DIGEST_MIN_MINUTES", "PROMPT_KIND"):
+        assert not hasattr(H, name), name

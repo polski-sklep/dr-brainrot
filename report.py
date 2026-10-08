@@ -101,17 +101,17 @@ def everything_in(totals) -> bool:
 
 
 def due_on(mweek: T.MeasurementWeek) -> date:
-    """The Monday a week's manual evidence is first asked for."""
-    return mweek.saturday + timedelta(days=2)
+    """The Sunday after the week: the day its manual evidence is first asked for (DR5.24)."""
+    return mweek.saturday + timedelta(days=1)
 
 
 def week_is_due(clk: Clock, settings: Settings, mweek: T.MeasurementWeek) -> bool:
-    """Has that Monday arrived? Before it, absence is a schedule, not a gap.
+    """Has the Sunday after it arrived? Before it, absence is a schedule, not a gap.
 
-    This is the threshold `handlers_imports.send_due_prompts` prompts on, read
-    from the same two rules, so the word on the page and the day of the ask
-    cannot drift apart. A week that ended before go-live is never asked for at
-    all (DR2.2), so it is never due.
+    This is the day `checklist.send_due` asks on, read from the same two rules,
+    so the word on the page and the day of the ask cannot drift apart (DR5.10).
+    A week that ended before go-live is never asked for at all (DR2.2), so it
+    is never due.
     """
     if settings.go_live and mweek.end < settings.go_live:
         return False
@@ -1003,9 +1003,9 @@ def records(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, group: 
 #
 # The user's complaint was that nothing told him how or when to put data in:
 # "I haven't been prompted in any meaningful way to put data in". Telegram now
-# keeps only captures, Sunday triage, allowance alerts and the Monday reminder
-# for the two manual sources; everything else is answered here, as data, and
-# rendered by the dashboard. These functions therefore say, per source group,
+# keeps only captures, Sunday triage, allowance alerts and the Sunday check-in
+# (DR5.24); everything else is answered here, as data, and rendered by the
+# dashboard. These functions therefore say, per source group,
 # what the state of the current week is, whether the user owes an action, and
 # in one sentence why — never a score, never a nag.
 
@@ -1133,8 +1133,8 @@ def _weekly_manual_state(conn: sqlite3.Connection, clk: Clock, settings: Setting
     """-> (state, action_text, detail) for a source the user sends once a week.
 
     The question is never about the current week — it isn't over — but about
-    the most recent complete Sunday..Saturday, and only from the Monday after
-    it, which is exactly when `handlers_imports.send_due_prompts` asks. A week
+    the most recent complete Sunday..Saturday, and only from the Sunday after
+    it, which is exactly when `checklist.send_due` asks (DR5.24). A week
     ending before `settings.go_live` is never owed (DR2.2).
     """
     week = T.measurement_week(T.week_sunday(today) - timedelta(days=7))
@@ -1143,8 +1143,8 @@ def _weekly_manual_state(conn: sqlite3.Connection, clk: Clock, settings: Setting
         return STATE_OK, "", f"Last week ({span}) has arrived."
     if settings.go_live and week.end < settings.go_live:
         return STATE_OK, "", f"The week {span} ended before measuring started."
-    if today < week.saturday + timedelta(days=2):
-        return STATE_WAITING, "", f"Last week ({span}) can be sent from Monday."
+    if not week_is_due(clk, settings, week):
+        return STATE_WAITING, "", f"Last week ({span}) can be sent from Sunday."
     return STATE_MISSING, action, f"Nothing has arrived for last week ({span})."
 
 

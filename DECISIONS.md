@@ -2279,3 +2279,89 @@ a list, so a site Qbserve starts recognising later is never double counted
 either. Like every covered-elsewhere source, the minutes stay visible in the
 "covered elsewhere" column and are never charged. Applied at read time, so
 every past week is corrected without reimporting.
+
+### DR5.24 — One Sunday check-in asks for everything, and reminds once
+
+**8 October 2026.** Jacob said what he disliked about putting data in: "the
+disparate/broken up aspect" of it. He wanted "one concrete time to enter all
+inputs". He had a point. Requests reached him five ways, on different days:
+
+* Monday import reminders that repeated daily, then silently gave up on Sunday;
+* a separate label nudge (DR5.19, Monday);
+* the Qbserve warning;
+* the Sunday 18:00 triage post, every week, even with nothing to triage;
+* readings to settle, which only the Overview mentioned.
+
+Since 20 Sep he entered something on 11 different days. On 29 Sep four
+messages arrived before 10:00. He chose **Sunday morning** for one session.
+
+**One list, Sunday 09:30.** The daily job sends one message for the week just
+finished (Sun–Sat, ending yesterday). It numbers what is still to do, always in
+this order:
+
+1. Screen Time "Last Week" screenshots, tapping Show More until it disappears;
+2. the YouTube sync from the extension;
+3. Cold Turkey, only when its automatic read is failing or not set up;
+4. readings to settle, only when there are any;
+5. labelling new sources, last, because the steps before it bring new ones.
+
+What already arrived is listed after it as "Already in". It is plain text, no
+buttons, and never names the product.
+
+**When everything is in, nothing is sent.** By 09:30 on a Sunday that can
+only mean he already did the session that morning, and the bot answered each
+upload at the time. A "nothing to do" message would be the filler he objected
+to. The log records the decision, and the dashboard says "Everything expected
+for this week has arrived". Labels alone send a message only from an hour
+undecided (DR5.19's bar, kept). Below that they ride along when something else
+is owed.
+
+**One reminder, then silence.** On Monday, if evidence for that week is still
+missing, one reminder lists just that and says it is the only one. Nothing
+more is sent for the week; the dashboard keeps showing what is missing. Labels
+and readings never cause a Monday message. A Screen Time capture whose Most
+Used list stopped at "Show More" (`most_used_complete` false, like imports
+#24 and #80) counts as missing. It is asked for again, with its own wording,
+on Sunday and Monday. A capture where the end of the list was never seen
+(NULL, like #49) counts as in; the import reply already warned about it.
+
+**State is two `meta` keys, no migration.** `checklist_week` is the week
+whose Sunday list was dealt with. `checklist_nudge_week` is the week whose
+reminder was decided. `prompts_sent`'s CHECK constraint would have needed the
+table rebuilt for a new kind. Each key is written only after a successful send
+(or when there was nothing to send), so:
+
+* Telegram down on Sunday: Monday sends the whole list instead;
+* the Mac off on Monday: the reminder goes on the first day it runs that week;
+* merged on a Friday: nothing goes out mid-week for a week whose Sunday list
+  never went out.
+
+**The final week is asked for.** The old reminders stopped once the
+diagnostic ended. They also never ran on a Sunday, so the last week, Sun 1 –
+Sat 7 Nov, would never have been asked for. `checklist.asking_week` still asks
+for a week that started on or before the last day. The end notice now waits
+until that week's evidence is in, or until the Tuesday after it, whichever
+comes first. It ends "Nothing more will be asked for." `/labels` keeps
+answering while the final week is being asked for.
+
+**The due day moved to Sunday.** DR5.10's rule is that the page says
+"missing" on the same day the system asks. So `report.due_on` is now the
+Sunday after the week. The Import column reads "asked for on Sunday …", and
+the progress panel and the brain describe the just-finished week from Sunday,
+setting aside Screen Time and YouTube like for like until they arrive. A side
+benefit: imports sent on Sunday land before the 18:00 rollover, so the closed
+week's overage is recorded complete the first time.
+
+**The triage post is skipped when the queue is empty.** The rollover, lock
+lift, expiry and marker still run.
+
+**The Screen Time reply points at its readings.** At 09:30 the week's
+screenshots have not arrived, so the list cannot know about their readings.
+When an import leaves rows to settle, its own reply says "2 readings couldn't
+be read for sure. Settle them here: …/#needs-your-eye", while he is still at
+it.
+
+Gone: `handlers_imports.send_due_prompts` and its texts, the DR5.19 label
+digest, and "Nothing to triage this week". `prompts_sent` keeps its old rows
+and still records the Qbserve warning and the end notice. The bot keeps the
+old Screen Time reply until it is restarted.

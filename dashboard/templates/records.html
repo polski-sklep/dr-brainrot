@@ -131,7 +131,7 @@ apply to these — they cover the week named in each section, or the whole diagn
         </td>
         <td class="import-{{ t.import_status or 'api' }}">
           {% if t.import_status is none %}polled via API (no import)
-          {% elif t.import_status == "not_due" %}<strong>not due yet</strong><span class="sub">asked for on Monday {{ week.due_on }}</span>
+          {% elif t.import_status == "not_due" %}<strong>not due yet</strong><span class="sub">asked for on Sunday {{ week.due_on }}</span>
           {% elif t.import_status == "missing" %}<strong>missing</strong><span class="sub">nothing has arrived for this week yet</span>
           {% elif t.import_status == "so_far" %}<strong>partial</strong><span class="sub">covers part of the week so far</span>
           {% elif t.import_status == "incomplete" %}<strong>incomplete</strong><span class="sub">nothing covering the whole week yet</span>

@@ -462,10 +462,11 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     # Sun 13 16:00Z — POP's triage closes the pre-DRBR week and opens go-live's
     # ------------------------------------------------------------------
     clk.set(GO_LIVE_WEEK)
+    sent_before = len(tg.sent)
     triage.run_triage(conn, clk, settings, fake_spotify, tg)
     go_live = db._to_week(conn.execute("SELECT * FROM weeks WHERE week_start = ?", (GO_LIVE_WEEK,)).fetchone())
     assert (go_live.allowance_min, go_live.debt_min, go_live.promoted_min) == (1000, 0, 0)    # [8]
-    assert "Week of Sun 13 Sep 18:00" in tg.texts()[-1]       # displayed in Warsaw time, not Lisbon
+    assert len(tg.sent) == sent_before                        # an empty queue posts nothing (DR5.24)
 
     # ------------------------------------------------------------------
     # Mon 14 06:00Z — captures through the bot
@@ -670,6 +671,7 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
                for p in posts)
     assert any("API title 4" in p and "Label: worthwhile (your tag at capture)" in p for p in posts)
     assert "Last week spent 169 counted content minutes across sources" in posts[-1]
+    assert "Week of Sun 20 Sep 18:00" in posts[-1]            # displayed in Warsaw time, not Lisbon
     assert "went" not in posts[-1] and "Debt" not in posts[-1]
 
     # ------------------------------------------------------------------
@@ -765,17 +767,20 @@ def test_drbr_end_to_end(tmp_path, monkeypatch):
     assert count(conn, "vault_observations") == 0                    # never "everything was deleted"
     assert count(conn, "vault_captures") == 5                        # the outbox was still read; the bad line skipped
 
-    # The first week of data is over, so Telegram says *once* that labels are
-    # waiting — with a link, no buttons, and nothing to do in the chat (DR5.6).
-    digests = [t for t in tg.texts() if "are unlabelled" in t]
-    assert len(digests) == 1
-    assert "/labels" in digests[0] and "d:lbl:" not in digests[0]
-    assert not any(m.get("reply_markup") for m in tg.sent if "are unlabelled" in m["text"])
-    assert not any("hasn't arrived" in t or "hasn't been synced" in t for t in tg.texts())   # every source covered
+    # The first week of data is over and no job ran on Sunday, so Monday sends
+    # the check-in once. Every source arrived, so it asks only for labels — with
+    # a link, no buttons, and nothing to do in the chat (DR5.6, DR5.24).
+    checkins = [t for t in tg.texts() if "check-in" in t.lower()]
+    assert len(checkins) == 1
+    (checkin,) = checkins
+    assert checkin.startswith("Check-in for last week, Sun 13 – Sat 19 Sep.\n\n1. Label new sources. ")
+    assert "/labels/queue" in checkin and "d:lbl:" not in checkin and "\n\n2." not in checkin
+    assert checkin.endswith("Already in: Screen Time, YouTube, Cold Turkey.")     # every source covered
+    assert not any(m.get("reply_markup") for m in tg.sent if "check-in" in m["text"].lower())
 
     prompts_before = len(tg.sent)
     assert jobs.run_daily(conn, clk, settings, tg) == []
-    assert len(tg.sent) == prompts_before                             # once per day, not once per run
+    assert len(tg.sent) == prompts_before                             # once, not once per run
     first_scan = vault.latest_outcomes(conn)
     assert {name: first_scan[cid].outcome for name, cid in ids.items()} == dict.fromkeys(ids, "unprocessed")
     assert vault.read_outbox(conn, clk, settings).new == 0                                           # [16] vault

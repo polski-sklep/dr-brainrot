@@ -65,7 +65,6 @@ TRIAGE_MARKER_KEY = "last_triage_week"
 STATS_WEEKS = 8
 
 WARNING_LINE = "Last cycle — this expires at the next triage unless you promote it."
-NOTHING_LINE = "Nothing to triage this week."
 
 #: Lead line on an out-of-cycle deadline post sent by `poll.py`. Triage is
 #: weekly and this item's deadline falls before the next one, so the weekly
@@ -333,7 +332,11 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
        has passed. Soft deletes, via `db.set_state`.
     4. `bump_cycle()` on each survivor, then post it. After the bump,
        `cycles_seen == settings.lifespan_cycles` is the last-cycle warning.
-    5. Post the week header.
+    5. Post the week header — only when step 4 posted something. An empty
+       queue posts nothing at all (DR5.24): "Nothing to triage this week" every
+       Sunday evening was one more message on a different day, with nothing to
+       do. Steps 1–3 and the marker still run, so the week rolls over and its
+       overage is recorded either way.
 
     **Idempotent.** Cron retries happen, and steps 3 and 4 are not naturally
     repeatable — a second run in the same week would bump every cycle again
@@ -377,18 +380,17 @@ def run_triage(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
                                    label=allowance.item_label(conn, bumped), tz=settings.tz)
         send(bot, settings, text, markup)
 
-    if not survivors:
-        send(bot, settings, NOTHING_LINE)
-
     # 5. The week header, last: it describes the state everything above left.
-    current = db.current_week(conn, clk, settings)
-    send(bot, settings, render_week_header(
-        current,
-        spent_wasteful_min=allowance.pooled_minutes(conn, settings, current.week_start).charged_min,
-        last_week_wasteful_min=allowance.pooled_minutes(conn, settings, closed.week_start).charged_min,
-        last_week_overage_min=closed.overage_min,
-        tz=settings.tz,
-    ))
+    #    Only beside a post: an empty queue sends nothing (DR5.24).
+    if survivors:
+        current = db.current_week(conn, clk, settings)
+        send(bot, settings, render_week_header(
+            current,
+            spent_wasteful_min=allowance.pooled_minutes(conn, settings, current.week_start).charged_min,
+            last_week_wasteful_min=allowance.pooled_minutes(conn, settings, closed.week_start).charged_min,
+            last_week_overage_min=closed.overage_min,
+            tz=settings.tz,
+        ))
 
     _mark_triaged(conn, week_start)
 

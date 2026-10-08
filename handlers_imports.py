@@ -1,10 +1,12 @@
-"""Telegram handlers for DRBR evidence imports, and the weekly import prompts.
+"""Telegram handlers for DRBR evidence imports.
 
 CONTRACTS Part II §8. Owned by Agent B (Screen Time, Cold Turkey).
 
 * Photos and image documents -> one Screen Time batch per burst of images.
 * JSON documents -> Cold Turkey ingest.
-* `send_due_prompts` -> the Monday-onwards nudges for last week's evidence.
+
+Asking for the week's evidence is no longer done here: it is one item of the
+Sunday check-in, which `checklist.py` owns (DR5.24).
 
 Every reply states the Outcome honestly: how many facts were written, every
 warning, or why nothing was and what to send instead. No callback buttons are
@@ -24,15 +26,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import Awaitable, Callable
 
 import clock
 import drbr_types as T
 import evidence
-import triage
 from clock import Clock
 from config import Settings
 
@@ -179,7 +178,33 @@ async def _process_screentime(context, batch: _Pending) -> None:
         return
     text = render_outcome(f"Screen Time ({len(batch.images)} screenshot{'s' if len(batch.images) != 1 else ''})",
                           outcome, unit="app figures")
-    await _reply(batch.message, text)
+    await _reply(batch.message, text + _readings_to_settle(conn, clk, settings, outcome))
+
+
+def _readings_to_settle(conn, clk: Clock, settings: Settings, outcome: evidence.Outcome) -> str:
+    """The line pointing at rows this import couldn't read for sure, or "".
+
+    Part of the Sunday session (DR5.24): at 09:30 the week's screenshots have
+    not arrived yet, so the check-in cannot know about their readings. This
+    reply is where he learns of them, while he is still at it. Only rows of
+    this import's own period are counted.
+    """
+    if outcome.duplicate_of is not None or outcome.status == T.IMPORT_FAILED or not outcome.period_start:
+        return ""
+    import checklist  # noqa: PLC0415 — checklist imports report and labels; lazy keeps the bot's import light
+    import report  # noqa: PLC0415
+
+    period = (outcome.period_start, outcome.period_end or outcome.period_start)
+    try:
+        n = sum(1 for r in report.needs_your_eye(conn, clk, settings) if (r.day, r.period_end) == period)
+    except Exception:  # noqa: BLE001 — the import itself succeeded; its reply must still go out
+        log.exception("counting readings to settle failed")
+        return ""
+    if not n:
+        return ""
+    one = n == 1
+    return (f"\n\n{n} reading{'' if one else 's'} couldn't be read for sure. "
+            f"Settle {'it' if one else 'them'} here: {checklist.url(settings, '/#needs-your-eye')}")
 
 
 async def _download(file_like) -> bytes:
@@ -252,163 +277,3 @@ def register(app) -> None:
     app.add_handler(MessageHandler(
         filters.Document.FileExtension("json") | filters.Document.MimeType("application/json"),
         bot.authorised_only(on_json_document)))
-
-
-# --------------------------------------------------------------------------
-# Prompts
-# --------------------------------------------------------------------------
-
-PROMPT_KINDS = ("screentime", "coldturkey", "youtube")
-
-#: Said at the end of every reminder, because the user's complaint was not that
-#: one prompt was unclear but that he could not tell what he owed at all:
-#: "I don't know how and when I'm supposed to be submitting sources like X
-#: desktop data, desktop web, any of it" (DR5.6). Naming what is automatic is
-#: what makes the two manual asks legible as the whole of the list.
-AUTOMATIC_TRAILER = (
-    "Everything else collects itself every morning at 09:30: desktop websites (Cold Turkey), "
-    "Mac apps (Qbserve), podcasts (Spotify) and your vault. These are the only sources that "
-    "can't be fetched automatically.\n"
-    "Labelling is not done here any more — it's in the dashboard."
-)
-
-#: The two mistakes that actually happened with real captures: the Most Used
-#: list left ending in "Show More" (so the apps below it were silently missing),
-#: and screenshots sent in two goes minutes apart (read as two captures, one of
-#: them an incomplete week). Both are called out as steps, not as warnings
-#: after the fact.
-SCREENTIME_STEPS = (
-    "On the iPhone:\n"
-    "1. Settings → Screen Time → tap this iPhone (the per-device view, not All Devices).\n"
-    "2. Choose Week, then tap ‹ once so the header reads \"Last Week\".\n"
-    "3. Under Most Used, tap Show More until it disappears. If it's still there, every app below "
-    "it is missing from the week.\n"
-    "4. Screenshot the whole page from the top, scrolling down.\n"
-    "5. Send all the screenshots here in one go — one burst, as photos or as files. Sending some "
-    "now and the rest later makes two separate captures, and neither is a whole week."
-)
-
-YOUTUBE_STEPS = (
-    "On the desktop browser:\n"
-    "1. Open youtube.com/feed/history, signed in.\n"
-    "2. Click the YouTube history extension and press Sync. It scrolls back to the last sync by itself, so "
-    "there is nothing to scroll or select."
-)
-
-COLDTURKEY_STEPS = (
-    "On the desktop:\n"
-    "1. Cold Turkey Blocker → Statistics → the Websites usage (time) view, not \"Websites Blocked\".\n"
-    "2. Show the week {span}, then Export, and send the JSON file here.\n"
-    "3. Export after Saturday has ended: days not yet over are not recorded. Each machine only "
-    "knows its own usage, so export from every desktop you use."
-)
-
-MANUAL_LINE = "This is one of the two sources you have to send by hand."
-
-
-def prompt_text(kind: str, week: T.MeasurementWeek, *, automated_coldturkey: bool = False) -> str:
-    """The Monday reminder for one missing manual source.
-
-    Since DR5.6 this is the *only* import reminder DRBR sends, so each message
-    has to carry the whole picture on its own: what is missing, that this
-    source is manual, the exact steps, and that nothing else needs the user.
-    """
-    span = f"Sun {week.sunday:%d %b} – Sat {week.saturday:%d %b}"
-    if kind == "screentime":
-        return (f"Screen Time for last week ({span}) hasn't arrived.\n{MANUAL_LINE}\n\n"
-                f"{SCREENTIME_STEPS}\n\n{AUTOMATIC_TRAILER}")
-    if kind == "coldturkey":
-        head = (f"Cold Turkey for last week ({span}) hasn't arrived.\n"
-                + ("Cold Turkey's statistics on this Mac are normally read automatically every morning, "
-                   "so this means that automatic read failed. Check logs/jobs.log; exporting by hand "
-                   "covers the week meanwhile."
-                   if automated_coldturkey else
-                   "DRBR_COLDTURKEY_DB is unset, so this Mac is not read automatically and the export "
-                   "is manual."))
-        return f"{head}\n\n{COLDTURKEY_STEPS.format(span=span)}\n\n{AUTOMATIC_TRAILER}"
-    if kind == "youtube":
-        return (f"YouTube history for last week ({span}) hasn't been synced.\n{MANUAL_LINE}\n\n"
-                f"{YOUTUBE_STEPS}\n\n{AUTOMATIC_TRAILER}")
-    raise ValueError(f"no prompt for {kind!r}")
-
-
-def _covered(conn: sqlite3.Connection, kind: str, week: T.MeasurementWeek, tz: str) -> bool:
-    """Is there an ok/partial import that covers this week?
-
-    Screen Time and Cold Turkey imports carry the days they recorded, so the
-    import's period must span the whole Sunday..Saturday. A YouTube sync covers
-    everything watched since the previous sync, so any successful sync received
-    after the week ended covers it.
-    """
-    if kind == "youtube":
-        rows = conn.execute("SELECT received_at FROM imports WHERE kind = 'youtube_history' "
-                            "AND status IN ('ok', 'partial')").fetchall()
-        return any(T.local_date(r["received_at"], tz) > week.saturday for r in rows)
-    return conn.execute(
-        "SELECT 1 FROM imports WHERE kind = ? AND status IN ('ok', 'partial') "
-        "AND period_start IS NOT NULL AND period_start <= ? AND period_end >= ? LIMIT 1",
-        (kind, week.start, week.end),
-    ).fetchone() is not None
-
-
-def _self_feeding(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> set[str]:
-    """Report groups that are currently feeding themselves, so nothing is asked for them.
-
-    Cold Turkey became automatic at DR5.1 and Qbserve is automatic by nature,
-    so asking for them by hand every Monday was asking for work DRBR was
-    already doing. The prompt now survives only as a *fallback*: unconfigured,
-    or configured and failing. `report.needs_attention` is the one place that
-    judges whether an automatic source is healthy, and this reads its verdict
-    rather than keeping a second opinion.
-    """
-    import report  # noqa: PLC0415 — report imports allowance; lazy keeps the import graph one-way
-
-    return {row.group for row in report.needs_attention(conn, clk, settings)
-            if row.mode == report.MODE_AUTOMATIC and row.state == report.STATE_OK}
-
-
-def send_due_prompts(conn: sqlite3.Connection, clk: Clock, settings: Settings, bot,
-                     trailer: str | None = None) -> list[str]:
-    """Nudge once per day, from the Monday after the week, for each missing manual import.
-
-    The week asked about is the most recent complete Sunday..Saturday. Before
-    the diagnostic has started this still prompts, because the first import is
-    what starts it; after it has ended nothing is sent.
-
-    Since DR5.6 this is the only import reminder there is, and it asks only for
-    what the user actually has to do: a source DRBR reads for itself, and is
-    reading successfully, is never in the rotation.
-    """
-    if evidence.diagnostic(conn, clk, settings).ended:
-        return []
-    today = T.local_date(clk.now(), settings.tz)
-    week = T.measurement_week(T.week_sunday(today) - timedelta(days=7))
-    if today < week.saturday + timedelta(days=2):      # Sunday: the Monday after hasn't come yet
-        return []
-    if settings.go_live and week.end < settings.go_live:
-        return []                                     # a week before DRBR existed is not asked for (DR2.2)
-    sent: list[str] = []
-    healthy = _self_feeding(conn, clk, settings)
-    due: list[str] = []
-    for kind in PROMPT_KINDS:
-        if _covered(conn, kind, week, settings.tz):
-            continue
-        if kind == "coldturkey" and T.GROUP_DESKTOP in healthy:
-            continue
-        already = conn.execute("SELECT 1 FROM prompts_sent WHERE kind = ? AND period_start = ? AND sent_on = ?",
-                               (kind, week.start, today.isoformat())).fetchone()
-        if already:
-            continue
-        due.append(kind)
-    for i, kind in enumerate(due):
-        text = prompt_text(kind, week, automated_coldturkey=settings.coldturkey_db is not None)
-        if trailer and i == len(due) - 1:
-            # One more note rides on the last reminder rather than arriving as
-            # a message of its own (DR5.19: the Monday label digest).
-            text = f"{text}\n\n{trailer}"
-        triage.send(bot, settings, text)
-        conn.execute("INSERT OR IGNORE INTO prompts_sent (kind, period_start, sent_on, sent_at) VALUES (?, ?, ?, ?)",
-                     (kind, week.start, today.isoformat(), clock.iso(clk.now())))
-        conn.commit()
-        sent.append(f"{kind} prompt for week {week.start}")
-    return sent

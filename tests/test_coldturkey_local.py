@@ -15,9 +15,10 @@ import pytest
 import clock
 import config
 import db
+import checklist
 import evidence
-import handlers_imports
 import jobs
+import labels
 import report
 import drbr_types as T
 from sources import coldturkey, coldturkey_local as ctl
@@ -212,7 +213,7 @@ def test_unconfigured_never_reads_anything(conn, clk, tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM imports").fetchone()[0] == 0
 
 
-# --- daily job, prompts, report ----------------------------------------------
+# --- daily job, check-in, report ----------------------------------------------
 
 class Bot:
     def __init__(self):
@@ -222,28 +223,29 @@ class Bot:
         self.sent.append(kw)
 
 
-def test_daily_job_reads_before_prompting_so_a_covered_week_is_not_asked_for(conn, settings, ct_db):
+def test_daily_job_reads_before_the_check_in_so_a_covered_week_is_not_asked_for(conn, settings, ct_db):
     c = sqlite3.connect(str(ct_db))
     c.executemany("INSERT INTO stats VALUES (?, 'https://example.net/', 60, 'u')",
                   [(_epoch(f"2026-09-{d}T12:00:00"),) for d in (13, 15, 17, 19)])
     c.commit()
     c.close()
-    monday = clock.FrozenClock("2026-09-21T08:00:00+00:00")
+    sunday = clock.FrozenClock("2026-09-20T08:00:00+00:00")       # the Sunday check-in (DR5.24)
     bot = Bot()
-    failed = jobs.run_daily(conn, monday, settings, bot)
+    failed = jobs.run_daily(conn, sunday, settings, bot)
     assert "coldturkey_local" not in failed
-    texts = " ".join(m["text"] for m in bot.sent)
-    assert "Cold Turkey for last week" not in texts
-    assert "Screen Time for last week" in texts
+    (text,) = [m["text"] for m in bot.sent]
+    assert text.startswith("Sunday check-in for last week, Sun 13 – Sat 19 Sep.")
+    assert "Cold Turkey" not in text
+    assert "1. Screen Time." in text
 
 
-def test_daily_job_reports_an_unreadable_database_and_still_prompts(conn, tmp_path, settings):
+def test_daily_job_reports_an_unreadable_database_and_still_asks(conn, tmp_path, settings):
     broken = config.test_settings(**{**settings.__dict__, "coldturkey_db": tmp_path / "gone.db"})
     bot = Bot()
-    failed = jobs.run_daily(conn, clock.FrozenClock("2026-09-21T08:00:00+00:00"), broken, bot)
+    failed = jobs.run_daily(conn, clock.FrozenClock("2026-09-20T08:00:00+00:00"), broken, bot)
     assert "coldturkey_local" in failed
-    ct = [m["text"] for m in bot.sent if "Cold Turkey for last week" in m["text"]]
-    assert ct and "automatic read failed" in ct[0]
+    (text,) = [m["text"] for m in bot.sent]
+    assert "3. Cold Turkey. This Mac's statistics couldn't be read this week, so export them by hand:" in text
 
 
 def test_blind_spots_follow_how_cold_turkey_minutes_arrived(conn, clk, settings):
@@ -256,7 +258,10 @@ def test_blind_spots_follow_how_cold_turkey_minutes_arrived(conn, clk, settings)
     assert "top domains" in text
 
 
-def test_prompt_text_mentions_the_automatic_read_only_when_configured():
-    week = T.measurement_week(date(2026, 9, 13))
-    assert "automatic read failed" not in handlers_imports.prompt_text("coldturkey", week)
-    assert "automatic read failed" in handlers_imports.prompt_text("coldturkey", week, automated_coldturkey=True)
+def test_check_in_mentions_the_failing_read_only_when_configured(settings):
+    needs = checklist.WeekNeeds(T.measurement_week(date(2026, 9, 13)), checklist.IN, checklist.IN,
+                                checklist.MISSING, 0, labels.Summary(0, 0.0, None), False)
+    plain = config.test_settings(tz="Europe/Warsaw")
+    assert "couldn't be read" not in checklist.render(needs, plain, nudge=False)
+    assert "Export last week by hand" in checklist.render(needs, plain, nudge=False)
+    assert "couldn't be read this week" in checklist.render(needs, settings, nudge=False)

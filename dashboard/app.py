@@ -201,8 +201,8 @@ class WeekChoice:
     next_sunday: str | None    # None when the next week is in the future
     current_sunday: str
     last_complete_sunday: str
-    due: bool                  # the Monday this week's evidence is asked for has come
-    due_on: str                # that Monday, so the page can name the day
+    due: bool                  # the Sunday this week's evidence is asked for has come (DR5.24)
+    due_on: str                # that Sunday, so the page can name the day
 
 
 def choose_week(clk: Clock, settings: Settings, raw: str | None,

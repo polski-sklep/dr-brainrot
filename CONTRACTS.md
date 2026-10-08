@@ -803,8 +803,8 @@ top_sources(..., week_start, limit=8) -> list[SourceLine(source_id, display_name
 PooledMinutes/GroupMinutes/WeekSplit gain unclassified_min and .charged_min
   (= wasteful + unclassified). Reported headline reads wasteful_min; the allowance,
   overage and alerts read charged_min (DR5.11).
-week_is_due(clk, settings, mweek) -> bool   # the Monday after the week has come
-due_on(mweek) -> date                       # that Monday
+week_is_due(clk, settings, mweek) -> bool   # the Sunday after the week has come (DR5.24; was Monday)
+due_on(mweek) -> date                       # that Sunday: the day checklist.send_due asks
 everything_in(totals) -> bool               # every expected source covers the week
 label_split(..., weeks: int = 8) -> list[WeekSplit(week_start, wasteful_min, worthwhile_min)]
 allowance_status(...) -> AllowanceStatus(week_start, allowance_min, debt_min, effective_min, spent_wasteful_min, remaining_min, promoted_min)
@@ -1191,3 +1191,88 @@ Optional; empty means the panel shows DRBR's computed sentences.
 `check_anthropic(env)`, step 10 of 10 (`STEPS = 10`). Shape only
 (`ANTHROPIC_SHAPE`), never a live call; unset is an `OK`, not a failure. The key
 is in `SECRET_KEYS`, so it is only ever printed masked.
+
+## §21 Post-build amendment — the Sunday session (DR5.24–DR5.27)
+
+### `checklist.py` (new, DR5.24)
+
+The only thing that asks the user for anything. Read-only apart from two
+`meta` keys; no table changes, no migration.
+
+```python
+CHECKLIST_KEY = "checklist_week"            # week (Sunday, ISO) whose Sunday list was dealt with
+NUDGE_KEY = "checklist_nudge_week"          # week whose one reminder was decided
+LABELS_WORTH_A_MESSAGE_MIN = 60.0           # labels alone send only from an hour undecided (DR5.19's bar)
+MISSING = "missing"; CUT_OFF = "cut_off"; IN = "in"
+SCREENTIME_TODO; SCREENTIME_AGAIN; YOUTUBE_TODO; COLDTURKEY_TODO ({span});
+COLDTURKEY_FAILING; COLDTURKEY_MANUAL; AUTOMATIC_LINE ({what}); LAST_REMINDER ({url})
+
+url(settings, path) -> str                  # http://127.0.0.1:<dashboard_port><path>
+asking_week(conn, clk, settings) -> T.MeasurementWeek | None
+    # the week just finished (Sun..Sat ending on or before yesterday); None if it
+    # ended before go-live or starts after the diagnostic's last day. The final
+    # week is still asked for after the diagnostic has ended.
+@dataclass(frozen=True)
+class WeekNeeds: week; screentime: str; youtube: str; coldturkey: str | None;
+                 readings: int; unlabelled: labels.Summary; final: bool
+    evidence_missing -> bool   # screentime != IN or youtube != IN or coldturkey == MISSING
+    owed -> bool               # evidence_missing or readings > 0 or unlabelled.minutes >= 60
+week_needs(conn, clk, settings, week) -> WeekNeeds     # read-only
+render(needs, settings, *, nudge: bool, late: bool = False) -> str
+send_due(conn, clk, settings, bot) -> list[str]        # e.g. "sunday checklist for week 2026-10-04: screentime, youtube, labels"
+```
+
+* Screen Time: `report._covering_import`; the latest covering import with
+  `meta.most_used_complete is False` is `CUT_OFF`; `None`/absent is `IN`.
+* YouTube: `report._covering_import` (a sync received after the Saturday).
+* Cold Turkey: `None` while `report.needs_attention` reports `GROUP_DESKTOP`
+  automatic and `ok`; otherwise an ok/partial import whose period spans the
+  whole week is `IN`, else `MISSING`.
+* Readings: `len(report.needs_your_eye(...))`. Labels: `labels.unlabelled_summary`.
+* `send_due`, by the local day of the run (W = `asking_week`):
+  Sunday — the list if `owed` and `checklist_week != W`; `checklist_week = W`
+  after a successful send, or at once when nothing is owed. Monday — if
+  `checklist_nudge_week != W`: the evidence-only reminder when
+  `evidence_missing`, or, when Sunday's list never went out, the whole list
+  (`late=True`) when `owed`. Tue..Sat — the reminder only when
+  `checklist_week == W` and `checklist_nudge_week != W`. Otherwise nothing.
+  `checklist_nudge_week = W` after a successful send, or when nothing is to be
+  sent. Sends through `triage.send`; a failed send raises and writes no marker.
+* The order of steps is fixed: Screen Time, YouTube, Cold Turkey, readings,
+  labels. The reminder carries evidence steps only.
+
+### `handlers_imports.py`
+
+Removed: `PROMPT_KINDS`, `AUTOMATIC_TRAILER`, `SCREENTIME_STEPS`,
+`YOUTUBE_STEPS`, `COLDTURKEY_STEPS`, `MANUAL_LINE`, `prompt_text`, `_covered`,
+`_self_feeding` (now `checklist._self_feeding`), `send_due_prompts`. The Screen
+Time reply gains "N readings couldn't be read for sure. Settle them here:
+<url>/#needs-your-eye" when rows of the import's own period are waiting.
+
+### `handlers_labels.py`
+
+Removed: `DIGEST_WEEKDAY`, `DIGEST_MIN_MINUTES`, `PROMPT_KIND`,
+`_last_digest_day`, `due_digest`, `record_digest`, `send_label_digest`.
+`digest_text(summary, settings) -> str` is the `/labels` reply only. `/labels`
+still answers after the diagnostic ends while `checklist.asking_week` is not
+None.
+
+### `jobs.py`
+
+`run_daily` = `run_sync` + `checklist`, `diagnostic_end` (+ `insights`, not
+counted as a failure). `send_end_notice` waits while the final week's evidence
+is missing, until `final.saturday + 3 days`; its last sentence is "Nothing
+more will be asked for."
+
+### `triage.py`
+
+`NOTHING_LINE` is removed. `run_triage` posts nothing at all for an empty
+queue: the week header goes out only when at least one item was posted. Steps
+1–3 and the marker are unchanged.
+
+### `report.py`
+
+`due_on(mweek) = mweek.saturday + 1 day`; `week_is_due` reads it (§9).
+`_weekly_manual_state` uses `week_is_due`. `prompts_sent` no longer receives
+`screentime`, `youtube`, `coldturkey` or `labels` rows; old rows stay and the
+CHECK constraint is untouched.

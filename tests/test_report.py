@@ -230,7 +230,7 @@ def test_weekly_totals_mark_missing_evidence_as_none_not_zero(conn, clk, setting
 def test_absence_is_only_a_gap_once_the_week_has_been_asked_for(conn, clk, settings):
     """The same absence, worded by the schedule. WEEK is Sun 6 - Sat 12 Sep."""
     mweek = T.measurement_week_for_allowance_week(WEEK, settings.tz)
-    assert report.due_on(mweek).isoformat() == "2026-09-14"      # the Monday after
+    assert report.due_on(mweek).isoformat() == "2026-09-13"      # the Sunday after (DR5.24)
 
     def ios_status():
         rows = report.weekly_totals(conn, clk, settings, WEEK)
@@ -238,9 +238,9 @@ def test_absence_is_only_a_gap_once_the_week_has_been_asked_for(conn, clk, setti
 
     clk.set(WED)                                                 # mid-week
     assert ios_status() == report.IMPORT_NOT_DUE
-    clk.set("2026-09-13T10:00:00+00:00")                         # Sunday: still not asked
+    clk.set("2026-09-12T21:00:00+00:00")                         # Saturday 23:00 Warsaw: not over yet
     assert ios_status() == report.IMPORT_NOT_DUE
-    clk.set("2026-09-14T06:00:00+00:00")                         # Monday, 08:00 Warsaw
+    clk.set("2026-09-12T22:30:00+00:00")                         # Sunday 00:30 Warsaw: the check-in's day
     assert ios_status() == report.IMPORT_MISSING
     assert not report.everything_in(report.weekly_totals(conn, clk, settings, WEEK))
 

@@ -612,9 +612,7 @@ def test_the_daily_job_writes_a_summary_and_a_failure_never_fails_the_run(
         two_weeks, conn, clk, settings, monkeypatch):
     """`insights` is a step of run_daily, not of run_sync, and never fails it."""
     monkeypatch.setattr(jobs, "run_sync", lambda *a, **k: {})
-    for name in ("send_due_prompts",):
-        monkeypatch.setattr(jobs.handlers_imports, name, lambda *a, **k: "skipped")
-    monkeypatch.setattr(jobs.handlers_labels, "send_label_digest", lambda *a, **k: [])
+    monkeypatch.setattr(jobs.checklist, "send_due", lambda *a, **k: [])
     monkeypatch.setattr(jobs, "send_end_notice", lambda *a, **k: "skipped")
 
     boom = RuntimeError("the provider is down")
@@ -624,8 +622,7 @@ def test_the_daily_job_writes_a_summary_and_a_failure_never_fails_the_run(
 
     monkeypatch.undo()
     monkeypatch.setattr(jobs, "run_sync", lambda *a, **k: {})
-    monkeypatch.setattr(jobs.handlers_imports, "send_due_prompts", lambda *a, **k: "skipped")
-    monkeypatch.setattr(jobs.handlers_labels, "send_label_digest", lambda *a, **k: [])
+    monkeypatch.setattr(jobs.checklist, "send_due", lambda *a, **k: [])
     monkeypatch.setattr(jobs, "send_end_notice", lambda *a, **k: "skipped")
     assert jobs.run_daily(conn, clk, settings, bot=None) == []
     row = conn.execute("SELECT * FROM insights").fetchone()

@@ -252,10 +252,12 @@ def test_the_first_week_has_tips_but_nothing_to_compare(conn, clk, tmp_path):
     c.close()
 
 
-def test_on_a_sunday_it_describes_the_week_already_asked_for(settings):
-    """Sunday 4 Oct: 27 Sep - 3 Oct has ended, but its Screen Time is not due until Monday."""
+def test_on_a_sunday_it_describes_the_week_just_asked_for(settings):
+    """Sunday 4 Oct: the check-in asks for 27 Sep - 3 Oct that morning, so that is the week (DR5.24)."""
+    saturday = clock.FrozenClock("2026-10-03T10:00:00+00:00")
+    assert progress._week_described(saturday, settings).start == B[0]
     sunday = clock.FrozenClock("2026-10-04T10:00:00+00:00")
-    assert progress._week_described(sunday, settings).start == B[0]
+    assert progress._week_described(sunday, settings).start == "2026-09-27"
     monday = clock.FrozenClock("2026-10-05T10:00:00+00:00")
     assert progress._week_described(monday, settings).start == "2026-09-27"
 
@@ -439,13 +441,13 @@ def test_the_first_finished_week_sets_the_benchmark(conn, clk, tmp_path):
 
 
 def test_the_running_week_never_joins_the_chain(conn, clk, settings):
-    """Sunday 4 Oct: the brain still describes 20-26 Sep, like the panel, not the open week."""
+    """Saturday 3 Oct: the brain still describes 20-26 Sep, like the panel, not the open week."""
     web(conn, clk, settings, "2026-09-15", {"reddit.com": 60})
     web(conn, clk, settings, "2026-09-22", {"reddit.com": 20})
-    web(conn, clk, settings, "2026-09-29", {"reddit.com": 900})          # 27 Sep: not yet due
+    web(conn, clk, settings, "2026-09-29", {"reddit.com": 900})          # 27 Sep: not over yet
     wasteful(conn, clk, (SITE, "reddit.com"))
-    sunday = clock.FrozenClock("2026-10-04T10:00:00+00:00")
-    ch = progress.peak_chain(conn, sunday, settings)
+    saturday = clock.FrozenClock("2026-10-03T10:00:00+00:00")
+    ch = progress.peak_chain(conn, saturday, settings)
     assert ch.week_sunday == B[0] and len(ch.steps) == 1
     assert ch.ratio == pytest.approx(20 / 60)
 

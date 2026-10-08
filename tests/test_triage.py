@@ -595,13 +595,20 @@ def test_render_week_header_overage_line_only_when_over():
     assert "Debt" not in text
 
 
-def test_empty_queue_still_posts_the_header(conn, settings, spotify):
+def test_an_empty_queue_posts_nothing_but_still_rolls_the_week_over(conn, settings, spotify):
+    """DR5.24: no "Nothing to triage" message on a Sunday evening; the week still closes."""
     clk = clock.FrozenClock(WEEK_1)
     bot = FakeBot()
     triage.run_triage(conn, clk, settings, spotify, bot)
 
-    assert triage.NOTHING_LINE in bot.texts
-    assert bot.texts[-1].startswith("Week of")
+    assert bot.texts == []
+    assert not hasattr(triage, "NOTHING_LINE")
+    opened = clock.iso(clock.week_start_for(clk.now(), settings.tz))
+    weeks = [r[0] for r in conn.execute("SELECT week_start FROM weeks")]
+    assert opened in weeks                                     # rolled over: the new week is open
+    assert triage._last_triage_week(conn) == opened            # and the marker is written
+    triage.run_triage(conn, clk, settings, spotify, bot)       # a rerun the same week: still nothing
+    assert bot.texts == []
 
 
 def test_every_message_goes_to_the_authorised_user(conn, settings, spotify):

@@ -125,8 +125,8 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 |---|---|---|
 | `com.jacob.pop.bot` | always on | Telegram: capture, triage buttons, screenshot/export imports, labels |
 | `com.jacob.pop.poll` | daily 09:17 | Spotify positions, lock lifts, deadline posts, allowance alerts |
-| `com.jacob.pop.triage` | Sunday 18:00 | Week rollover (records last week's overage), expiry, the triage post |
-| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read (and its stale warning), weekly import prompts, label batches, end notice |
+| `com.jacob.pop.triage` | Sunday 18:00 | Week rollover (records last week's overage), expiry, the triage post, only when the queue has something |
+| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read (and its stale warning), the Sunday check-in and its one Monday reminder, end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
 
 launchd, not cron, because macOS cron skips runs missed while the Mac sleeps.
@@ -149,16 +149,26 @@ One bot (POP's), commands `/start`, `/queue`, `/stats`, `/labels`. Only
     `#wasteful` (`#waste`) anywhere in the note.
   - The confirmation shows the resolved label and where it came from.
 - **Triage** (Sunday 18:00): each unlocked item comes with Promote / Drop /
-  Still holds?. A wasteful promotion costs its remaining minutes. A
-  worthwhile one costs 0, but still waits out the lock (DR1.3).
+  Still holds?, then the week's header. A wasteful promotion costs its
+  remaining minutes. A worthwhile one costs 0, but still waits out the lock
+  (DR1.3). An empty queue posts nothing; the week still rolls over.
 - **Imports:** send the Screen Time screenshots (and a Cold Turkey JSON export only if its automatic read fails)
   straight to the bot (below). It replies with what it stored, what it couldn't
   read, or why it failed.
-- **Labels:** after the first week, newly seen sources arrive one per message
-  with **Wasteful / Worthwhile / Tool (not content)** buttons, and the content
-  question (see [Labels](#labels)). `/labels` asks for the next batch now.
-  Unlabelled sources count as wasteful. X is fixed wasteful. The `#` override
-  tokens stay wasteful/worthwhile only: a captured item is content.
+- **The Sunday check-in** (09:30): one message listing what the week just
+  finished (Sun–Sat) still needs from you, numbered, always in this order:
+  Screen Time "Last Week" screenshots, the YouTube sync, any readings to
+  settle, then labelling new sources on the dashboard (last, because the first
+  two bring new sources). What already arrived is listed as "Already in". When
+  everything is in, nothing is sent. If evidence is still missing on Monday,
+  one reminder follows, and nothing more for that week; the dashboard keeps
+  showing what's missing. A Screen Time capture that stopped at "Show More" is
+  asked for again. Cold Turkey appears only if its automatic read fails.
+  (DR5.24)
+- **Labels** happen on the dashboard's Labels page, never in the chat;
+  `/labels` replies with how many are waiting and the link. Unlabelled sources
+  count as wasteful. X is fixed wasteful. The `#` override tokens stay
+  wasteful/worthwhile only: a captured item is content.
 
 ## Labels
 
@@ -212,8 +222,9 @@ the backend. The backend parses it (`sources/youtube.py`):
 
 ## Screen Time weekly procedure
 
-Monday or later (the bot reminds you daily until it arrives; Screen Time keeps
-about four weeks, so a late capture loses nothing):
+Sunday morning, as step 1 of the check-in (if it hasn't arrived by Monday the
+bot reminds you once; Screen Time keeps about four weeks, so a late capture
+loses nothing):
 
 1. **Settings → Screen Time → See All App & Website Activity.** Select this
    **iPhone**, not all devices (Share Across Devices would double-count the Mac).
@@ -226,7 +237,9 @@ about four weeks, so a late capture loses nothing):
 It is read by Apple Vision **on this Mac**, and nothing is uploaded. Only
 per-app minutes and the top three category totals are used; pickups and
 notification counts are ignored. A "This Week" or all-devices capture is kept
-as evidence but writes no minutes, and the bot tells you what to resend.
+as evidence but writes no minutes, and the bot tells you what to resend. Rows
+it couldn't read for sure are left unmeasured, and the reply links to
+"Readings to settle" on the dashboard.
 Misread app names are kept as read, and each becomes a source you label. On
 the dashboard, screenshot figures are marked **parsed screenshot, lower
 confidence**.
@@ -245,7 +258,7 @@ statistics on this Mac (`DRBR_COLDTURKEY_DB`), read-only:
 - **This Mac only.** Cold Turkey doesn't sync between machines.
 
 **If the automatic read fails,** the daily job logs it (`logs/jobs.log`) and
-the Monday reminder asks for a manual export. Manual export: **Cold Turkey →
+the Sunday check-in asks for a manual export. Manual export: **Cold Turkey →
 Statistics → Websites** usage view (time, not "Websites Blocked") →
 **Export** → send the JSON to the bot. Unfinished days are dropped, and the
 blocked-count export is rejected. Leaving `DRBR_COLDTURKEY_DB` empty turns the
@@ -383,9 +396,8 @@ migration are in `~/Projects/drbr-backup-20260916/`.
 |---|---|
 | Any time | Capture instead of play: send links to the POP bot, with a why and optionally `#worthwhile` |
 | Any time | Capture reading/watching material via obsidian-ingest as usual; process notes out of `01-Inbox` when they earn it |
-| Sunday 18:00 | Triage the queue post in Telegram |
-| Monday+ | Send Screen Time "Last Week" screenshots; run the extension's weekly sync (Cold Turkey is automatic) |
-| When asked | Label new sources (buttons): content → wasteful or worthwhile; errands → tool |
+| Sunday morning | The check-in, in its order: Screen Time "Last Week" screenshots, the extension's YouTube sync, any readings to settle, then label new sources on the dashboard (content → wasteful or worthwhile; errands → tool). Everything else is automatic |
+| Sunday 18:00 | Triage the queue post in Telegram, when there is one |
 | Weekly | Glance at the dashboard: reflex share, cost per keeper |
 | Week 8 | Name the decision, or shut DRBR down (`./drbr stop`) |
 
@@ -433,6 +445,7 @@ bot.py poll.py triage.py db.py spotify.py clock.py config.py   POP, label-aware 
 drbr_types.py evidence.py labels.py allowance.py report.py     shared DRBR core
 sources/youtube.py screentime.py ocr_vision.py coldturkey.py coldturkey_local.py qbserve.py vault.py
 insights.py                                                     the Overview's weekly written summary (DR5.8)
+checklist.py                                                    the Sunday check-in and its one reminder (DR5.24)
 handlers_imports.py handlers_labels.py                          Telegram extensions
 ingest_api.py dashboard/ extension/                             local API, dashboard, browser extension
 jobs.py reparse.py check_env.py drbr                            daily job, re-parse CLI, env check, launcher

@@ -173,7 +173,7 @@
     {%- if rot.settle_can_move %} Settling a reading under “Readings to settle” can change the drawing.{% endif %}
     {%- if rot.since_sunday %} Weeks before Sun {{ rot.since_sunday }} are left out: {% if rot.cut == "thin" %}too little of that week and the one before it was measured the same way.{% else %}the week before it had no brain rot, so nothing earlier can be scaled through it.{% endif %}{% endif %}
     {%- endif %}
-    {%- if rot.next_sunday %} The week of Sun {{ rot.next_sunday }} is drawn the Monday after it ends.{% endif %}</p>
+    {%- if rot.next_sunday %} The week of Sun {{ rot.next_sunday }} is drawn the Sunday after it ends.{% endif %}</p>
   {%- endif %}
 </section>
 {%- endmacro %}

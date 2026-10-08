@@ -243,6 +243,22 @@ def test_missing_weekly_evidence_is_not_received_not_zero(client):
     assert "0 min" not in screentime
 
 
+def test_a_week_not_yet_asked_for_names_the_sunday_it_is(client, clk):
+    """DR5.24: the check-in asks on the Sunday after the week, and the page names that day."""
+    sub = '<strong>not due yet</strong><span class="sub">asked for on Sunday 2026-09-20</span>'
+    overview = section(text(client.get("/")), "coverage")              # Wed 16 Sep: week 13-19 Sep
+    assert re.search(r'<tr class="import-not_due">.*?' + re.escape(sub), overview, re.S)
+    rows = body_rows(section(text(client.get("/records")), "weekly-totals"))
+    assert sub in row_for(rows, "iPhone apps", "prov-screenshot")
+    assert "Monday" not in overview
+    clk.set("2026-09-19T21:30:00+00:00")                               # Saturday 23:30 Warsaw
+    assert sub in section(text(client.get("/")), "coverage")
+    clk.set("2026-09-19T22:30:00+00:00")                               # Sunday 00:30: asked for today
+    overview = section(text(client.get("/?week=2026-09-13")), "coverage")
+    assert "not due yet" not in overview
+    assert '<strong>missing</strong><span class="sub">nothing has arrived for this week yet</span>' in overview
+
+
 def test_covered_elsewhere_is_shown_as_excluded_with_its_reason(client, conn, clk, settings):
     populate(conn, clk, settings)
     rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))

@@ -2,7 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   DRBR daily jobs — `jobs.py daily`: read the capture outbox, scan the vault,
-  send due import prompts and label batches, and the diagnostic-end notice.
+  read Cold Turkey and Qbserve, then on Sundays send the check-in for the week
+  just finished (and on Monday its one reminder, if evidence is still
+  missing), and the diagnostic-end notice. See checklist.py (DR5.24).
 
   TIMEZONE. launchd's StartCalendarInterval fires in SYSTEM local time
   (Europe/Warsaw), which matches POP_TZ. 09:30 is after POP's 09:17 poll, so

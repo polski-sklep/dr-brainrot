@@ -331,7 +331,7 @@ def test_full_lifecycle(conn, settings, spotify):
     assert _states(conn) == {a.id: "expired", b.id: "dropped",
                              c.id: "played", d.id: "expired"}
     assert not bot.posted(A.title) and not bot.posted(D.title)
-    assert triage.NOTHING_LINE in bot.texts
+    assert bot.texts == []                                   # an empty queue posts nothing (DR5.24)
 
     visible = {i.id for i in db.all_items(conn)}
     assert visible == {c.id}                                 # played is not soft deleted
