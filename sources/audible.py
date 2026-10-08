@@ -572,12 +572,21 @@ def prior_snapshots(conn: sqlite3.Connection, settings: Settings, *, exclude: tu
     return out
 
 
-def _days_owned_by_newer(conn: sqlite3.Connection, import_id: int, first: date, last: date) -> set[date]:
-    """Days in first..last that a later successful read covers. A reparse leaves them alone."""
+def _days_owned_by_newer(conn: sqlite3.Connection, read_at: str, first: date, last: date) -> set[date]:
+    """Days in first..last that a later read covers. A reparse leaves them alone.
+
+    "Later" is by when Audible was read, not by row id: a reparse keeps its
+    read's time, so it is never newer than the read it re-states.
+    """
     owned: set[date] = set()
-    for row in conn.execute("SELECT period_start, period_end FROM imports WHERE kind = ? AND id > ? "
-                            "AND status IN ('ok', 'partial') AND period_start IS NOT NULL",
-                            (KIND, import_id)):
+    for row in conn.execute("SELECT received_at, meta, period_start, period_end FROM imports WHERE kind = ? "
+                            "AND status IN ('ok', 'partial') AND period_start IS NOT NULL", (KIND,)):
+        try:
+            when = json.loads(row["meta"] or "{}").get("read_at") or row["received_at"]
+        except ValueError:
+            when = row["received_at"]
+        if clock.parse(when) <= clock.parse(read_at):
+            continue
         day = max(first, T.parse_date(row["period_start"]))
         end = min(last, T.parse_date(row["period_end"]))
         while day <= end:
@@ -600,7 +609,7 @@ def _record(conn: sqlite3.Connection, clk: Clock, settings: Settings, data: byte
         this = _snapshot(doc, read_at, settings.tz)
         exclude = (rec.id,) if replaces is None else (rec.id, replaces)
         reads = first_reads(prior_snapshots(conn, settings, exclude=exclude) + ([this] if this else []))
-        skip = _days_owned_by_newer(conn, replaces, doc.first, doc.last) if replaces is not None else set()
+        skip = _days_owned_by_newer(conn, read_at, doc.first, doc.last) if replaces is not None else set()
 
         # This read owns its window (DR5.15): a day attributed to "book not known"
         # yesterday may belong to a book today, and must not linger beside it.

@@ -831,6 +831,11 @@ def test_reparse_rebuilds_from_the_stored_read_and_leaves_newer_days_alone(conn,
     assert again.status == "ok"
     assert day_totals(conn)["2026-10-05"] == 90.0                      # the newer total stands
     assert rows(conn) == expected
+
+    conn.execute("DELETE FROM measurements WHERE provenance = 'audible_stats' AND period_start = '2026-10-09'")
+    conn.commit()
+    twice = reparse.reparse_import(conn, clk, signed_in, second.import_id)  # the same read again
+    assert twice.status == "ok" and rows(conn) == expected             # its own re-statement is not newer
     with pytest.raises(ValueError):
         audible.reparse(conn, clk, signed_in, 999)
 
