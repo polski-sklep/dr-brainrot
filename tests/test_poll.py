@@ -970,6 +970,33 @@ def test_listening_is_recorded_although_every_send_fails(conn, settings):
     assert alerts(conn) == {(WEEK_START, "approaching"), (WEEK_START, "exceeded")}
 
 
+def test_a_rejected_token_never_reaches_the_poll_log(conn, settings):
+    """The deadline step logs its failure with a traceback; InvalidToken's message holds the token."""
+    import io
+    import logging
+
+    import telegram.error
+
+    class Rejected:
+        def send_message(self, **kwargs):
+            raise telegram.error.InvalidToken(
+                f"The token `{settings.telegram_bot_token}` was rejected by the server.")
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    bot_module.scrub_token_from_logs(settings.telegram_bot_token, [handler])
+    logging.getLogger().addHandler(handler)
+    try:
+        clk = clock.FrozenClock(MONDAY)
+        seed_deadline(conn, clk, settings, MEDIUM, TUESDAY_EVENT)
+        clk.set(TUESDAY)
+        assert "deadlines" in poll.run_poll(conn, clk, settings, fake_spotify(), Rejected())
+    finally:
+        logging.getLogger().removeHandler(handler)
+    assert "deadlines failed" in stream.getvalue() and "InvalidToken" in stream.getvalue()
+    assert settings.telegram_bot_token not in stream.getvalue()
+
+
 def test_a_spotify_outage_no_longer_costs_the_deadline_post(conn, settings):
     class DownSpotify:
         def get_episodes(self, ids):

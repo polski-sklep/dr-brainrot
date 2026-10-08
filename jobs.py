@@ -20,8 +20,9 @@ the functions each source owns:
    (Screen Time, YouTube, Cold Turkey only as a fallback, readings to settle,
    labels), and its one Monday reminder while evidence is still missing
    (DR5.24). The only thing that asks the user for anything.
-6. One diagnostic-end notice, ever, once the final week's evidence is in (or
-   from the Tuesday after it).
+6. One diagnostic-end notice, ever, once the final week owes nothing more (or
+   from the Tuesday after it), and never in the run that just asked for
+   something.
 7. `insights.write_summary` — the Overview's weekly written summary (DR5.8),
    which writes at most one row a week and never fails the run.
 
@@ -132,11 +133,13 @@ def run_daily(conn, clk: Clock, settings: Settings, bot) -> list[str]:
     """
     results = run_sync(conn, clk, settings)
     failed = [name for name, result in results.items() if not result.ok]
+    asked: list[str] = []
     for name, fn in (
         # After every read, and whether or not today's Qbserve read worked.
         ("qbserve_warning", lambda: _qbserve_stale_warning(conn, clk, settings, bot)),
-        ("checklist", lambda: checklist.send_due(conn, clk, settings, bot)),
-        ("diagnostic_end", lambda: send_end_notice(conn, clk, settings, bot)),
+        ("checklist", lambda: asked.extend(checklist.send_due(conn, clk, settings, bot)) or asked),
+        # "Nothing more will be asked for" must not follow a check-in in the same run.
+        ("diagnostic_end", lambda: send_end_notice(conn, clk, settings, bot, asked=bool(asked))),
     ):
         if not _run_step(conn, name, fn).ok:
             failed.append(name)
@@ -222,7 +225,8 @@ def _qbserve_stale_warning(conn, clk: Clock, settings: Settings, bot) -> str:
     """One Telegram message a day while Qbserve has stopped recording (DR5.3, DR5.27).
 
     Stopped means `report.qbserve_silence`: Cold Turkey saw this Mac in use
-    after Qbserve's newest record, or, with no Cold Turkey read to ask, that
+    after Qbserve's newest record (10 minutes of browsing, or any once that
+    record is over 36 hours old), or, with no Cold Turkey read to ask, that
     record is over 36 hours old. An idle Mac never warns. The day's
     `prompts_sent` row is written only after the send, so a failed send is
     tried again by the next run.
@@ -252,24 +256,29 @@ def _qbserve_stale_warning(conn, clk: Clock, settings: Settings, bot) -> str:
     return "qbserve stopped; warning sent"
 
 
-def send_end_notice(conn, clk: Clock, settings: Settings, bot) -> str:
+def send_end_notice(conn, clk: Clock, settings: Settings, bot, *, asked: bool = False) -> str:
     """The diagnostic has an end date, and the tool says so, once.
 
-    Not before the final week's evidence is in: on the Sunday after the last
-    day the check-in still asks for that week (DR5.24), and "everything has
-    stopped" beside it would contradict it. It waits until nothing is missing
-    for that week, or until the Tuesday after it, whichever comes first.
+    Not while the final week is still being asked for: on the Sunday after
+    the last day the check-in asks for that week (DR5.24), and "Nothing more
+    will be asked for" beside it would contradict it. It waits until that week
+    owes nothing (evidence, readings, an hour of labels: they all move cost
+    per keeper, which the notice tells him to judge), or until the Tuesday
+    after it, whichever comes first. `asked`: this run's check-in sent
+    something, so the notice waits for a later run.
     """
     diag = evidence.diagnostic(conn, clk, settings)
     if not diag.ended:
         return "diagnostic running"
     if conn.execute("SELECT 1 FROM prompts_sent WHERE kind = ?", (END_KIND,)).fetchone():
         return "end notice already sent"
+    if asked:
+        return "end notice waits: the check-in asked for something this run"
     final = T.measurement_week(T.parse_date(diag.end))  # type: ignore[arg-type]
     today = T.local_date(clk.now(), settings.tz)
     if (today < final.saturday + timedelta(days=3)
-            and checklist.week_needs(conn, clk, settings, final).evidence_missing):
-        return "end notice waits for the final week's evidence"
+            and checklist.week_needs(conn, clk, settings, final).owed):
+        return "end notice waits for the final week"
     send(bot, settings, (
         f"The diagnostic ended on {diag.end}, after {settings.diagnostic_weeks} weeks.\n\n"
         "Open the dashboard, look at cost per keeper and the ungated share, and name the "
@@ -293,8 +302,8 @@ def main(argv: list[str]) -> int:  # pragma: no cover — production only
     from bot import _silence_token_logging
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    _silence_token_logging()
     settings = config.load()
+    _silence_token_logging(settings.telegram_bot_token)    # also scrubbed from tracebacks
     conn = db.connect(settings)
     db.init_db(conn)
     db.migrate(conn)

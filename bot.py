@@ -805,8 +805,8 @@ def _install_drbr_extensions(app: Application) -> None:
     handlers_labels.register(app)
 
 
-def _silence_token_logging() -> None:
-    """Stop httpx logging the bot token in plaintext on every API call.
+def _silence_token_logging(token: str | None = None) -> None:
+    """Stop the bot token reaching the log in plaintext.
 
     httpx logs each request at INFO including the full URL, and the Telegram
     Bot API puts the token *in the path*:
@@ -818,10 +818,55 @@ def _silence_token_logging() -> None:
     a file that gets tailed, scp'd to the VPS and swallowed by any log shipper.
     Raising httpx to WARNING keeps real failures visible and drops the URLs.
 
-    Shared by all three entry points; poll.py and triage.py import it.
+    Given the `token`, it is also scrubbed from every record the handlers
+    write (`scrub_token_from_logs`): a rejected token comes back inside
+    `InvalidToken`'s own message, and a scheduled step that fails on it logs
+    the exception with its traceback (DR5.25).
+
+    Shared by every entry point; jobs.py, poll.py and triage.py import it.
     """
     for noisy in ("httpx", "httpcore", "telegram.request"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    if token:
+        scrub_token_from_logs(token)
+
+
+class _TokenScrubber(logging.Filter):
+    """Replaces the bot token in a record's message, traceback and stack."""
+
+    def __init__(self, token: str) -> None:
+        super().__init__()
+        self.token = token
+
+    def _clean(self, text: str) -> str:
+        return text.replace(self.token, "<TOKEN>")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+            if self.token in message:
+                record.msg, record.args = self._clean(message), None
+            if record.exc_info and not record.exc_text:
+                # What the handler's formatter would print, made now so it can be cleaned.
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+            if record.exc_text and self.token in record.exc_text:
+                record.exc_text = self._clean(record.exc_text)
+            if record.stack_info and self.token in record.stack_info:
+                record.stack_info = self._clean(record.stack_info)
+        except Exception:  # noqa: BLE001 — a filter must never stop a record, or raise into the caller
+            pass
+        return True
+
+
+def scrub_token_from_logs(token: str, handlers: list[logging.Handler] | None = None) -> None:
+    """Scrub `token` from everything `handlers` write (default: the root logger's).
+
+    On the handlers, not a logger, because a logger's filters never see its
+    children's records. Idempotent.
+    """
+    for handler in logging.getLogger().handlers if handlers is None else handlers:
+        if not any(isinstance(f, _TokenScrubber) and f.token == token for f in handler.filters):
+            handler.addFilter(_TokenScrubber(token))
 
 
 def main() -> None:  # pragma: no cover — the production entry point
@@ -832,8 +877,8 @@ def main() -> None:  # pragma: no cover — the production entry point
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
-    _silence_token_logging()
     settings = config.load()
+    _silence_token_logging(settings.telegram_bot_token)
     conn = _dbmod.connect(settings)
     _dbmod.init_db(conn)
     _dbmod.migrate(conn)

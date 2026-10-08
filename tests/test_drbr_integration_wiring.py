@@ -123,7 +123,7 @@ def test_end_notice_is_sent_once_and_only_after_the_end(conn, clk, settings):
     b = RecordingBot()
     assert jobs.send_end_notice(conn, clk, settings, b) == "diagnostic running"
     clk.set("2026-11-08T10:00:00+00:00")        # ended, but the final week is still being asked for
-    assert jobs.send_end_notice(conn, clk, settings, b) == "end notice waits for the final week's evidence"
+    assert jobs.send_end_notice(conn, clk, settings, b) == "end notice waits for the final week"
     clk.set("2026-11-10T10:00:00+00:00")        # the Tuesday after: regardless
     assert jobs.send_end_notice(conn, clk, settings, b) == "end notice sent"
     assert jobs.send_end_notice(conn, clk, settings, b) == "end notice already sent"

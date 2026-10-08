@@ -570,8 +570,8 @@ def main() -> int:  # pragma: no cover — production only, never run by tests
     )
     from bot import _silence_token_logging
 
-    _silence_token_logging()
     settings = config.load()
+    _silence_token_logging(settings.telegram_bot_token)    # also scrubbed from tracebacks
     conn = db.connect(settings)
     db.init_db(conn)
     db.migrate(conn)

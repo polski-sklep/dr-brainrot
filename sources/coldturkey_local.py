@@ -36,6 +36,7 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import clock
 import drbr_types as T
 import evidence
 from clock import Clock
@@ -46,6 +47,11 @@ from sources import coldturkey
 DEFAULT_DB = pathlib.Path("/Library/Application Support/Cold Turkey/data-browser.db")
 LOOKBACK_DAYS = 8
 FILENAME = "cold-turkey-local-statistics.json"
+#: `meta` key: when this Mac's statistics were last read successfully, whatever
+#: the read found (DR5.27). A window with no browsing, or one unchanged since
+#: yesterday, records no import, yet it is still Cold Turkey's word that the
+#: Mac wasn't browsed: the Qbserve warning's witness needs to know it is fresh.
+READ_AT_KEY = "coldturkey_local_read_at"
 
 _SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*://")
 
@@ -146,8 +152,9 @@ def sync(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> evidence.O
     """Read finished days and import them. None when there is nothing to read.
 
     Raises ColdTurkeyLocalError when the database cannot be read: the daily
-    job reports that as a failed step, and the Monday prompt for a manual
-    export still fires because the week stays uncovered.
+    job reports that as a failed step, and the Sunday check-in asks for a
+    manual export because the week stays uncovered. Every read that worked
+    stamps `READ_AT_KEY`, including one that found no browsing at all.
     """
     if settings.coldturkey_db is None:
         return None          # not configured: manual exports only. Never guess a path (tests must not read it).
@@ -157,7 +164,11 @@ def sync(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> evidence.O
     totals = read_host_minutes(pathlib.Path(settings.coldturkey_db), first_day=span[0], last_day=span[1],
                                tz=settings.tz)
     if not totals:
+        evidence.set_meta(conn, READ_AT_KEY, clock.iso(clk.now()))     # read fine: no browsing at all
         return None
-    return coldturkey.ingest(conn, clk, settings, export_document(totals), filename=FILENAME,
-                             origin=coldturkey.ORIGIN_LOCAL_DB)
+    outcome = coldturkey.ingest(conn, clk, settings, export_document(totals), filename=FILENAME,
+                                origin=coldturkey.ORIGIN_LOCAL_DB)
+    if outcome.status != T.IMPORT_FAILED:
+        evidence.set_meta(conn, READ_AT_KEY, clock.iso(clk.now()))
+    return outcome
 

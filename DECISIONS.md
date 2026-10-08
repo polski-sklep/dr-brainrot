@@ -2301,7 +2301,11 @@ this order:
 
 1. Screen Time "Last Week" screenshots, tapping Show More until it disappears;
 2. the YouTube sync from the extension;
-3. Cold Turkey, only when its automatic read is failing or not set up;
+3. Cold Turkey, only when its automatic read is failing or not set up. An
+   export counts as in when it arrived after the week ended and overlaps it,
+   as the dashboard counts it: its period runs from the first to the last
+   day with browsing, so an export of a week with a quiet Sunday starts on
+   Monday;
 4. readings to settle, only when there are any;
 5. labelling new sources, last, because the steps before it bring new ones.
 
@@ -2317,32 +2321,52 @@ undecided (DR5.19's bar, kept). Below that they ride along when something else
 is owed.
 
 **One reminder, then silence.** On Monday, if evidence for that week is still
-missing, one reminder lists just that and says it is the only one. Nothing
-more is sent for the week; the dashboard keeps showing what is missing. Labels
-and readings never cause a Monday message. A Screen Time capture whose Most
-Used list stopped at "Show More" (`most_used_complete` false, like imports
-#24 and #80) counts as missing. It is asked for again, with its own wording,
-on Sunday and Monday. A capture where the end of the list was never seen
-(NULL, like #49) counts as in; the import reply already warned about it.
+missing, one reminder lists just that and ends "That's the only reminder."
+It used to say "for this week", which, sent in the new week, read as the week
+now running. Nothing more is sent for the week; the dashboard keeps showing
+what is missing. Labels and readings never cause a Monday message.
 
-**State is two `meta` keys, no migration.** `checklist_week` is the week
+**A capture cut off at "Show More" is asked for once more.** Its Most Used
+list stopped at "Show More" (`most_used_complete` false), so the apps below
+it are missing. Last week's is asked for again, with its own wording, on
+Sunday and Monday. An older week's is too, while the iPhone still has it:
+Screen Time keeps about four weeks, so up to three taps of ‹ from This Week
+(`SCREENTIME_WEEKS_BACK`). The step names the dates and the taps. Imports
+#80 (27 Sep – 3 Oct) and #24 (13 – 19 Sep) were cut off before the check-in
+existed. On Sun 11 Oct #80's week is two taps back and is asked for, in that
+list and in Monday's reminder. #24's is four back, past saving, and is not.
+Each cut-off week gets one check-in and its reminder, never more, like
+everything else: `checklist_recapture` records which check-in asked for it.
+"Already in" then says "for last week", and a reminder with only an older
+week left opens "Still needed:" rather than "Last week … still needs".
+A capture where the end of the list was never seen (NULL, like #49) counts as
+in; the import reply already warned about it.
+
+**State is three `meta` keys, no migration.** `checklist_week` is the week
 whose Sunday list was dealt with. `checklist_nudge_week` is the week whose
-reminder was decided. `prompts_sent`'s CHECK constraint would have needed the
-table rebuilt for a new kind. Each key is written only after a successful send
-(or when there was nothing to send), so:
+reminder (or late list) was decided. `checklist_recapture` maps each cut-off
+week asked for again to the check-in that asked. `prompts_sent`'s CHECK
+constraint would have needed the table rebuilt for a new kind. Each key is
+written only after a successful send (or when there was nothing to send), so:
 
 * Telegram down on Sunday: Monday sends the whole list instead;
 * the Mac off on Monday: the reminder goes on the first day it runs that week;
-* merged on a Friday: nothing goes out mid-week for a week whose Sunday list
-  never went out.
+* the Mac asleep on Sunday and Monday (a long weekend away), or Telegram down
+  both mornings: the whole list goes once, late, on the first day it runs
+  that week, and the log says it went late. The old Monday reminders repeated
+  until the evidence came; dropping the week would have been a regression;
+* merged on a Friday: nothing goes out mid-week, because no week has ever
+  been dealt with yet. The log says the week went unasked.
 
 **The final week is asked for.** The old reminders stopped once the
 diagnostic ended. They also never ran on a Sunday, so the last week, Sun 1 –
 Sat 7 Nov, would never have been asked for. `checklist.asking_week` still asks
 for a week that started on or before the last day. The end notice now waits
-until that week's evidence is in, or until the Tuesday after it, whichever
-comes first. It ends "Nothing more will be asked for." `/labels` keeps
-answering while the final week is being asked for.
+until that week owes nothing, or until the Tuesday after it, whichever comes
+first, and never goes in the run that just sent a check-in. Owing includes an
+hour of labels and readings to settle, not only evidence: the notice tells him
+to judge cost per keeper, and those move it. It ends "Nothing more will be
+asked for." `/labels` keeps answering while the final week is being asked for.
 
 **The due day moved to Sunday.** DR5.10's rule is that the page says
 "missing" on the same day the system asks. So `report.due_on` is now the
@@ -2418,6 +2442,16 @@ saying which message didn't go and why, with the bot token scrubbed (an
 and a successful triage now logs one line too. `triage.log` has not been
 written since 27 Sep, so there was no way to tell whether later Sundays ran.
 
+**The token is scrubbed from every log line.** The morning job's and the
+poll's send steps now catch a failed send and log it with its traceback, so a
+revoked token would have been written in full to `jobs.log` and `poll.log`
+(the old crash path leaked it the same way). Every entry point now loads its
+settings first and installs a logging filter on the root handlers
+(`bot.scrub_token_from_logs`, via `_silence_token_logging(token)`). It
+replaces the token with `<TOKEN>` in the message, the traceback and the stack
+of every record, whichever module logged it. The tracebacks stay: they are
+how a failure gets diagnosed.
+
 `bot.py` is unchanged: it is not scheduled, and launchd's KeepAlive restarts
 it until the network is back.
 
@@ -2437,31 +2471,50 @@ So `insight_staleness` gains a third reason, `new_data`, with its own chip:
 "new data has arrived since this was written". It holds when, after the
 summary was written:
 
-* an import he **sends** arrived for the summarised week: Screen Time, a
-  YouTube sync, or a Cold Turkey export made by hand, whose period overlaps
-  the week. A YouTube sync also counts when it is the first to cover the week
-  at all, whatever its watch dates, because then the paragraph named the gap
-  ("never arrived") and this sync fills it;
-* a reading for the week was settled (`detail.corrections[].at`);
+* an import he **sends** arrived for the summarised week, or for the week
+  its headline compares it with: Screen Time, a YouTube sync, or a Cold
+  Turkey export made by hand, whose period overlaps either. Summary #8 says
+  "fell from 288 minutes to 230", and the 288 is the week before's figure: a
+  cut-off capture of that week re-sent because the check-in asks for it
+  (DR5.24) changes the sentence. A YouTube sync also counts when it is the
+  first to cover the summarised week at all, whatever its watch dates,
+  because then the paragraph named the gap ("never arrived") and this sync
+  fills it;
+* a reading for either week was settled (`detail.corrections[].at`);
 * listening was heard inside the week's allowance week. This is almost never
   true, but it is right for a Rewrite pressed on a Sunday morning, before the
-  week closes at 18:00.
+  week closes at 18:00;
+* an automatic read caught up after a gap (below).
 
-**The automatic reads don't count, by design.** Cold Turkey's own
+**"Written" means when its figures were read.** The summary's `created_at`
+used to be stamped when the answer came back. The call takes seconds (5 Oct:
+the last send at 09:30:06, the row at 09:30:11), and an import is stamped when
+it starts, so one that started during the call was in neither the summary nor
+the check. `created_at` is now stamped just before the payload is built.
+
+**The automatic reads count only when catching up.** Cold Turkey's own
 statistics, Qbserve, the browser sync and the vault re-read their last eight
 days every morning. On the live data they overlapped summary #8's week on
 each of the following mornings (imports #87–#93), so a plain "any import
 after the summary that covers its week" rule would show the chip almost
 every day, and it would mean nothing. That is the trap `insight_is_stale`'s
-own note warns about (DR5.9). The cost: an automatic read that catches up
-after an outage is not flagged. That is rare, and the failing read already
-shows on the page.
+own note warns about (DR5.9). But a healthy read always comes before the
+summary: the morning job reads first and writes after, on the Monday after
+the week. So an automatic read counts only when none of its kind had arrived
+between the end of the week and the summary: the read was failing (Full Disk
+Access, say), the summary went without that source's last days, and this
+read brings them. Once fixed, the page shows a healthy read, so nothing else
+would say the paragraph is out of date. The vault never counts: its scans
+have no period.
 
 **Order:** `newer_week`, then `new_data`, then `relabelled`, and only the
 first that holds is named. A finished week replaces the whole paragraph. New
 data can make a sentence in it false. A relabel reclassifies figures that were
 right when they were written. Checked against a copy of the live database,
 summary #8 now says "new data"; summaries #5–#7 still say "a newer week".
+Judged as of their own week, #5–#7 would now say "new data" rather than
+"relabelled": a reading for 13 – 19 Sep, the week they compare with, was
+settled on 7 Oct. The catch-up rule fires for none of #4–#8.
 
 It is derived on every render, like DR5.18: no new state and no migration.
 The chip only says so; Rewrite stays the person's choice. The dashboard needs
@@ -2498,9 +2551,21 @@ So Cold Turkey is the witness (`report.qbserve_silence`). Qbserve's newest
 record falls on day D. If Cold Turkey recorded at least 10 minutes of browsing
 on this Mac on days after D, the Mac was in use and Qbserve wasn't recording.
 Every Cold Turkey minute counts, whatever its label, because this is about
-activity, not content. Without a witness (Cold Turkey isn't read automatically,
-or its read hasn't brought a new import for 36 hours), the timer applies as
-before. Replayed against copies of the live database:
+activity, not content. Less browsing than that is still use, so once the
+record is over 36 hours old it warns too: days of desktop apps with a few
+minutes of browsing are what Qbserve exists to measure, and the timer alone
+used to warn about them. Only no browsing at all, an idle Mac, never warns.
+Without a witness (Cold Turkey isn't read automatically, or hasn't been read
+for 36 hours), the timer applies as before.
+
+**A read that finds nothing is still a witness.** Cold Turkey's read records
+no import when its eight days hold no browsing, or nothing changed since
+yesterday. Back from a trip of eight days or more, the witness used to look
+stale, and the timer told an idle Mac that Qbserve had stopped: the false
+alarm this change set out to remove. Every successful read now stamps
+`coldturkey_local_read_at` in `meta`, and freshness is judged from that (or
+the newest import, for reads made before the key existed). Replayed against
+copies of the live database:
 
 * 29 Sep: no warning. The timer would have warned.
 * 1 Oct: no warning. Thursday wasn't over yet.
@@ -2516,10 +2581,8 @@ row in "what needs you". An unconfigured Qbserve never warns.
 the first day of use, about as early as the timer. Reading Cold Turkey's
 per-minute rows would catch it a day sooner, but that means a second read of a
 database that holds full URLs, and two rules. The witness sees browsers only:
-Mac use without a browser goes unnoticed. If Cold Turkey's read finds nothing
-new for 36 hours (an idle stretch whose oldest days also had no browsing), it
-counts as no witness and the timer decides, as before. If Qbserve is ever
-uninstalled, the keeper logs one error line every 10 minutes.
+Mac use with no browsing at all goes unnoticed, however long. If Qbserve is
+ever uninstalled, the keeper logs one error line every 10 minutes.
 
 The agent is not installed by this change. Merging adds the file; `./drbr
 start` (or `cp` and `launchctl bootstrap`) loads it.

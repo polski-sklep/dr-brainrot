@@ -1201,15 +1201,17 @@ is in `SECRET_KEYS`, so it is only ever printed masked.
 
 ### `checklist.py` (new, DR5.24)
 
-The only thing that asks the user for anything. Read-only apart from two
+The only thing that asks the user for anything. Read-only apart from three
 `meta` keys; no table changes, no migration.
 
 ```python
 CHECKLIST_KEY = "checklist_week"            # week (Sunday, ISO) whose Sunday list was dealt with
-NUDGE_KEY = "checklist_nudge_week"          # week whose one reminder was decided
+NUDGE_KEY = "checklist_nudge_week"          # week whose one reminder (or late list) was decided
+RECAPTURE_KEY = "checklist_recapture"       # JSON {cut-off week: asking week whose check-in asked for it again}
+SCREENTIME_WEEKS_BACK = 3                   # taps of ‹ from This Week the iPhone still has
 LABELS_WORTH_A_MESSAGE_MIN = 60.0           # labels alone send only from an hour undecided (DR5.19's bar)
 MISSING = "missing"; CUT_OFF = "cut_off"; IN = "in"
-SCREENTIME_TODO; SCREENTIME_AGAIN; YOUTUBE_TODO; COLDTURKEY_TODO ({span});
+SCREENTIME_TODO; SCREENTIME_AGAIN; SCREENTIME_OLDER ({span}, {taps}); YOUTUBE_TODO; COLDTURKEY_TODO ({span});
 COLDTURKEY_FAILING; COLDTURKEY_MANUAL; AUTOMATIC_LINE ({what}); LAST_REMINDER ({url})
 
 url(settings, path) -> str                  # http://127.0.0.1:<dashboard_port><path>
@@ -1219,8 +1221,9 @@ asking_week(conn, clk, settings) -> T.MeasurementWeek | None
     # week is still asked for after the diagnostic has ended.
 @dataclass(frozen=True)
 class WeekNeeds: week; screentime: str; youtube: str; coldturkey: str | None;
-                 readings: int; unlabelled: labels.Summary; final: bool
-    evidence_missing -> bool   # screentime != IN or youtube != IN or coldturkey == MISSING
+                 readings: int; unlabelled: labels.Summary; final: bool;
+                 recapture: tuple[T.MeasurementWeek, ...] = ()
+    evidence_missing -> bool   # screentime != IN or youtube != IN or coldturkey == MISSING or recapture
     owed -> bool               # evidence_missing or readings > 0 or unlabelled.minutes >= 60
 week_needs(conn, clk, settings, week) -> WeekNeeds     # read-only
 render(needs, settings, *, nudge: bool, late: bool = False) -> str
@@ -1231,20 +1234,28 @@ send_due(conn, clk, settings, bot) -> list[str]        # e.g. "sunday checklist 
   `meta.most_used_complete is False` is `CUT_OFF`; `None`/absent is `IN`.
 * YouTube: `report._covering_import` (a sync received after the Saturday).
 * Cold Turkey: `None` while `report.needs_attention` reports `GROUP_DESKTOP`
-  automatic and `ok`; otherwise an ok/partial import whose period spans the
-  whole week is `IN`, else `MISSING`.
+  automatic and `ok`; otherwise an ok/partial import received after the
+  week's Saturday (local midnight) whose period overlaps the week is `IN`,
+  else `MISSING`.
+* Recapture: weeks before W, back to `SCREENTIME_WEEKS_BACK` taps from this
+  week and not before `report.window_start`, whose latest covering Screen
+  Time import is `CUT_OFF`, and which `checklist_recapture` does not record
+  as asked in another week's check-in (absent, or asked with W).
 * Readings: `len(report.needs_your_eye(...))`. Labels: `labels.unlabelled_summary`.
 * `send_due`, by the local day of the run (W = `asking_week`):
   Sunday — the list if `owed` and `checklist_week != W`; `checklist_week = W`
-  after a successful send, or at once when nothing is owed. Monday — if
-  `checklist_nudge_week != W`: the evidence-only reminder when
-  `evidence_missing`, or, when Sunday's list never went out, the whole list
-  (`late=True`) when `owed`. Tue..Sat — the reminder only when
-  `checklist_week == W` and `checklist_nudge_week != W`. Otherwise nothing.
-  `checklist_nudge_week = W` after a successful send, or when nothing is to be
-  sent. Sends through `triage.send`; a failed send raises and writes no marker.
-* The order of steps is fixed: Screen Time, YouTube, Cold Turkey, readings,
-  labels. The reminder carries evidence steps only.
+  after a successful send, or at once when nothing is owed. Monday to
+  Saturday, if `checklist_nudge_week != W`: when `checklist_week == W`, the
+  evidence-only reminder if `evidence_missing`; otherwise the whole list
+  (`late=True`) if `owed`, except Tue..Sat while neither marker has ever been
+  written (logged, nothing sent). `checklist_nudge_week = W` after a
+  successful send, or when nothing is to be sent. Sends through
+  `triage.send`; a failed send raises and writes no marker. After any send,
+  each recapture week, and W itself if `CUT_OFF`, is recorded in
+  `checklist_recapture` as asked with W (pruned to weeks the iPhone still has).
+* The order of steps is fixed: Screen Time, older captures to take again,
+  YouTube, Cold Turkey, readings, labels. The reminder carries evidence steps
+  only. `LAST_REMINDER` is "That's the only reminder. …".
 
 ### `handlers_imports.py`
 
@@ -1265,9 +1276,11 @@ None.
 ### `jobs.py`
 
 `run_daily` = `run_sync` + `qbserve_warning` (DR5.25), `checklist`,
-`diagnostic_end` (+ `insights`, not counted as a failure). `send_end_notice` waits while the final week's evidence
-is missing, until `final.saturday + 3 days`; its last sentence is "Nothing
-more will be asked for."
+`diagnostic_end` (+ `insights`, not counted as a failure).
+`send_end_notice(conn, clk, settings, bot, *, asked=False)` waits while the
+final week is `owed`, until `final.saturday + 3 days`, and never in a run whose
+check-in sent something (`asked`); its last sentence is "Nothing more will be
+asked for."
 
 ### `triage.py`
 
@@ -1307,6 +1320,11 @@ def run_sync(conn, clk, settings) -> dict[str, StepResult]       # no bot: sends
 * `run_daily` = `run_sync`, then `qbserve_warning`, `checklist`,
   `diagnostic_end` as separate steps (+ `insights`). `_qbserve` only reads;
   the warning runs whether or not the read worked.
+* `bot._silence_token_logging(token=None)`: with a token, also
+  `bot.scrub_token_from_logs(token, handlers=None)`, a `logging.Filter` on the
+  root logger's handlers that replaces the token with `<TOKEN>` in each
+  record's message, traceback and stack. Every `main` loads settings first and
+  passes `settings.telegram_bot_token`.
 
 ### `report.py`
 
@@ -1321,27 +1339,37 @@ CHECK constraint is untouched.
 # dashboard/app.py
 STALE_NEWER_WEEK = "newer_week"; STALE_NEW_DATA = "new_data"; STALE_RELABELLED = "relabelled"
 SENT_BY_HAND = ("screentime", "youtube_history", "coldturkey")
+READ_DAILY = ("coldturkey", "qbserve", "brave_sync")     # count only when catching up
 def insight_staleness(conn, insight, last_complete_sunday, tz) -> str | None
     # checks, in order: newer_week, then new_data, then relabelled; the first that holds wins
 def _new_data_since(conn, written, week: T.MeasurementWeek, tz) -> bool
 ```
 
 `week` is the summary's week, `T.measurement_week(based_on_through)`;
-`written` is `insight.created_at`. `new_data` holds when any of:
+`compared` is the week before it, unless that ended before the diagnostic
+started (then `week` again). `written` is `insight.created_at`, which
+`insights.write_summary` stamps before `build_payload` reads the figures, not
+when the answer is stored. `new_data` holds when any of:
 
 * an ok/partial import of a `SENT_BY_HAND` kind with `received_at > written`
   (Cold Turkey only when `meta.origin` is not `local_db`; none = manual
-  export) whose period overlaps `week`, or a YouTube sync received after the
-  week's Saturday when none had been received between that Saturday and
-  `written`;
-* a measurement overlapping `week` with a `detail.corrections[].at > written`;
-* a `listening` row with `delta_ms > 0` polled after `written`, inside the
-  week's allowance week (`allowance_week_start_for_day(week.sunday)` to the
-  next week start).
+  export) whose period overlaps `compared`..`week`, or a YouTube sync received
+  after `week`'s Saturday when none had been received between that Saturday
+  and `written`;
+* a measurement overlapping `compared`..`week` with a
+  `detail.corrections[].at > written`;
+* a `listening` row with `delta_ms > 0` polled after `written`, inside
+  `week`'s allowance week (`allowance_week_start_for_day(week.sunday)` to the
+  next week start);
+* an ok/partial import of a `READ_DAILY` kind (`coldturkey` with
+  `meta.origin == "local_db"`, `qbserve`, `brave_sync`) with
+  `received_at > written` whose period overlaps `week`, when no import of the
+  same kind had been received between `week`'s Saturday (local midnight
+  after it) and `written`: a read catching up after a gap.
 
-Cold Turkey `local_db`, `qbserve`, `brave_sync` and `vault_scan` imports never
-count: they re-read eight days every morning. Read-only, no new state, derived
-on every render. `overview.html` names the reason in the same order.
+Otherwise the automatic reads never count, and `vault_scan` never does: they
+re-read eight days every morning. Read-only, no new state, derived on every
+render. `overview.html` names the reason in the same order.
 
 ### Keeping Qbserve running (DR5.27)
 
@@ -1352,13 +1380,19 @@ QBSERVE_WITNESS_MIN = 10.0                  # Cold Turkey minutes after Qbserve'
 class QbserveSilence: latest_record_at: str; witnessed_min: float | None   # None: the 36-hour timer decided
 def _coldturkey_witness(conn, clk, settings, *, after: date) -> float | None
     # sum of ok `manual_export` minutes with period_start > after, any label;
-    # None when settings.coldturkey_db is unset or the newest ok/partial
-    # Cold Turkey import with meta.origin == "local_db" is over 36 h old
+    # None when settings.coldturkey_db is unset or the newer of meta
+    # `coldturkey_local_read_at` and the newest ok/partial `local_db` Cold
+    # Turkey import's received_at is over 36 h old
 def qbserve_silence(conn, clk, settings) -> QbserveSilence | None
     # None when qbserve_db is unset or no record exists. D = local day of the
     # latest usable Qbserve import's meta.latest_record_at. With a witness:
-    # silent when it saw >= QBSERVE_WITNESS_MIN after D. Without: silent when
-    # the record is over QBSERVE_STALE_HOURS old.
+    # warns when it saw >= QBSERVE_WITNESS_MIN after D, or > 0 and the record
+    # is over QBSERVE_STALE_HOURS old; 0 never warns. Without: warns when the
+    # record is over QBSERVE_STALE_HOURS old.
+
+# sources/coldturkey_local.py
+READ_AT_KEY = "coldturkey_local_read_at"    # meta: last successful read, set by sync() even when the
+                                            # window held no browsing or was unchanged (no import)
 QBSERVE_ACTION = "Open Qbserve and check it's recording; it is reopened automatically every 10 minutes."
 def _automatic_state(conn, clk, kind, *, what, tz, never_action, stale_action)   # latest_record_at removed
 ```

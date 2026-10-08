@@ -437,6 +437,35 @@ def test_write_summary_stores_the_model_answer_and_the_token_counts(two_weeks, c
     assert row["model"] == "claude-opus-5"
 
 
+def test_created_at_is_when_the_figures_were_read_so_data_landing_mid_call_makes_it_stale(
+        two_weeks, conn, clk, settings):
+    """The request takes seconds (5 Oct: 09:30:06 to 09:30:11). A Screen Time
+    import that starts during it is not in the summary, and used to be stamped
+    before the summary's created_at, so the chip never said so (DR5.26)."""
+    from dashboard import app as dashboard_app
+
+    start = clk.now()
+
+    class Racing(FakeClient):
+        def __init__(self):
+            super().__init__("A summary.")
+            self.messages = self
+
+        def create(self, **kwargs):
+            clk.set(clock.iso(start + timedelta(seconds=3)))          # the import begins mid-call
+            measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Late Arrival App", day="2026-09-20",
+                    period_end="2026-09-26", minutes=500.0)
+            clk.set(clock.iso(start + timedelta(seconds=6)))          # then the model answers
+            return self.response
+
+    insight = insights.write_summary(conn, clk, settings, client=Racing())
+    assert insight.created_at == clock.iso(start)
+    stored = json.loads(conn.execute("SELECT payload FROM insights").fetchone()["payload"])
+    assert stored["weeks"][-1] != insights.build_payload(conn, clk, settings)["weeks"][-1]   # not in it
+    assert dashboard_app.insight_staleness(conn, insight, "2026-09-20", settings.tz) == \
+        dashboard_app.STALE_NEW_DATA
+
+
 def test_the_prompt_forbids_inventing_numbers_and_judging(two_weeks, conn, clk, settings):
     fake = FakeClient()
     insights.write_summary(conn, clk, settings, client=fake)

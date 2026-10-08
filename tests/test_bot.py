@@ -781,6 +781,83 @@ def test_the_logged_traceback_has_the_token_scrubbed(ctx, settings, caplog):
     assert "<TOKEN>" in logged
 
 
+class _TokenRejected:
+    """What PTB's Bot.initialize raises for a revoked token: the message carries the token."""
+
+    def __init__(self, token):
+        self.token = token
+
+    def send_message(self, **kwargs):
+        import telegram.error
+
+        raise telegram.error.InvalidToken(f"The token `{self.token}` was rejected by the server.")
+
+
+@pytest.fixture
+def log_file():
+    """A handler on the root logger, formatted as the scheduled jobs' basicConfig is."""
+    import io
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    root = logging.getLogger()
+    root.addHandler(handler)
+    yield handler, stream
+    root.removeHandler(handler)
+
+
+def test_a_rejected_token_is_scrubbed_from_a_failed_steps_traceback(settings, log_file):
+    """DR5.25: a send step that fails on InvalidToken logs the exception with its traceback.
+
+    `triage.try_send` scrubbed its own line, but `jobs._run_step` and the
+    poll's step loop log the raw traceback, which carried the token into
+    jobs.log and poll.log.
+    """
+    import sqlite3
+
+    import jobs
+    import triage
+
+    handler, stream = log_file
+    token = settings.telegram_bot_token
+    bot.scrub_token_from_logs(token, [handler])
+    rejected = _TokenRejected(token)
+    result = jobs._run_step(sqlite3.connect(":memory:"), "checklist",
+                            lambda: triage.send(rejected, settings, "hello"))
+    assert not result.ok
+    written = stream.getvalue()
+    assert "Traceback" in written and "InvalidToken" in written    # still a useful log
+    assert token not in written and "The token `<TOKEN>` was rejected" in written
+    # A plain message with the token in its arguments is cleaned too, and %-formatting still works.
+    logging.getLogger("drbr.jobs").error("send to %s failed (%d%%)", f"bot{token}/sendMessage", 50)
+    assert token not in stream.getvalue() and "send to bot<TOKEN>/sendMessage failed (50%)" in stream.getvalue()
+
+
+def test_silencing_installs_the_scrubber_on_the_root_handlers_once(settings, log_file, monkeypatch):
+    handler, stream = log_file
+    monkeypatch.setattr(logging.getLogger(), "handlers", [handler])
+    bot._silence_token_logging(settings.telegram_bot_token)
+    bot._silence_token_logging(settings.telegram_bot_token)
+    assert [type(f).__name__ for f in handler.filters] == ["_TokenScrubber"]
+    try:
+        raise RuntimeError(f"https://api.telegram.org/bot{settings.telegram_bot_token}/getMe")
+    except RuntimeError:
+        logging.getLogger("pop.poll").exception("alerts failed")
+    assert settings.telegram_bot_token not in stream.getvalue()
+    assert "bot<TOKEN>/getMe" in stream.getvalue()
+    bot._silence_token_logging()                       # no token: the httpx levels only, as before
+    assert len(handler.filters) == 1
+
+
+def test_a_record_that_cannot_be_formatted_still_reaches_the_handler(settings, log_file):
+    """A filter that raised would turn a bad log call into a crash of the step that made it."""
+    handler, stream = log_file
+    bot.scrub_token_from_logs(settings.telegram_bot_token, [handler])
+    record = logging.LogRecord("drbr.jobs", logging.ERROR, __file__, 1, "%d", ("not a number",), None)
+    assert handler.filters[0].filter(record) is True
+
+
 def test_error_handler_does_not_raise_when_replying_also_fails(ctx):
     """A failure inside the error handler would be unhandleable."""
     update = FakeUpdate(text="anything")

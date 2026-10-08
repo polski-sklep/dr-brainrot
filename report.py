@@ -891,17 +891,25 @@ def _coldturkey_witness(conn: sqlite3.Connection, clk: Clock, settings: Settings
     """Browser minutes Cold Turkey recorded on this Mac on days after `after`.
 
     None when there is no witness: Cold Turkey isn't read automatically, or
-    its read hasn't produced an import in the last `QBSERVE_STALE_HOURS`.
+    it hasn't been read successfully in the last `QBSERVE_STALE_HOURS`.
+    "Read" includes a read that found no browsing at all, or nothing new
+    (`coldturkey_local.READ_AT_KEY`): back from a trip, an eight-day window
+    with no browsing is the witness that the Mac was idle, not a missing one.
     Every Cold Turkey minute counts, whatever its label: this is activity on
     the Mac, not content. Only finished days are ever recorded.
     """
+    from sources import coldturkey_local  # noqa: PLC0415 — the key's owner; lazy keeps report's imports light
+
     if getattr(settings, "coldturkey_db", None) is None:
         return None
     row = conn.execute(
         "SELECT received_at FROM imports WHERE kind = 'coldturkey' AND status IN ('ok', 'partial') "
         "AND (CASE WHEN json_valid(meta) THEN json_extract(meta, '$.origin') END) = 'local_db' "
         "ORDER BY id DESC LIMIT 1").fetchone()
-    hours = _hours_since(clk, row["received_at"]) if row is not None else None
+    # The import's time too: reads from before the key existed left only that.
+    reads = [t for t in (evidence.get_meta(conn, coldturkey_local.READ_AT_KEY),
+                         row["received_at"] if row is not None else None) if t]
+    hours = min((_hours_since(clk, t) for t in reads), default=None)
     if hours is None or hours > QBSERVE_STALE_HOURS:
         return None
     (minutes,) = conn.execute(
@@ -917,9 +925,10 @@ def qbserve_silence(conn: sqlite3.Connection, clk: Clock, settings: Settings) ->
     Cold Turkey is the witness. Qbserve's newest record falls on local day D;
     if Cold Turkey saw at least `QBSERVE_WITNESS_MIN` of browsing on days
     after D, the Mac was used and Qbserve was not recording. An idle Mac
-    (nothing after D) is not a stopped Qbserve. With no witness, Qbserve is
-    stopped once its newest record is more than `QBSERVE_STALE_HOURS` old, the
-    rule before DR5.27. None when Qbserve isn't configured or has no record.
+    (no browsing after D) is not a stopped Qbserve. Less browsing than that is
+    still use, so once the newest record is more than `QBSERVE_STALE_HOURS`
+    old it warns too. With no witness, that timer alone decides, the rule
+    before DR5.27. None when Qbserve isn't configured or has no record.
     """
     if getattr(settings, "qbserve_db", None) is None:
         return None
@@ -927,10 +936,17 @@ def qbserve_silence(conn: sqlite3.Connection, clk: Clock, settings: Settings) ->
     if not latest:
         return None
     witnessed = _coldturkey_witness(conn, clk, settings, after=T.local_date(latest, settings.tz))
+    hours = _hours_since(clk, latest)
+    timer = hours is not None and hours > QBSERVE_STALE_HOURS
     if witnessed is None:
-        hours = _hours_since(clk, latest)
-        return QbserveSilence(latest, None) if hours is not None and hours > QBSERVE_STALE_HOURS else None
-    return QbserveSilence(latest, witnessed) if witnessed >= QBSERVE_WITNESS_MIN else None
+        return QbserveSilence(latest, None) if timer else None
+    # Some browsing is still use. Under the bar it can't warn early, but the
+    # timer stays as a backstop: days of desktop apps with a few minutes of
+    # browsing (what Qbserve exists to measure) must not go unwarned. Only
+    # no browsing at all, an idle Mac, never warns.
+    if witnessed >= QBSERVE_WITNESS_MIN or (witnessed > 0 and timer):
+        return QbserveSilence(latest, witnessed)
+    return None
 
 
 def _witness_clause(silence: QbserveSilence) -> str:

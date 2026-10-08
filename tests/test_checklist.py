@@ -303,7 +303,7 @@ def test_monday_reminds_once_about_missing_evidence_only(conn, clk, settings):
         "then tap ‹ once so it says \"Last Week\". Under Most Used, tap Show More until it disappears. "
         "Screenshot the whole page from the top and send them all here in one go.\n\n"
         "Already in: YouTube.\n"
-        "That's the only reminder for this week. The dashboard keeps showing what's missing: "
+        "That's the only reminder. The dashboard keeps showing what's missing: "
         f"{LINK}/?week={W}#coverage"
     )
     assert run(conn, clk, settings, bot) == []                       # the same Monday again
@@ -346,7 +346,7 @@ def test_a_failed_sunday_send_writes_no_marker_and_monday_sends_the_whole_list(c
     assert text.startswith("Check-in for last week, Sun 4 – Sat 10 Oct. In this order:\n\n1. Screen Time.")
     assert f"3. Label new sources. 3 are waiting (12 min)" in text
     assert text.endswith("Everything else (Mac apps, websites, podcasts, your vault) collects itself.\n"
-                         "That's the only reminder for this week. The dashboard keeps showing what's "
+                         "That's the only reminder. The dashboard keeps showing what's "
                          f"missing: {LINK}/?week={W}#coverage")
     assert run(conn, clk, settings, bot, at=TUESDAY) == [] and len(bot.sent) == 1
 
@@ -359,12 +359,130 @@ def test_a_mac_off_on_monday_gets_its_reminder_on_tuesday(conn, clk, settings):
     assert run(conn, clk, settings, bot, at="2026-10-14T07:30:00+00:00") == []
 
 
-def test_merging_mid_week_sends_nothing_off_schedule(conn, clk, settings):
+def test_merging_mid_week_sends_nothing_off_schedule(conn, clk, settings, caplog):
     """No markers yet on a Friday: the week before was never asked through this, so nothing goes."""
     screen_time(conn, clk, settings, "2026-09-27", complete=False)      # like the live import #80
     bot = RecordingBot()
-    assert run(conn, clk, settings, bot, at="2026-10-09T07:30:00+00:00") == []
+    with caplog.at_level("INFO", logger="drbr.checklist"):
+        assert run(conn, clk, settings, bot, at="2026-10-09T07:30:00+00:00") == []
     assert bot.sent == [] and evidence.get_meta(conn, checklist.NUDGE_KEY) is None
+    # Not silent: the log says the week went unasked, and why.
+    assert "week 2026-09-27: the check-in has never run, and it is Friday; not asked off-schedule" in caplog.text
+
+
+def test_a_mac_asleep_sunday_and_monday_gets_the_whole_list_late_once(conn, clk, settings, caplog):
+    """A long weekend away: no 09:30 run on Sun 11 or Mon 12 Oct; launchd catches up on Tuesday.
+
+    The old Monday prompts repeated until the evidence arrived; dropping the
+    week here would have asked for nothing at all.
+    """
+    bot = RecordingBot()
+    run(conn, clk, settings, bot, at="2026-10-04T07:30:00+00:00")      # the week before was asked as usual
+    assert evidence.get_meta(conn, checklist.CHECKLIST_KEY) == "2026-09-27"
+    unlabelled(conn, clk, settings, 2, 3)
+    with caplog.at_level("INFO", logger="drbr.checklist"):
+        assert run(conn, clk, settings, bot, at=TUESDAY) == [
+            f"tuesday checklist for week {W}: screentime, youtube, labels"]
+    assert f"week {W}: Sunday's and Monday's runs didn't send the check-in; sending it late" in caplog.text
+    text = bot.texts()[-1]
+    assert text.startswith("Check-in for last week, Sun 4 – Sat 10 Oct. In this order:\n\n1. Screen Time.")
+    assert text.endswith("That's the only reminder. The dashboard keeps showing what's missing: "
+                         f"{LINK}/?week={W}#coverage")
+    for day in ("2026-10-14T07:30:00+00:00", FRIDAY, "2026-10-17T07:30:00+00:00"):
+        assert run(conn, clk, settings, bot, at=day) == []
+    assert len(bot.sent) == 2
+
+
+def test_telegram_down_sunday_and_monday_sends_the_list_on_tuesday(conn, clk, settings):
+    bot = RecordingBot()
+    run(conn, clk, settings, bot, at="2026-10-04T07:30:00+00:00")
+    for day in (SUNDAY, MONDAY):
+        with pytest.raises(RuntimeError):
+            run(conn, clk, settings, RecordingBot(fail=True), at=day)
+    assert run(conn, clk, settings, bot, at=TUESDAY) == [
+        f"tuesday checklist for week {W}: screentime, youtube, labels"]
+    assert run(conn, clk, settings, bot, at=FRIDAY) == [] and len(bot.sent) == 2
+
+
+# --- an older capture cut off at "Show More" ------------------------------------------
+# The live case: import #80 (27 Sep – 3 Oct) and #24 (13 – 19 Sep) stopped at "Show More"
+# before the check-in existed. On Sun 11 Oct the iPhone still has 27 Sep (‹ twice), not 13 Sep.
+
+def test_an_older_cut_off_capture_is_asked_for_once_more_while_the_iphone_has_it(conn, clk, settings):
+    clk.set("2026-09-21T07:30:00+00:00")
+    screen_time(conn, clk, settings, "2026-09-13", complete=False)      # like #24
+    clk.set("2026-10-04T08:28:00+00:00")
+    screen_time(conn, clk, settings, "2026-09-27", complete=False)      # like #80
+    clk.set("2026-10-11T06:00:00+00:00")
+    everything_in(conn, clk, settings)
+    bot = RecordingBot()
+    assert run(conn, clk, settings, bot, at=SUNDAY) == [
+        f"sunday checklist for week {W}: recapture 2026-09-27, labels"]
+    assert bot.texts() == [
+        "Sunday check-in for last week, Sun 4 – Sat 10 Oct. In this order:\n\n"
+        "1. Screen Time for Sun 27 Sep – Sat 3 Oct, once more: those screenshots stopped at \"Show More\". "
+        "In Week, tap ‹ twice to reach that week. Tap Show More until it disappears, then send the whole "
+        "page here in one go.\n\n"
+        f"2. Label any new sources the screenshots bring: {LINK}/labels/queue\n\n"
+        "Already in for last week: Screen Time, YouTube.\n"
+        "Everything else (Mac apps, websites, podcasts, your vault) collects itself."
+    ]
+    assert "13 Sep" not in bot.texts()[0]                              # ‹ four times: past saving
+    assert run(conn, clk, settings, bot, at=MONDAY) == [f"monday nudge for week {W}: recapture 2026-09-27"]
+    # Last week's own evidence is in, so the reminder doesn't say last week needs it.
+    assert bot.texts()[1].startswith("Still needed:\n\n1. Screen Time for Sun 27 Sep – Sat 3 Oct, once more")
+    assert "\n\nAlready in for last week: Screen Time, YouTube.\nThat's the only reminder." in bot.texts()[1]
+    # Asked in one check-in and its reminder: never again, though it is still cut off.
+    assert run(conn, clk, settings, bot, at="2026-10-18T07:30:00+00:00") == [
+        "sunday checklist for week 2026-10-11: screentime, youtube, labels"]
+    assert "27 Sep" not in bot.texts()[2]
+    assert len(bot.sent) == 3
+
+
+def test_an_older_week_taken_again_is_not_in_mondays_reminder(conn, clk, settings):
+    screen_time(conn, clk, settings, "2026-09-27", complete=False)
+    bot = RecordingBot()
+    run(conn, clk, settings, bot, at=SUNDAY)
+    assert "1. Screen Time. On the iPhone" in bot.texts()[0]
+    assert "2. Screen Time for Sun 27 Sep – Sat 3 Oct, once more" in bot.texts()[0]
+    assert "3. YouTube." in bot.texts()[0] and "4. Label new sources" not in bot.texts()[0]
+    clk.set("2026-10-11T12:00:00+00:00")
+    screen_time(conn, clk, settings, "2026-09-27", complete=True)
+    youtube_sync(conn, clk, settings)
+    assert run(conn, clk, settings, bot, at=MONDAY) == [f"monday nudge for week {W}: screentime"]
+    assert "27 Sep" not in bot.texts()[1]
+
+
+def test_last_weeks_cut_off_capture_is_not_asked_for_again_the_week_after(conn, clk, settings):
+    clk.set("2026-10-11T06:00:00+00:00")
+    screen_time(conn, clk, settings, complete=False)
+    youtube_sync(conn, clk, settings)
+    bot = RecordingBot()
+    run(conn, clk, settings, bot, at=SUNDAY)
+    run(conn, clk, settings, bot, at=MONDAY)
+    assert ["Screen Time, once more" in t for t in bot.texts()] == [True, True]
+    run(conn, clk, settings, bot, at="2026-10-18T07:30:00+00:00")
+    assert "4 – Sat 10 Oct, once more" not in bot.texts()[2]
+
+
+def test_a_capture_cut_off_after_the_reminder_is_asked_for_once_more_the_sunday_after(conn, clk, settings):
+    bot = RecordingBot()
+    run(conn, clk, settings, bot, at=SUNDAY)
+    run(conn, clk, settings, bot, at=MONDAY)                     # both asked for it as missing
+    clk.set("2026-10-14T18:00:00+00:00")
+    screen_time(conn, clk, settings, complete=False)             # it came on Wednesday, cut off
+    run(conn, clk, settings, bot, at="2026-10-18T07:30:00+00:00")
+    assert "2. Screen Time for Sun 4 – Sat 10 Oct, once more" in bot.texts()[2]
+    assert "tap ‹ twice" in bot.texts()[2]
+
+
+def test_the_cut_off_weeks_asked_for_are_remembered_and_pruned(conn, clk, settings):
+    screen_time(conn, clk, settings, "2026-09-27", complete=False)
+    evidence.set_meta(conn, checklist.RECAPTURE_KEY, '{"2026-08-30": "2026-09-06"}')
+    run(conn, clk, settings, RecordingBot(), at=SUNDAY)
+    assert evidence.get_meta(conn, checklist.RECAPTURE_KEY) == '{"2026-09-27": "2026-10-04"}'
+    evidence.set_meta(conn, checklist.RECAPTURE_KEY, "not json")
+    assert checklist._asked_again(conn) == {}
 
 
 # --- Cold Turkey, only as a fallback -------------------------------------------------
@@ -402,13 +520,57 @@ def test_cold_turkey_unconfigured_is_a_plain_manual_export(conn, clk, tmp_path):
     assert "3. Cold Turkey. Export last week by hand: Cold Turkey Blocker → Statistics" in text
     assert "Everything else (podcasts, your vault) collects itself." in text
     assert "DRBR" not in text and "COLDTURKEY" not in text
-    # An export spanning the week is in; one that stopped mid-week is not.
+    # A read made before the week ended is not in, though it overlaps it; one sent after it is.
+    clk.set("2026-10-09T07:30:00+00:00")
     _import(conn, clk, plain, "coldturkey", "2026-10-04", "2026-10-08")
+    clk.set(SUNDAY)
     needs = checklist.week_needs(conn, clk, plain, T.measurement_week(T.parse_date(W)))
     assert needs.coldturkey == checklist.MISSING
     _import(conn, clk, plain, "coldturkey", "2026-10-04", "2026-10-10")
     needs = checklist.week_needs(conn, clk, plain, T.measurement_week(T.parse_date(W)))
     assert needs.coldturkey == checklist.IN
+
+
+def test_an_export_whose_first_or_last_day_had_no_browsing_is_in(conn, clk, tmp_path):
+    """A real export of Sun 4 – Sat 10 Oct with a quiet Sunday starts on Monday 5 Oct.
+
+    The dashboard counts it as covering the week; the check-in used to want
+    the whole week spanned, so it asked for the export again on Monday after
+    it had been sent.
+    """
+    from datetime import date
+
+    from sources import coldturkey, coldturkey_local
+
+    plain = config.test_settings(tz=TZ, raw_dir=tmp_path / "raw", go_live="2026-09-13")
+    clk.set("2026-10-11T06:00:00+00:00")
+    screen_time(conn, clk, plain)
+    youtube_sync(conn, clk, plain)
+    totals = {(date(2026, 10, d), "example.com"): 10.0 for d in range(5, 10)}     # Mon 5 .. Fri 9
+    outcome = coldturkey.ingest(conn, clk, plain, coldturkey_local.export_document(totals),
+                                filename="export.json", origin=coldturkey.ORIGIN_EXPORT)
+    assert (outcome.status, outcome.period_start, outcome.period_end) == ("ok", "2026-10-05", "2026-10-09")
+    week = T.measurement_week(T.parse_date(W))
+    assert checklist.week_needs(conn, clk, plain, week).coldturkey == checklist.IN
+    bot = RecordingBot()
+    clk.set(SUNDAY)
+    assert checklist.send_due(conn, clk, plain, bot) == []
+    clk.set(MONDAY)
+    assert checklist.send_due(conn, clk, plain, bot) == [] and bot.sent == []
+
+
+def test_a_failing_monday_read_does_not_ask_for_a_week_sundays_read_covered(conn, clk, settings):
+    """The week ended on a Saturday with no browsing, so Sunday's read stops on Friday."""
+    clk.set("2026-10-11T06:00:00+00:00")
+    everything_in(conn, clk, settings)
+    clk.set(SUNDAY)
+    _import(conn, clk, settings, "coldturkey", "2026-10-03", "2026-10-09", meta={"origin": "local_db"})
+    assert checklist.send_due(conn, clk, settings, RecordingBot()) == []
+    clk.set(MONDAY)
+    rec = evidence.begin_import(conn, clk, kind="coldturkey", parser_version="t")
+    evidence.fail_import(conn, rec, "unable to open database file")
+    needs = checklist.week_needs(conn, clk, settings, T.measurement_week(T.parse_date(W)))
+    assert needs.coldturkey == checklist.IN and not needs.evidence_missing
 
 
 # --- which weeks are asked for ---------------------------------------------------------
@@ -458,17 +620,46 @@ def test_dates_cross_a_month_in_full():
 
 # --- the end notice ----------------------------------------------------------------
 
-def test_the_end_notice_waits_for_the_final_weeks_evidence(conn, clk, settings):
+def test_the_end_notice_waits_while_the_final_week_owes_anything(conn, clk, settings):
     bot = RecordingBot()
     clk.set("2026-11-08T08:30:00+00:00")
-    assert jobs.send_end_notice(conn, clk, settings, bot) == "end notice waits for the final week's evidence"
+    assert jobs.send_end_notice(conn, clk, settings, bot) == "end notice waits for the final week"
     clk.set("2026-11-09T08:30:00+00:00")
-    assert jobs.send_end_notice(conn, clk, settings, bot) == "end notice waits for the final week's evidence"
+    assert jobs.send_end_notice(conn, clk, settings, bot) == "end notice waits for the final week"
     clk.set("2026-11-10T08:30:00+00:00")                               # Tuesday: regardless
     assert jobs.send_end_notice(conn, clk, settings, bot) == "end notice sent"
     assert jobs.send_end_notice(conn, clk, settings, bot) == "end notice already sent"
     (text,) = bot.texts()
     assert text.endswith("Nothing more will be asked for.") and "Prompts" not in text
+
+
+def test_the_final_check_in_asking_for_labels_is_not_followed_by_nothing_more_will_be_asked(
+        conn, clk, settings):
+    """Sun 8 Nov: the evidence is in before 09:30, but an hour of sources is undecided."""
+    clk.set("2026-11-08T06:00:00+00:00")
+    screen_time(conn, clk, settings, "2026-11-01")
+    _import(conn, clk, settings, "youtube_history", "2026-11-02", "2026-11-07")
+    unlabelled(conn, clk, settings, 10, 8, day="2026-11-03")
+    clk.set("2026-11-08T08:30:00+00:00")
+    cold_turkey_read(conn, clk, settings)
+    bot = RecordingBot()
+    failed = jobs.run_daily(conn, clk, settings, bot)       # the reads fail here: no vault, no databases
+    assert "checklist" not in failed and "diagnostic_end" not in failed
+    (text,) = bot.texts()
+    assert text.startswith("The diagnostic has ended. One last check-in") and "Label new sources" in text
+    # Monday, still undecided: the labels are what moves cost per keeper, so it waits.
+    clk.set("2026-11-09T08:30:00+00:00")
+    assert jobs.send_end_notice(conn, clk, settings, bot) == "end notice waits for the final week"
+    for src in conn.execute("SELECT id FROM sources WHERE kind = ?", (T.KIND_DESKTOP_APP,)).fetchall():
+        labels.set_source_label(conn, clk, src["id"], T.WASTEFUL)
+    assert jobs.send_end_notice(conn, clk, settings, bot) == "end notice sent"
+    assert bot.texts()[1].endswith("Nothing more will be asked for.")
+
+
+def test_the_end_notice_never_goes_in_the_run_that_sent_a_check_in(conn, clk, settings):
+    clk.set("2026-11-10T08:30:00+00:00")                               # Tuesday: past the cap
+    assert jobs.send_end_notice(conn, clk, settings, RecordingBot(), asked=True) == (
+        "end notice waits: the check-in asked for something this run")
 
 
 def test_the_end_notice_goes_on_monday_once_the_final_week_is_in(conn, clk, settings):

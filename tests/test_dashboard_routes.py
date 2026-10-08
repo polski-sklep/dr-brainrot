@@ -564,8 +564,13 @@ def test_the_automatic_morning_reads_never_make_it_stale(conn, clk, settings):
     On the live data Cold Turkey's own statistics, Qbserve and the browser
     sync overlapped the summarised week on every morning after summary #8
     (imports #87–#93); counting them would leave every summary marked out of
-    date for a week, and the chip would mean nothing.
+    date for a week, and the chip would mean nothing. The morning job reads
+    first and writes the summary after, so a healthy read comes before it.
     """
+    _import_at(conn, clk, settings, "2026-09-21T07:30:00+00:00", "coldturkey", "2026-09-13", "2026-09-20",
+               origin="local_db")
+    _import_at(conn, clk, settings, "2026-09-21T07:30:00+00:00", "qbserve", "2026-09-13", "2026-09-20")
+    _import_at(conn, clk, settings, "2026-09-21T07:30:00+00:00", "brave_sync", "2026-09-13", "2026-09-20")
     for day in ("2026-09-21", "2026-09-22", "2026-09-23"):
         at = f"{day}T10:30:00+00:00"
         _import_at(conn, clk, settings, at, "coldturkey", "2026-09-13", day, origin="local_db")
@@ -591,8 +596,91 @@ def test_evidence_for_another_week_or_none_does_not(conn, clk, settings):
                "2026-09-20", "2026-09-26")
     _import_at(conn, clk, settings, "2026-09-21T11:05:00+00:00", "screentime")   # "This Week": no period
     _import_at(conn, clk, settings, "2026-09-21T11:10:00+00:00", "coldturkey",
-               "2026-09-06", "2026-09-12")
+               "2026-08-30", "2026-09-05")                                        # two weeks back
     assert _staleness(conn, settings) is None
+
+
+# A later summary: written Mon 28 Sep, about Sun 20 – Sat 26 Sep, compared with 13 – 19 Sep.
+LATER = dict(summary="s", created_at="2026-09-28T07:30:11+00:00", model="claude-opus-5",
+             week_start="2026-09-27T16:00:00+00:00", fallback_reason=None, based_on_through="2026-09-26")
+
+
+def _later_staleness(conn, settings):
+    import insights
+
+    return dashboard_app.insight_staleness(conn, insights.Insight(**LATER), "2026-09-20", settings.tz)
+
+
+def test_late_evidence_for_the_week_the_headline_compares_with_makes_it_stale(conn, clk, settings):
+    """Summary #8 says "fell from 288 minutes to 230": both figures are the paragraph's.
+
+    Re-sending a capture cut off at "Show More" for the week before (the
+    check-in asks for it) moves the first one, so the sentence is no longer true.
+    """
+    evidence.ensure_diagnostic_start(conn, "2026-09-13")
+    _import_at(conn, clk, settings, "2026-09-29T09:00:00+00:00", "screentime", "2026-09-13", "2026-09-19",
+               most_used_complete=True)
+    assert _later_staleness(conn, settings) == dashboard_app.STALE_NEW_DATA
+
+
+def test_a_reading_settled_for_the_compared_week_makes_it_stale(conn, clk, settings):
+    from sources import screentime
+
+    evidence.ensure_diagnostic_start(conn, "2026-09-13")
+    mid = _unreadable_reading(conn, clk, settings)                  # in 13 – 19 Sep
+    assert _later_staleness(conn, settings) is None
+    clk.set("2026-09-29T13:00:00+00:00")
+    screentime.correct_measurement(conn, clk, settings, mid, 157.0)
+    assert _later_staleness(conn, settings) == dashboard_app.STALE_NEW_DATA
+
+
+def test_the_first_week_has_no_compared_week_before_the_diagnostic(conn, clk, settings):
+    """13 – 19 Sep is the first week: an export for 6 – 12 Sep is not in its paragraph."""
+    evidence.ensure_diagnostic_start(conn, "2026-09-13")
+    _import_at(conn, clk, settings, "2026-09-21T11:10:00+00:00", "coldturkey", "2026-09-06", "2026-09-12")
+    assert _staleness(conn, settings) is None
+
+
+def test_a_later_sync_about_the_next_week_is_news_for_neither_week(conn, clk, settings):
+    """A sync received after 19 Sep but before the summary covered both weeks; a later one is news for neither."""
+    evidence.ensure_diagnostic_start(conn, "2026-09-13")
+    _import_at(conn, clk, settings, "2026-09-27T08:00:00+00:00", "youtube_history", "2026-09-14", "2026-09-26")
+    _import_at(conn, clk, settings, "2026-09-30T08:00:00+00:00", "youtube_history", "2026-09-27", "2026-09-29")
+    assert _later_staleness(conn, settings) is None
+
+
+def test_an_automatic_read_catching_up_after_a_failure_makes_it_stale(conn, clk, settings):
+    """Cold Turkey couldn't be read on Sun 20 or Mon 21 Sep (Full Disk Access, say).
+
+    The summary went without the week's last days of browsing. Fixed on
+    Tuesday, the read brings them: the figures move, and the read now looks
+    healthy, so nothing else on the page says the paragraph is out of date.
+    """
+    _import_at(conn, clk, settings, "2026-09-19T07:30:00+00:00", "coldturkey", "2026-09-11", "2026-09-18",
+               origin="local_db")                              # Saturday's read, before the week ended
+    _import_at(conn, clk, settings, "2026-09-20T07:30:00+00:00", "coldturkey", failed=True)
+    _import_at(conn, clk, settings, "2026-09-21T07:30:00+00:00", "coldturkey", failed=True)
+    assert _staleness(conn, settings) is None
+    _import_at(conn, clk, settings, "2026-09-22T12:00:00+00:00", "coldturkey", "2026-09-14", "2026-09-21",
+               origin="local_db")
+    assert _staleness(conn, settings) == dashboard_app.STALE_NEW_DATA
+
+
+@pytest.mark.parametrize("kind", ["qbserve", "brave_sync"])
+def test_any_automatic_read_catching_up_counts(conn, clk, settings, kind):
+    _import_at(conn, clk, settings, "2026-09-22T12:00:00+00:00", kind, "2026-09-14", "2026-09-21")
+    assert _staleness(conn, settings) == dashboard_app.STALE_NEW_DATA
+
+
+def test_a_rewrite_before_sundays_read_is_stale_once_that_read_brings_saturday(conn, clk, settings):
+    """The Saturday read covers through Friday; the Sunday 09:30 read is the first to bring Saturday."""
+    rewrite = insights.Insight(summary="s", created_at="2026-09-20T06:00:00+00:00", model="claude-opus-5",
+                               week_start="2026-09-13T16:00:00+00:00", fallback_reason=None,
+                               based_on_through="2026-09-19")
+    _import_at(conn, clk, settings, "2026-09-19T07:30:00+00:00", "qbserve", "2026-09-11", "2026-09-18")
+    assert _staleness(conn, settings, rewrite) is None
+    _import_at(conn, clk, settings, "2026-09-20T07:30:00+00:00", "qbserve", "2026-09-12", "2026-09-19")
+    assert _staleness(conn, settings, rewrite) == dashboard_app.STALE_NEW_DATA
 
 
 def test_data_before_the_summary_or_a_failed_import_does_not(conn, clk, settings):

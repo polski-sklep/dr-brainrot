@@ -562,13 +562,70 @@ def test_an_idle_mac_is_not_a_stopped_qbserve(conn, settings, tmp_path):
     assert report.qbserve_silence(conn, sat, settings) == report.QbserveSilence("2026-09-16T08:00:00+00:00", None)
 
 
-def test_under_ten_minutes_of_browsing_is_not_use_enough_to_warn(conn, settings, tmp_path):
+def test_under_ten_minutes_of_browsing_cannot_warn_early_but_the_timer_still_can(conn, settings, tmp_path, qb_db):
+    add_rows(qb_db, [("2026-09-16T21:00:00", 3, 60)])                  # Wed 23:00: 34.5 h before Fri 09:30
     s = with_cold_turkey(settings, tmp_path / "ct.db", [("2026-09-17T09:00:00", "https://news.example/", 540)])
     fri = clock.FrozenClock(FRI_0930)
     bot = Bot()
     jobs.run_daily(conn, fri, s, bot)
     assert not qbserve_messages(bot) and report.qbserve_silence(conn, fri, s) is None
     assert report.QBSERVE_WITNESS_MIN == 10.0
+    sat = clock.FrozenClock(SAT_0930)                                   # 58.5 h: the timer's call
+    bot = Bot()
+    jobs.run_daily(conn, sat, s, bot)
+    assert report.qbserve_silence(conn, sat, s) == report.QbserveSilence("2026-09-16T21:00:00+00:00",
+                                                                         pytest.approx(9.0))
+    assert qbserve_messages(bot) == [
+        "Qbserve hasn't recorded anything since Wed 16 Sep 23:00, though this Mac has been in use since "
+        "(Cold Turkey saw 9 min of browsing).\n\n"
+        "Desktop app time isn't being measured. Open Qbserve and check it's recording."]
+
+
+def test_a_few_minutes_of_browsing_a_day_never_turns_the_timer_off(conn, settings, tmp_path):
+    """Desktop apps all day, a little browsing: Qbserve's newest record is Wed 16 Sep 10:00.
+
+    The witness sees 3 min a day, under the bar. Treating that as "not in use"
+    let a stopped Qbserve go days unwarned, where the timer alone warned.
+    """
+    s = with_cold_turkey(settings, tmp_path / "ct.db", [
+        ("2026-09-17T09:00:00", "https://news.example/a", 180),
+        ("2026-09-18T09:00:00", "https://news.example/b", 180),
+    ])
+    bot = Bot()
+    jobs.run_daily(conn, clock.FrozenClock(FRI_0930), s, bot)          # 47.5 h, 3 min seen
+    assert [m.split(".")[0] for m in qbserve_messages(bot)] == [
+        "Qbserve hasn't recorded anything since Wed 16 Sep 10:00, though this Mac has been in use since "
+        "(Cold Turkey saw 3 min of browsing)"]
+
+
+def test_back_from_a_trip_the_idle_mac_is_not_told_qbserve_stopped(conn, settings, tmp_path):
+    """The Mac sleeps from Thu 17 to Sat 26 Sep. On waking, Cold Turkey's eight days hold no browsing.
+
+    That read records no import, but it is still a successful read: the
+    witness says the Mac was idle. It used to count as no witness, and the
+    36-hour timer told an idle Mac that Qbserve had stopped.
+    """
+    s = with_cold_turkey(settings, tmp_path / "ct.db", [
+        ("2026-09-14T10:00:00", "https://news.example/a", 1200),
+        ("2026-09-16T07:00:00", "https://news.example/b", 1800),
+    ])
+    jobs.run_daily(conn, clock.FrozenClock(THU_0930), s, Bot())        # the last run before the trip
+    wake = clock.FrozenClock("2026-09-26T07:30:00+00:00")
+    bot = Bot()
+    assert "coldturkey_local" not in jobs.run_daily(conn, wake, s, bot)
+    assert conn.execute("SELECT COUNT(*) FROM imports WHERE kind = 'coldturkey'").fetchone()[0] == 1
+    assert evidence.get_meta(conn, coldturkey_local.READ_AT_KEY) == "2026-09-26T07:30:00+00:00"
+    assert not qbserve_messages(bot) and report.qbserve_silence(conn, wake, s) is None
+
+
+def test_an_unchanged_cold_turkey_read_still_counts_as_a_fresh_witness(conn, settings, tmp_path):
+    s = with_cold_turkey(settings, tmp_path / "ct.db", [("2026-09-15T10:00:00", "https://news.example/", 1200)])
+    first = clock.FrozenClock(THU_0930)
+    coldturkey_local.sync(conn, first, s)
+    later = clock.FrozenClock("2026-09-19T07:30:00+00:00")
+    assert coldturkey_local.sync(conn, later, s).duplicate_of is not None
+    assert evidence.get_meta(conn, coldturkey_local.READ_AT_KEY) == "2026-09-19T07:30:00+00:00"
+    assert report._coldturkey_witness(conn, later, s, after=date(2026, 9, 16)) == 0.0
 
 
 def test_a_cold_turkey_read_older_than_36_hours_is_no_witness_so_the_timer_decides(conn, settings, tmp_path):

@@ -126,13 +126,14 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 | `com.jacob.pop.bot` | always on | Telegram: capture, triage buttons, screenshot/export imports, labels |
 | `com.jacob.pop.poll` | daily 09:17 | Spotify positions, lock lifts, deadline posts, allowance alerts |
 | `com.jacob.pop.triage` | Sunday 18:00 | Week rollover (records last week's overage), expiry, the triage post, only when the queue has something |
-| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read; then, as separate steps, Qbserve's stale warning, the Sunday check-in and its one Monday reminder, end notice |
+| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read; then, as separate steps, Qbserve's stale warning, the Sunday check-in and its one Monday reminder (or the whole list late, on the first morning after a missed Sunday and Monday), end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
 | `com.jacob.drbr.qbserve` | every 10 min | Reopens Qbserve in the background if it isn't running; never touches its data (DR5.27) |
 
 Telegram being unreachable never stops a data step. Each scheduled run reads
 and records first and sends after; a message that can't go is logged, the run
-exits 1, and the log says which message didn't go (DR5.25).
+exits 1, and the log says which message didn't go (DR5.25). The bot token is
+scrubbed from every log line, tracebacks included.
 
 launchd, not cron, because macOS cron skips runs missed while the Mac sleeps.
 launchd catches up at the next wake. The system timezone and `POP_TZ` must
@@ -169,9 +170,11 @@ One bot (POP's), commands `/start`, `/queue`, `/stats`, `/labels`. Only
   two bring new sources). What already arrived is listed as "Already in". When
   everything is in, nothing is sent. If evidence is still missing on Monday,
   one reminder follows, and nothing more for that week; the dashboard keeps
-  showing what's missing. A Screen Time capture that stopped at "Show More" is
-  asked for again. Cold Turkey appears only if its automatic read fails.
-  (DR5.24)
+  showing what's missing. If the Mac was asleep (or Telegram down) on Sunday
+  and Monday, the whole list comes once, on the first morning it runs. A
+  Screen Time capture that stopped at "Show More" is asked for again, once,
+  also for an older week while the iPhone still has it (about four weeks).
+  Cold Turkey appears only if its automatic read fails. (DR5.24)
 - **Labels** happen on the dashboard's Labels page, never in the chat;
   `/labels` replies with how many are waiting and the link. Unlabelled sources
   count as wasteful. X is fixed wasteful. The `#` override tokens stay
@@ -296,10 +299,12 @@ reads Qbserve's database on this Mac (`DRBR_QBSERVE_DB`, usually
 as zero. Days after Qbserve's last record stay "not received". Cold Turkey is
 the witness for whether that matters: when it saw at least 10 minutes of
 browsing on this Mac on days after the day of Qbserve's last record, the Mac
-was in use and Qbserve wasn't recording. Then the bot sends one warning a day
-and the dashboard lists it under blind spots. An idle Mac never warns. When
-Cold Turkey isn't read automatically, or its read hasn't brought anything new
-for 36 hours, the old rule applies instead: a last record over 36 hours old.
+was in use and Qbserve wasn't recording. Any browsing at all counts too once
+that record is over 36 hours old. Then the bot sends one warning a day and the
+dashboard lists it under blind spots. An idle Mac (no browsing since) never
+warns, not even back from a trip. When Cold Turkey isn't read automatically,
+or hasn't been read for 36 hours, the old rule applies instead: a last record
+over 36 hours old.
 
 **To quit Qbserve on purpose,** stop the keeper first, or it reopens Qbserve
 within 10 minutes: `launchctl bootout gui/$(id -u)/com.jacob.drbr.qbserve`
@@ -378,13 +383,16 @@ in this order:
 
 1. "a newer week has finished since this was written": a later week is complete.
 2. "new data has arrived since this was written": something you send arrived
-   for the summarised week after it was written. That means Screen Time
-   screenshots, a YouTube sync (including the first sync after that week, even
-   with no watches from it), a Cold Turkey export sent by hand, a reading you
-   settled, or podcast listening still inside that week. The automatic morning
-   reads (Cold Turkey's own statistics, Qbserve, the browser sync, the vault)
-   don't count. They re-read the last eight days every morning, so they would
-   mark every summary out of date for a week.
+   after it was written, for the summarised week or the week its headline
+   compares it with. That means Screen Time screenshots, a YouTube sync
+   (including the first sync after that week, even with no watches from it), a
+   Cold Turkey export sent by hand, a reading you settled, or podcast listening
+   still inside that week. "After" includes the seconds while it was being
+   written. The automatic morning reads (Cold Turkey's own statistics,
+   Qbserve, the browser sync) count only when catching up after a gap: none
+   had run since the week ended when the summary was written. Otherwise they
+   re-read the last eight days every morning, and would mark every summary out
+   of date for a week. The vault never counts.
 3. "you have relabelled since — these figures no longer match": a label under
    the summarised figures changed.
 

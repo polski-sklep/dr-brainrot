@@ -189,8 +189,10 @@ class Insight:
     and is None exactly when a model wrote `summary`. The stored row keeps a
     `status` column for querying; nothing renders it.
 
-    `created_at` is a UTC instant (`clock.iso`). `week_start` is the allowance
-    week the summary was generated in, UTC ISO.
+    `created_at` is a UTC instant (`clock.iso`): when its figures were read,
+    just before the request, so data landing while the request is in flight
+    counts as after it (DR5.26). `week_start` is the allowance week the
+    summary was generated in, UTC ISO.
 
     `based_on_through` is a **local date, `YYYY-MM-DD` in `settings.tz`**: the
     last local day the figures cover, which is the Saturday of the last
@@ -572,14 +574,19 @@ def latest(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Insight 
     return _row_to_insight(row) if row is not None else None
 
 
-def _store(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, week_start: str,
+def _store(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, week_start: str, created_at: str,
            payload: dict, summary: str, status: str, model: str | None, error: str | None,
            input_tokens: int | None, output_tokens: int | None) -> Insight:
-    """Write one row. `error` is the printable reason a fallback was used."""
+    """Write one row. `error` is the printable reason a fallback was used.
+
+    `created_at` is when the payload's figures were read, not now: the API
+    call takes seconds, and an import that lands during it is in neither the
+    summary nor, if stamped after the answer, the staleness check.
+    """
     cur = conn.execute(
         "INSERT INTO insights (created_at, model, week_start, summary, payload, status, error, "
         "input_tokens, output_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (clock.iso(clk.now()), model, week_start, summary,
+        (created_at, model, week_start, summary,
          json.dumps(payload, indent=2, sort_keys=True), status,
          _scrub(error, settings) if error else None, input_tokens, output_tokens),
     )
@@ -655,6 +662,7 @@ def write_summary(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
         if row is not None and row["status"] == STATUS_OK:
             return _row_to_insight(row)
 
+    as_of = clock.iso(clk.now())            # before the figures are read: see `_store`
     payload = build_payload(conn, clk, settings)
     fallback = fallback_summary(payload)
 
@@ -663,7 +671,7 @@ def write_summary(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
         # branches on, and `error` holds the reason it prints. The provider's
         # raw message is logged rather than stored: the panel shows this text
         # to a person, and a 400 body with a request id is not a sentence.
-        return _store(conn, clk, settings, week_start=week_start, payload=payload,
+        return _store(conn, clk, settings, week_start=week_start, created_at=as_of, payload=payload,
                       summary=fallback, status=STATUS_FAILED, model=None, error=reason,
                       input_tokens=None, output_tokens=None)
 
@@ -692,6 +700,6 @@ def write_summary(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
         log.warning("insights: %s", detail)
         return store_fallback(explain_failure(detail))
 
-    return _store(conn, clk, settings, week_start=week_start, payload=payload, summary=text,
+    return _store(conn, clk, settings, week_start=week_start, created_at=as_of, payload=payload, summary=text,
                   status=STATUS_OK, model=MODEL, error=None, input_tokens=input_tokens,
                   output_tokens=output_tokens)

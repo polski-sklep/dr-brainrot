@@ -280,6 +280,10 @@ STALE_RELABELLED = "relabelled"
 #: The imports a person sends. Cold Turkey counts only as a manual export:
 #: `meta.origin` other than `local_db`, or none, as `report._coldturkey_blind_spots` reads it.
 SENT_BY_HAND = ("screentime", "youtube_history", "coldturkey")
+#: The automatic reads that re-read their last eight days every morning and
+#: carry a period: Cold Turkey's own statistics (`local_db`), Qbserve, the phone
+#: browser. They count only when catching up (`_new_data_since`, rule 4).
+READ_DAILY = ("coldturkey", "qbserve", "brave_sync")
 
 
 def insight_staleness(conn: sqlite3.Connection, insight, last_complete_sunday: str,
@@ -292,11 +296,11 @@ def insight_staleness(conn: sqlite3.Connection, insight, last_complete_sunday: s
 
     1. `newer_week` — a later week has finished (`insight_is_stale`). It
        replaces the whole paragraph, so it is the most urgent news.
-    2. `new_data` — data for the summarised week arrived after the paragraph
-       was written (`_new_data_since`, DR5.26). It can make a sentence in it
-       false: summary #8 was written at 07:30:11Z on 5 Oct, the YouTube sync
-       landed 48 s later, and the paragraph went on saying YouTube never
-       arrived.
+    2. `new_data` — data for the summarised week, or for the week its
+       headline compares it with, arrived after the paragraph's figures were
+       read (`_new_data_since`, DR5.26). It can make a sentence in it false:
+       summary #8 was written at 07:30:11Z on 5 Oct, the YouTube sync landed
+       48 s later, and the paragraph went on saying YouTube never arrived.
     3. `relabelled` — a label that feeds the summarised figures changed after
        the paragraph was written. Labelling is the thing Jacob does most, and
        it moves every figure: forty-three sources bulk-labelled tool three
@@ -335,45 +339,67 @@ def insight_staleness(conn: sqlite3.Connection, insight, last_complete_sunday: s
     return STALE_RELABELLED if relabelled else None
 
 
+#: Is import `i` (or `j`) one of the automatic reads in `READ_DAILY`? Cold
+#: Turkey only as its own statistics; an export sent by hand has no origin or another one.
+_AUTO = """({a}.kind IN ('qbserve', 'brave_sync')
+            OR ({a}.kind = 'coldturkey'
+                AND COALESCE(CASE WHEN json_valid({a}.meta) THEN json_extract({a}.meta, '$.origin') END,
+                             'export') = 'local_db'))"""
+
+
 def _new_data_since(conn: sqlite3.Connection, written: str, week: T.MeasurementWeek,
                     tz: str) -> bool:
-    """Did data for the summarised `week` arrive after the summary was `written`?
+    """Did data the summary describes arrive after its figures were read (`written`)?
 
-    Any one of three things (DR5.26):
+    `week` is the last summarised week. The headline compares it with the
+    week before (`payload.comparison.previous_week`: summary #8 says "fell
+    from 288 minutes to 230"), so data for either week counts. `written` is
+    the summary's `created_at`, stamped before its figures were read, so an
+    import landing during the API call counts as after it. Any one of four
+    things (DR5.26):
 
     1. An import a person sends (`SENT_BY_HAND`), ok or partial, received after
-       the summary, whose period overlaps the week. Or a YouTube sync that is
-       the first to cover the week at all: no sync had arrived since the
-       week's Saturday when the summary was written, so the paragraph named
-       the gap, and this one fills it whatever its watch dates. Imports have
-       no finish time; `received_at` is stamped by `evidence.begin_import`.
-    2. A reading for the week that a person settled after the summary
+       the summary, whose period overlaps either week. Or a YouTube sync that
+       is the first to cover the last week at all: no sync had arrived since
+       its Saturday when the summary was written, so the paragraph named the
+       gap, and this one fills it whatever its watch dates. Imports have no
+       finish time; `received_at` is stamped by `evidence.begin_import`.
+    2. A reading for either week that a person settled after the summary
        (`detail.corrections[].at`, written by `screentime.correct_measurement`).
-    3. Listening heard in the week's allowance week, polled after the summary.
-       Almost never true: it is for a Rewrite pressed on a Sunday morning,
-       before that allowance week closes at 18:00.
+    3. Listening heard in the last week's allowance week, polled after the
+       summary. Almost never true: it is for a Rewrite pressed on a Sunday
+       morning, before that allowance week closes at 18:00.
+    4. An automatic read (`READ_DAILY`) catching up: it overlaps the last
+       week and arrived after the summary, and no read of its kind had
+       arrived since that week ended when the summary was written. The read
+       was failing (Full Disk Access, say), so the paragraph went without that
+       source's last days, and this read brings them.
 
-    The automatic reads are left out by design. Cold Turkey's own statistics
-    (`local_db`), Qbserve, the browser sync and the vault re-read their last
-    eight days every morning, so they overlap the summarised week on each of
-    the mornings after it is written (imports #87–#93 after summary #8).
-    Counting them would mark every summary out of date for most of a week —
-    the trap `insight_is_stale`'s note describes. Their catch-up after an
-    outage goes unflagged; the failing read already shows on the page.
+    Otherwise the automatic reads are left out by design. They re-read their
+    last eight days every morning, so they overlap the summarised week on each
+    of the mornings after it is written (imports #87–#93 after summary #8).
+    Counting every one would mark every summary out of date for most of a
+    week, the trap `insight_is_stale`'s note describes. A healthy read always
+    comes before the summary: the morning job reads first and writes after,
+    on the Monday after the week, so rule 4 holds only after a gap. The vault
+    is left out entirely: its scans have no period.
     """
     after_saturday = report._local_midnight(week.saturday + timedelta(days=1), tz)
     opens = T.allowance_week_start_for_day(week.sunday, tz)
     closes = clock.iso(clock.next_week_start(clock.parse(opens), tz))    # as allowance.week_end
+    compared = T.measurement_week(week.sunday - timedelta(days=7))
+    start = conn.execute("SELECT value FROM meta WHERE key = 'diagnostic_start'").fetchone()
+    if start is not None and compared.end < start["value"]:
+        compared = week               # the first week has nothing before it to compare with
     kinds = {f"kind{n}": kind for n, kind in enumerate(SENT_BY_HAND)}
+    auto_kinds = {f"auto{n}": kind for n, kind in enumerate(READ_DAILY)}
     found = conn.execute(
         f"""
         SELECT 1 FROM imports i
          WHERE i.kind IN ({", ".join(":" + k for k in kinds)})
            AND i.status IN ('ok', 'partial') AND i.received_at > :written
-           AND (i.kind != 'coldturkey'
-                OR COALESCE(CASE WHEN json_valid(i.meta) THEN json_extract(i.meta, '$.origin') END,
-                            'export') != 'local_db')
-           AND ((i.period_start <= :end AND i.period_end >= :start)
+           AND NOT {_AUTO.format(a="i")}
+           AND ((i.period_start <= :end AND i.period_end >= :from)
                 OR (i.kind = 'youtube_history' AND i.received_at >= :after_saturday
                     AND NOT EXISTS (SELECT 1 FROM imports y
                                      WHERE y.kind = 'youtube_history'
@@ -381,10 +407,20 @@ def _new_data_since(conn: sqlite3.Connection, written: str, week: T.MeasurementW
                                        AND y.received_at >= :after_saturday
                                        AND y.received_at <= :written)))
         UNION ALL
+        SELECT 1 FROM imports i
+         WHERE i.kind IN ({", ".join(":" + k for k in auto_kinds)}) AND {_AUTO.format(a="i")}
+           AND i.status IN ('ok', 'partial') AND i.received_at > :written
+           AND i.period_start <= :end AND i.period_end >= :start
+           AND NOT EXISTS (SELECT 1 FROM imports j
+                            WHERE j.kind = i.kind AND {_AUTO.format(a="j")}
+                              AND j.status IN ('ok', 'partial')
+                              AND j.received_at >= :after_saturday
+                              AND j.received_at <= :written)
+        UNION ALL
         SELECT 1 FROM measurements m,
                json_each(CASE WHEN json_valid(m.detail) THEN m.detail ELSE '{{}}' END,
                          '$.corrections') c
-         WHERE m.period_start <= :end AND m.period_end >= :start
+         WHERE m.period_start <= :end AND m.period_end >= :from
            AND instr(m.detail, 'corrections') > 0
            AND (CASE WHEN c.type = 'object' THEN json_extract(c.value, '$.at') END) > :written
         UNION ALL
@@ -393,8 +429,8 @@ def _new_data_since(conn: sqlite3.Connection, written: str, week: T.MeasurementW
            AND l.delta_ms > 0
         LIMIT 1
         """,
-        {"written": written, "start": week.start, "end": week.end,
-         "after_saturday": after_saturday, "opens": opens, "closes": closes, **kinds},
+        {"written": written, "from": compared.start, "start": week.start, "end": week.end,
+         "after_saturday": after_saturday, "opens": opens, "closes": closes, **kinds, **auto_kinds},
     ).fetchone()
     return found is not None
 
