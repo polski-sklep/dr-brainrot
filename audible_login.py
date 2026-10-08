@@ -18,6 +18,7 @@ stop working if Amazon changes things, and that is the only cost.
 """
 from __future__ import annotations
 
+import json
 import pathlib
 import readline  # noqa: F401  -- without it, macOS Terminal cuts a pasted line off at 1,024 characters
 import sys
@@ -28,6 +29,10 @@ import audible
 STORES = {"uk": "uk", "de": "de", "us": "us", "fr": "fr", "it": "it", "es": "es",
           "ca": "ca", "au": "au", "in": "in", "jp": "jp", "br": "br"}
 AUTH_FILE = pathlib.Path(__file__).resolve().parent / "data" / "audible_auth.json"
+#: Which store holds the books, found by asking every store after sign-in: an
+#: Amazon account is one account, but its Audible library lives in one store,
+#: and the website you land on (audible.de, priced in PLN) need not be it.
+STORE_FILE = AUTH_FILE.with_name("audible_store.json")
 
 
 LANDING = "openid.oa2.authorization_code="
@@ -73,8 +78,11 @@ def main() -> None:
     if AUTH_FILE.exists() and "--again" not in sys.argv:
         print(f"Already signed in ({AUTH_FILE}). Run with --again to sign in afresh.")
         return
-    store = input("Which Audible store do you use? "
-                  "(uk, de, us, fr, it, es, ca, au, in, jp, br) [uk]: ").strip().lower() or "uk"
+    # Where to sign in hardly matters (one Amazon account); the store with the
+    # books is found below. UK is the default because that is where most
+    # English-language accounts in Europe live.
+    store = input("Sign in through which Amazon? Press Enter for amazon.co.uk "
+                  "(or type de, us, fr, it, es, ca, au, in, jp, br): ").strip().lower() or "uk"
     if store not in STORES:
         sys.exit(f"Unknown store {store!r}.")
     auth = audible.Authenticator.from_login_external(locale=STORES[store],
@@ -82,11 +90,28 @@ def main() -> None:
     AUTH_FILE.parent.mkdir(exist_ok=True)
     auth.to_file(AUTH_FILE, encryption=False)
     AUTH_FILE.chmod(0o600)
+
+    print("\nSigned in. Looking for your books in each Audible store...")
+    counts: dict[str, int] = {}
     with audible.Client(auth=auth) as client:
-        library = client.get("1.0/library", num_results=1, response_groups="product_desc")
-    count = library.get("total_results", len(library.get("items", [])))
-    print(f"Signed in to Audible ({store}); your library answered ({count} titles). "
-          "You can close this window.")
+        for cc in STORES:
+            try:
+                client.switch_marketplace(cc)
+                library = client.get("1.0/library", num_results=1000, response_groups="product_desc")
+                counts[cc] = len(library.get("items", []))
+            except Exception as exc:  # noqa: BLE001 -- a store this account can't use
+                counts[cc] = 0
+                print(f"  {cc}: not available ({type(exc).__name__})")
+                continue
+            print(f"  {cc}: {counts[cc]} titles")
+    best = max(counts, key=lambda cc: counts[cc])
+    if not counts[best]:
+        print("\nNo store showed any titles. The sign-in is saved; tell Claude what you see in the app.")
+        return
+    STORE_FILE.write_text(json.dumps({"country_code": best, "titles": counts[best]}) + "\n")
+    STORE_FILE.chmod(0o600)
+    print(f"\nYour books are in the {best} store ({counts[best]} titles). That is the one the "
+          "daily read will use. You can close this window.")
 
 
 if __name__ == "__main__":
