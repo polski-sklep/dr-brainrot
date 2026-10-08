@@ -45,7 +45,7 @@
       <td class="cell-nowrap">{{ GROUP_NAMES.get(r.group, r.group) }}</td>
       <td class="cell-source"><span class="clamp" title="{{ r.source }}">{{ source_link(r.source, source_url(r.source_kind, r.source_key)) }}</span><span class="sub clamp">{{ KIND_NAMES.get(r.source_kind, r.source_kind) }}</span></td>
       <td class="cell-item"><span class="clamp" title="{{ r.item or '' }}">{{ r.item or "" }}</span></td>
-      <td class="num cell-minutes">{% if r.minutes is none %}<span class="absent">unmeasured</span>{% else %}{{ r.minutes|min }}{{ caveat(r.provenance) }}{% endif %}</td>
+      <td class="num cell-minutes">{% if r.minutes is none %}<span class="absent">unmeasured</span>{% else %}{{ r.minutes|min }}{{ caveat(r.provenance, r.split_estimated) }}{% endif %}</td>
       <td class="cell-status">{{ r.status }}{% if r.covered_elsewhere %}<span class="excluded sub clamp" title="excluded: already measured by {{ r.covered_elsewhere }}">excluded: already measured by {{ r.covered_elsewhere }}</span>{% endif %}</td>
       <td class="cell-nowrap">{{ label_chip(r.label) }} <span class="muted" title="{{ BASIS_TEXT.get(r.label_basis, r.label_basis) }}">{{ BASIS_SHORT.get(r.label_basis, r.label_basis) }}</span></td>
       <td>{{ badge(r.provenance) }}</td>

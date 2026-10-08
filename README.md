@@ -122,6 +122,25 @@ failure), migrates the database, installs and loads every launchd agent,
 makes sure obsidian-ingest is loaded, and waits until the dashboard answers.
 The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 
+**After merging new code, restart both always-on agents before anything
+writes new kinds of rows.** The bot and the dashboard are KeepAlive processes:
+they keep the code they started with until they are restarted, while the
+scheduled jobs (09:30, 00:15, Sync now) start fresh each time and run the
+working tree. Old code meeting rows it has no name for fails: a bot started
+before audiobooks existed crashes every Screen Time and Cold Turkey import
+once the first Audible read has written rows (the import is saved, but its
+week isn't recomputed and the reply says nothing was recorded). So, right
+after the merge commit and before Sync now or the next 00:15/09:30 run:
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.jacob.drbr.dashboard
+launchctl kickstart -k gui/$(id -u)/com.jacob.pop.bot
+ps -o lstart= -p "$(pgrep -f Projects/drbr/bot.py)"      # both must be after the merge
+ps -o lstart= -p "$(pgrep -f 'dashboard.app')"
+```
+
+(`./drbr restart` does the same for every agent.)
+
 | Agent | Schedule | What |
 |---|---|---|
 | `com.jacob.pop.bot` | always on | Telegram: capture, triage buttons, screenshot/export imports, labels |
@@ -130,7 +149,7 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 | `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read, phone browser read, Audible read; then, as separate steps, Qbserve's stale warning, the Sunday check-in and its one Monday reminder (or the whole list late, on the first morning after a missed Sunday and Monday), end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
 | `com.jacob.drbr.qbserve` | every 10 min | Reopens Qbserve in the background if it isn't running; never touches its data (DR5.27) |
-| `com.jacob.drbr.nightly` | daily 00:15 | The automatic reads only — outbox, vault, Cold Turkey, Qbserve, phone browser — so each finished day is in the figures just after midnight; sends nothing (DR5.29) |
+| `com.jacob.drbr.nightly` | daily 00:15 | The automatic reads only — outbox, vault, Cold Turkey, Qbserve, phone browser, Audible (the one that needs the internet) — so each finished day is in the figures just after midnight; sends nothing (DR5.29) |
 
 Telegram being unreachable never stops a data step. Each scheduled run reads
 and records first and sends after; a message that can't go is logged, the run
@@ -328,12 +347,15 @@ cd ~/Projects/drbr && .venv/bin/python audible_login.py
 It opens Amazon's sign-in page; your password and two-step code go to Amazon
 only. It saves `data/audible_auth.json` (readable by you only, never
 committed) and `data/audible_store.json`, the store that holds your books.
-Every morning `jobs.py daily` then reads, read-only:
+Every morning `jobs.py daily` (and the 00:15 refresh) then reads, read-only:
 
 - **Audible's own daily listening totals**, in wall-clock minutes, across every
   device on the account. The first read goes back to go-live; after that the
   last 8 days are re-read, so offline listening lands. A day with no listening
-  in a read is 0; a day no read covered is unmeasured.
+  in a read is 0; a day no read covered is unmeasured, and a finished week
+  says "incomplete" until a read reaches its Saturday. A day whose figure
+  can't be used (another unit, over 24 hours) is unmeasured with a warning;
+  the rest of the read stands.
 - **Where every book is**, to split each day across the books whose place
   moved since the morning before. The total is measured; the split is
   estimated ("split estimated" on the page). Days before the first read, or
@@ -342,7 +364,8 @@ Every morning `jobs.py daily` then reads, read-only:
   decision. Relabel one on the Labels page and your label wins.
 
 Screen Time's Audible app is covered elsewhere: it only sees the app while the
-screen is on. The client library is unofficial (mkb79's `audible`), so a
+screen is on. So are `audible.co.uk` and `audible.com` in the Mac's browser and
+the iPhone app run on the Mac, should they ever show up. The client library is unofficial (mkb79's `audible`), so a
 change at Amazon can break the read: it then fails loudly and the days stay
 unmeasured. If Audible ever refuses the sign-in, the dashboard and the Sunday
 check-in say so with the command to sign in again:

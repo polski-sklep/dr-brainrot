@@ -170,7 +170,7 @@ def test_latest_imports_reads_every_kind_verbatim_including_failures(conn, clk, 
     rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="st-x")
     evidence.fail_import(conn, rec, "week header unreadable")
     got = {i.kind: i for i in report.latest_imports(conn, clk, settings)}
-    assert set(got) == set(T.IMPORT_KINDS)
+    assert set(got) == set(T.IMPORT_KINDS) - {"audible"}        # signed out of Audible: nothing owed (DR5.28)
     assert (got["screentime"].id, got["screentime"].status, got["screentime"].error) == (
         rec.id, "failed", "week header unreadable")
     assert got["coldturkey"].id is None

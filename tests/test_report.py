@@ -404,7 +404,8 @@ def test_gated_vs_ungated_rows_and_share(conn, clk, settings):
     measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCg", day="2026-09-08",
             minutes=10.0, item_key="Impulse0001")
     rows = {r.group: r for r in report.gated_vs_ungated(conn, clk, settings, WEEK)}
-    assert [r for r in rows] == list(T.REPORT_GROUPS)
+    # Signed out of Audible: audiobooks were not read, so no "nothing consumed" row (DR5.28).
+    assert [r for r in rows] == [g for g in T.REPORT_GROUPS if g != T.GROUP_AUDIOBOOKS]
     assert rows[T.GROUP_YOUTUBE].gated_min == pytest.approx(30)
     assert rows[T.GROUP_YOUTUBE].ungated_min == pytest.approx(10)
     assert rows[T.GROUP_YOUTUBE].share_ungated == pytest.approx(0.25)
@@ -462,7 +463,8 @@ def test_cost_per_keeper_with_zero_keepers_everywhere(conn, clk, settings):
     clk.set(WED)
     measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-08", minutes=50.0)
     rows = report.cost_per_keeper(conn, clk, settings)
-    assert [r.group for r in rows] == list(T.REPORT_GROUPS)
+    # Signed out of Audible: audiobooks were not read, so no 0-minute row (DR5.28).
+    assert [r.group for r in rows] == [g for g in T.REPORT_GROUPS if g != T.GROUP_AUDIOBOOKS]
     assert all(r.minutes_per_keeper is None and r.keepers == 0 for r in rows)
 
 

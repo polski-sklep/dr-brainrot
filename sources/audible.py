@@ -53,12 +53,13 @@ import contextlib
 import hashlib
 import json
 import logging
+import math
 import os
 import pathlib
 import sqlite3
 import warnings
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -111,6 +112,19 @@ NO_LIBRARY_WARNING = ("Where each book is couldn't be read this time, so days th
                       "as book not known until the next read.")
 TRUNCATED_WARNING = ("The library returned 1,000 titles, the most one read asks for; books past them "
                      "can't be matched, and their days are listed as book not known.")
+
+#: Why a day's figure couldn't be used (`_day_ms`). The day is left unmeasured,
+#: never zero, and the rest of the read stands.
+UNUSABLE_UNIT = "not in milliseconds"
+UNUSABLE_NUMBER = "not a number of minutes"
+UNUSABLE_OVER_A_DAY = "more than 24 hours"
+UNUSABLE_TWICE = "listed twice with different totals"
+
+
+def unusable_warning(day: date, why: str) -> str:
+    return (f"Audible's figure for {day.isoformat()} couldn't be used ({why}), so that day is unmeasured, "
+            "not zero. The next reads ask for it again while it is in their last eight days.")
+
 
 #: Why a day went to "book not known".
 WHY_BEFORE_FIRST_READ = "before_first_read"
@@ -192,6 +206,7 @@ class Document:
     library: tuple[Book, ...] | None
     library_problem: str | None = None
     library_truncated: bool = False
+    unusable: dict[date, str] = field(default_factory=dict)   # days whose figure couldn't be used, and why
 
 
 # --- set-up -------------------------------------------------------------------------
@@ -395,27 +410,43 @@ def document(stats: list[dict], books: tuple[Book, ...] | None, *, store: str, f
     }, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def _day_ms(response, first: date, last: date) -> dict[date, float]:
+def _day_ms(response, first: date, last: date) -> tuple[dict[date, float], dict[date, str]]:
+    """-> ({day: ms} for days with a usable total, {day: why not} for days without one).
+
+    Only a change of shape fails the whole answer: no list of totals, an
+    entry that isn't an object, or one with no readable date (then no day can
+    be trusted to be a real zero). A figure that is wrong for its own day — in
+    another unit, impossible, or listed twice with different totals — costs
+    only that day, which is left unmeasured (`UNUSABLE_*`). Failing the whole
+    read for it would fail every later one too: each reaches back to it.
+    """
     if not isinstance(response, dict) or not isinstance(response.get("aggregated_daily_listening_stats"), list):
         raise AudibleError("a stats answer has no list of daily totals")
     out: dict[date, float] = {}
+    bad: dict[date, str] = {}
     for entry in response["aggregated_daily_listening_stats"]:
         if not isinstance(entry, dict):
             raise AudibleError("a daily total is not an object")
-        if entry.get("unit") != "Milliseconds":
-            raise AudibleError("a daily total is not in milliseconds")
         try:
             day = date.fromisoformat(str(entry.get("interval_identifier")))
         except ValueError:
             raise AudibleError("a daily total has no readable date") from None
+        if not first <= day <= last:      # today's partial figure, and anything outside, are dropped
+            continue
         ms = _number(entry.get("aggregated_sum"))
-        if ms is None or ms < 0 or ms > MAX_DAY_MS:
-            raise AudibleError(f"the total for {day} is not a possible day's listening")
-        if day in out:
-            raise AudibleError(f"{day} is listed twice in one answer")
-        if first <= day <= last:          # today's partial figure, and anything outside, are dropped
+        if entry.get("unit") != "Milliseconds":
+            bad.setdefault(day, UNUSABLE_UNIT)
+        elif ms is None or ms < 0 or not math.isfinite(ms):
+            bad.setdefault(day, UNUSABLE_NUMBER)
+        elif ms > MAX_DAY_MS:
+            bad.setdefault(day, UNUSABLE_OVER_A_DAY)
+        elif day in out and out[day] != ms:
+            bad.setdefault(day, UNUSABLE_TWICE)
+        else:
             out[day] = ms
-    return out
+    for day in bad:
+        out.pop(day, None)
+    return out, bad
 
 
 def parse(data: bytes) -> Document:
@@ -433,11 +464,17 @@ def parse(data: bytes) -> Document:
     except (UnicodeDecodeError, ValueError, KeyError, TypeError):
         raise AudibleError("the stored Audible document is not readable") from None
     days: dict[date, float] = {}
+    unusable: dict[date, str] = {}
     for chunk in chunks:
         if not isinstance(chunk, dict):
             raise AudibleError("the stored Audible document is not readable")
-        for day, ms in _day_ms(chunk.get("response"), first, last).items():
+        good, bad = _day_ms(chunk.get("response"), first, last)
+        for day, ms in good.items():
             days[day] = max(ms, days.get(day, 0.0))
+        for day, why in bad.items():
+            unusable.setdefault(day, why)
+    for day in unusable:                  # unusable in any answer: not trusted from the other either
+        days.pop(day, None)
     books = None
     if library is not None:
         if not isinstance(library, list):
@@ -447,7 +484,8 @@ def parse(data: bytes) -> Document:
                                b["finished_at"], b["runtime_s"]) for b in library)
         except (KeyError, TypeError):
             raise AudibleError("the stored library is not readable") from None
-    return Document(store, first, last, dict(sorted(days.items())), books, problem, truncated)
+    return Document(store, first, last, dict(sorted(days.items())), books, problem, truncated,
+                    dict(sorted(unusable.items())))
 
 
 # --- which book ---------------------------------------------------------------------
@@ -621,6 +659,15 @@ def _record(conn: sqlite3.Connection, clk: Clock, settings: Settings, data: byte
             day += timedelta(days=1)
 
         written, new_books = 0, []
+
+        def book(key: str, title: str) -> labels.Source:
+            existed = conn.execute("SELECT 1 FROM sources WHERE kind = ? AND source_key = ?",
+                                   (T.KIND_AUDIOBOOK, key)).fetchone()
+            made = labels.ensure_source(conn, clk, T.KIND_AUDIOBOOK, key, title, label_on_create=STANDING_LABEL)
+            if existed is None:
+                new_books.append(key)
+            return made
+
         for day, ms in doc.days.items():
             if ms <= 0 or day in skip:
                 continue
@@ -628,14 +675,7 @@ def _record(conn: sqlite3.Connection, clk: Clock, settings: Settings, data: byte
             for share in attribute(day, total, reads):
                 if share.minutes <= 0:
                     continue
-                key = share.asin or T.UNKNOWN_AUDIOBOOK_KEY
-                existed = conn.execute("SELECT 1 FROM sources WHERE kind = ? AND source_key = ?",
-                                       (T.KIND_AUDIOBOOK, key)).fetchone()
-                source = labels.ensure_source(conn, clk, T.KIND_AUDIOBOOK, key,
-                                              share.title or share.asin or BOOK_NOT_KNOWN,
-                                              label_on_create=STANDING_LABEL)
-                if existed is None:
-                    new_books.append(key)
+                source = book(share.asin or T.UNKNOWN_AUDIOBOOK_KEY, share.title or share.asin or BOOK_NOT_KNOWN)
                 evidence.upsert_measurement(
                     conn, rec, source_id=source.id, device=T.DEVICE_ACCOUNT, provenance=T.PROV_AUDIBLE_STATS,
                     period_start=day.isoformat(), period_end=day.isoformat(), minutes=share.minutes,
@@ -643,6 +683,19 @@ def _record(conn: sqlite3.Connection, clk: Clock, settings: Settings, data: byte
                             "content_s_moved": share.content_s,
                             "between": list(share.between) if share.between else None, "why": share.why})
                 written += 1
+        # A day whose figure couldn't be used is inside the window this read
+        # vouches for, so it gets an explicit unmeasured row: no figure, and
+        # never a zero. The rest of the read stands, as 'partial'.
+        for day, why in doc.unusable.items():
+            if day in skip:
+                continue
+            source = book(T.UNKNOWN_AUDIOBOOK_KEY, BOOK_NOT_KNOWN)
+            evidence.upsert_measurement(
+                conn, rec, source_id=source.id, device=T.DEVICE_ACCOUNT, provenance=T.PROV_AUDIBLE_STATS,
+                period_start=day.isoformat(), period_end=day.isoformat(), minutes=None,
+                status="unreadable",
+                detail={"basis": BASIS_NOT_KNOWN, "unreadable_reason": why, "why": None})
+            rec.warnings.append(unusable_warning(day, why))
         if new_books:
             rec.meta["new_books"] = new_books
         if doc.library is None:

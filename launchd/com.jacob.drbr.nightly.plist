@@ -2,10 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Nightly refresh — `jobs.py sync`: every automatic read and nothing else
-  (DR5.29). Cold Turkey and Qbserve only read finished days, so the day that
-  has just ended lands in the figures at a quarter past midnight instead of
-  waiting for the 09:30 run. It sends nothing: no Telegram, no reminders, no
-  summary — those stay with the morning job.
+  (DR5.29): outbox, vault, Cold Turkey, Qbserve, phone browser and, last,
+  Audible's listening stats (DR5.28), the one read that needs the internet;
+  signed out of Audible, that step does nothing. Cold Turkey, Qbserve and
+  Audible only read finished days, so the day that has just ended lands in the
+  figures at a quarter past midnight instead of waiting for the 09:30 run. It
+  sends nothing: no Telegram, no reminders, no summary — those stay with the
+  morning job.
 
   Screen Time and the phone browser arrive once a week from screenshots, and
   YouTube when the extension runs, so they are not refreshed here; the

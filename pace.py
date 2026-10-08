@@ -6,11 +6,13 @@ the progress over the course of the week". This is that, under the same rule
 as the weekly one — compare only what was measured the same way in both spans.
 
 **Only the sources that report every day can be compared part-way through a
-week.** Cold Turkey (the Mac's browser) and Qbserve (Mac apps) read every
-finished day on their own, and podcast listening is polled. Screen Time and
-the phone browser arrive as one figure per week from Monday's screenshots, and
-YouTube only when the extension is run; last week's Screen Time cannot be cut
-at Tuesday, and this week's does not exist yet. So the pace figure says which
+week.** Cold Turkey (the Mac's browser), Qbserve (Mac apps) and Audible's
+listening stats (audiobooks, once he is signed in) read every finished day on
+their own, and podcast listening is polled. Audiobooks are worthwhile by his
+standing decision (DR5.28), so they add nothing unless he relabels a book.
+Screen Time and the phone browser arrive as one figure per week from Monday's
+screenshots, and YouTube only when the extension is run; last week's Screen
+Time cannot be cut at Tuesday, and this week's does not exist yet. So the pace figure says which
 sources it counts and which join when the week is in, and never pretends the
 part-week is the whole week.
 
@@ -47,6 +49,10 @@ DAILY_CHANNELS: dict[str, str | None] = {
     T.PROV_APP_TRACKER: "qbserve",
     T.PROV_API: None,
     T.PROV_PAGE: "youtube_history",
+    # One row per book per day (DR5.28). Worthwhile by his standing decision,
+    # so it adds nothing here, unless he relabels a book: then it must count.
+    # Optional: while he is signed out it is simply not a channel.
+    T.PROV_AUDIBLE_STATS: "audible",
 }
 
 #: Weekly channels: one figure per week, so they cannot be cut part-way.
@@ -123,9 +129,9 @@ def _day_charged(conn: sqlite3.Connection, settings: Settings, day: date) -> tup
         """
         SELECT m.*, s.kind AS kind, s.source_key AS source_key, s.display_name AS display_name
           FROM measurements m JOIN sources s ON s.id = m.source_id
-         WHERE m.provenance IN (?, ?, ?) AND m.period_start = ? AND m.period_end = ?
+         WHERE m.provenance IN (?, ?, ?, ?) AND m.period_start = ? AND m.period_end = ?
         """,
-        (T.PROV_EXPORT, T.PROV_APP_TRACKER, T.PROV_PAGE, iso, iso),
+        (T.PROV_EXPORT, T.PROV_APP_TRACKER, T.PROV_PAGE, T.PROV_AUDIBLE_STATS, iso, iso),
     ).fetchall()
     for row in rows:
         if go_live and row["period_end"] < go_live:
@@ -196,6 +202,8 @@ def pace(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Pace | Non
     left_out: list[str] = []
     this_total = last_total = 0.0
     for prov in DAILY_CHANNELS:
+        if prov == T.PROV_AUDIBLE_STATS and not report.expects("audible", settings):
+            continue                       # signed out: not measured by choice, never "a day wasn't read"
         name = progress.CHANNEL_NAMES[prov]
         if not (_span_read(conn, settings, prov, this_span)
                 and _span_read(conn, settings, prov, last_span)):

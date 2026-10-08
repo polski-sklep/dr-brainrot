@@ -94,6 +94,25 @@ def expects(kind: str, settings: Settings) -> bool:
     return True
 
 
+def _groups_unread(conn: sqlite3.Connection, settings: Settings,
+                   week: T.MeasurementWeek | None = None) -> set[str]:
+    """Groups with no reading behind a zero: audiobooks while he is signed out,
+    or before any read of Audible covered `week` (or, without one, ever).
+
+    A 0 there would mean "not read", not "nothing consumed", so a table leaves
+    the group out unless it holds figures (absence is never zero). Desktop
+    apps with Qbserve unconfigured still show their zero, as they always have.
+    """
+    if not expects("audible", settings):
+        return {T.GROUP_AUDIOBOOKS}
+    if week is not None:
+        read = _covering_import(conn, settings, "audible", week)
+    else:
+        read = conn.execute("SELECT 1 FROM imports WHERE kind = 'audible' "
+                            "AND status IN ('ok', 'partial') LIMIT 1").fetchone()
+    return set() if read is not None else {T.GROUP_AUDIOBOOKS}
+
+
 #: Qbserve (DR5.3) is read daily. A read older than this means the read is not
 #: happening; a newest record older than this is the stopped-Qbserve rule when
 #: there is no witness to say whether the Mac was in use (`qbserve_silence`).
@@ -344,6 +363,9 @@ class RecordRow:
     covered_elsewhere: str | None
     import_id: int | None
     source_key: str | None = None     # so the page can link a site or channel to its own page
+    #: Was this figure divided across sources by estimate? An audiobook day
+    #: given whole to "book not known" was never divided (DR5.28).
+    split_estimated: bool = True
 
 
 # --------------------------------------------------------------------------
@@ -398,6 +420,31 @@ def _covering_import(conn: sqlite3.Connection, settings: Settings, kind: str,
         "ORDER BY id DESC LIMIT 1",
         (kind, week.end, week.start),
     ).fetchone()
+
+
+#: Daily reads whose imports overlap a week without having to reach its end,
+#: so overlapping is not enough: a finished week is covered only once a read
+#: reached its Saturday (`_read_short_of`). Audible only, for now (DR5.28);
+#: Cold Turkey's and Qbserve's daily reads still count by overlap.
+READ_TO_THE_END = ("audible",)
+
+
+def _read_short_of(conn: sqlite3.Connection, clk: Clock, settings: Settings, kind: str,
+                   week: T.MeasurementWeek) -> bool:
+    """Is this a finished week whose last days no successful read of `kind` has reached?
+
+    Only for `READ_TO_THE_END`. A week still running is never short: its
+    figure is "so far" by nature. A finished one whose reads stopped early
+    (Audible unreachable on Thursday, Friday and Saturday) must not read as
+    complete: those days are unmeasured, not zero.
+    """
+    if kind not in READ_TO_THE_END:
+        return False
+    if week.saturday >= T.local_date(clk.now(), settings.tz):
+        return False
+    (through,) = conn.execute("SELECT MAX(period_end) FROM imports WHERE kind = ? "
+                              "AND status IN ('ok', 'partial')", (kind,)).fetchone()
+    return through is None or through < week.end
 
 
 def window_start(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> str | None:
@@ -487,6 +534,8 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         kind = IMPORT_KIND_FOR_PROVENANCE.get(provenance)
         if kind is not None:
             imp = _covering_import(conn, settings, kind, mweek)
+            if imp is not None and _read_short_of(conn, clk, settings, kind, mweek):
+                imp = None
             # Rows exist but no import covers the whole week yet (e.g. a
             # YouTube sync made mid-week): the figure is honest but partial.
             # Only once the week has been asked for is that a gap.
@@ -506,6 +555,10 @@ def weekly_totals(conn: sqlite3.Connection, clk: Clock, settings: Settings,
         if imp is None:
             out.append(SourceTotal(group, provenance, device, None, 0, 0.0,
                                    IMPORT_MISSING if due else IMPORT_NOT_DUE))
+        elif _read_short_of(conn, clk, settings, kind, mweek):
+            # Read for its first days, with nothing in them, but not to its end.
+            out.append(SourceTotal(group, provenance, device, 0.0, 0, 0.0,
+                                   IMPORT_INCOMPLETE if due else IMPORT_SO_FAR))
         else:
             # Evidence arrived and simply held no rows for this week.
             out.append(SourceTotal(group, provenance, device, 0.0, 0, 0.0, imp["status"], imp["id"]))
@@ -668,10 +721,13 @@ def gated_vs_ungated(conn: sqlite3.Connection, clk: Clock, settings: Settings,
     """How much consumption passed through the queue versus bypassed it, per group."""
     split = allowance.gated_split(conn, settings, week_start)
     prov_order = {p: i for i, p in enumerate(T.PROVENANCES)}
+    off = _groups_unread(conn, settings, T.measurement_week_for_allowance_week(week_start, settings.tz))
     out = []
     for group in T.REPORT_GROUPS:
         s = split[group]
         total = s.gated_min + s.ungated_min
+        if group in off and total <= 0 and not s.provenances:
+            continue                  # not read (signed out, or no read covers the week): no "nothing consumed"
         out.append(GatedRow(group, s.gated_min, s.ungated_min,
                             (s.ungated_min / total) if total > 0 else None,
                             s.wasteful_ungated_min,
@@ -689,6 +745,8 @@ def latest_imports(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> 
     for kind in T.IMPORT_KINDS:
         row = conn.execute("SELECT * FROM imports WHERE kind = ? ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
         if row is None:
+            if kind == "audible" and not expects(kind, settings):
+                continue              # optional and not set up: nothing is owed, so nothing is "missing"
             out.append(ImportSummary(kind))
             continue
         out.append(ImportSummary(kind, row["id"], row["status"], row["received_at"], row["period_start"],
@@ -776,7 +834,9 @@ def cost_per_keeper(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
 
     prov_order = {p: i for i, p in enumerate(T.PROVENANCES)}
     rows: list[KeeperRow] = []
-    groups = list(T.REPORT_GROUPS) + [g for g in (T.GROUP_WEB, T.GROUP_OTHER) if keepers.get(g)]
+    off = _groups_unread(conn, settings)
+    groups = [g for g in T.REPORT_GROUPS if g not in off or minutes[g] > 0 or provenances[g] or keepers.get(g)]
+    groups += [g for g in (T.GROUP_WEB, T.GROUP_OTHER) if keepers.get(g)]
     for group in groups:
         has_minutes_source = group in T.REPORT_GROUPS
         mins = minutes[group] if has_minutes_source else None
@@ -1033,35 +1093,59 @@ class AudibleFailure:
     covered_through: str | None
 
 
+def _audible_reads(conn: sqlite3.Connection) -> list[tuple[str, sqlite3.Row, dict]]:
+    """Every attempt to read Audible, as (when it was read, import row, meta), oldest first.
+
+    "When" is the read's own time (`meta.read_at`), not when the row was
+    written, and a reparse is left out altogether: it rebuilds figures from a
+    stored read and never reached Audible, so it must not count as a read, nor
+    hide a failure that came after the read it restates.
+    """
+    out = []
+    for row in conn.execute("SELECT * FROM imports WHERE kind = 'audible' ORDER BY id"):
+        try:
+            meta = json.loads(row["meta"] or "{}")
+        except ValueError:
+            meta = {}
+        if not isinstance(meta, dict):
+            meta = {}
+        if meta.get("reparse_of") is not None:
+            continue
+        out.append((meta.get("read_at") or row["received_at"], row, meta))
+    out.sort(key=lambda r: (clock.parse(r[0]), r[1]["id"]))
+    return out
+
+
 def _audible_last_read(conn: sqlite3.Connection) -> str | None:
-    """When a read last reached Audible: its stamp, or the newest successful import."""
+    """When a read last reached Audible: its stamp, or the newest successful read."""
     from sources import audible  # noqa: PLC0415 — the key's owner
 
-    row = _latest_import_row(conn, "audible")
-    reads = [t for t in (evidence.get_meta(conn, audible.READ_AT_KEY),
-                         row["received_at"] if row is not None else None) if t]
-    return max(reads, key=clock.parse) if reads else None
+    reads = [when for when, row, _meta in _audible_reads(conn) if row["status"] != T.IMPORT_FAILED]
+    stamp = evidence.get_meta(conn, audible.READ_AT_KEY)
+    times = [t for t in (stamp, reads[-1] if reads else None) if t]
+    return max(times, key=clock.parse) if times else None
 
 
 def audible_failure(conn: sqlite3.Connection) -> AudibleFailure | None:
     """The failed read that is the last word on audiobooks, or None.
 
     A failure stops counting once any later read reaches Audible, even one
-    that found nothing new and so recorded no import (`READ_AT_KEY`).
+    that found nothing new and so recorded no import (`READ_AT_KEY`). A
+    reparse is not a read (`_audible_reads`), so it never clears one.
     """
-    failed = _latest_import_row(conn, "audible", include_failed=True)
-    if failed is None or failed["status"] != T.IMPORT_FAILED:
+    reads = _audible_reads(conn)
+    if not reads:
+        return None
+    at, failed, meta = reads[-1]
+    if failed["status"] != T.IMPORT_FAILED:
         return None
     last_read = _audible_last_read(conn)
-    if last_read is not None and clock.parse(last_read) > clock.parse(failed["received_at"]):
+    if last_read is not None and clock.parse(last_read) > clock.parse(at):
         return None
-    try:
-        kind = json.loads(failed["meta"] or "{}").get("failure") or "unexpected"
-    except ValueError:
-        kind = "unexpected"
+    kind = meta.get("failure") or "unexpected"
     (covered,) = conn.execute("SELECT MAX(period_end) FROM imports WHERE kind = 'audible' "
                               "AND status IN ('ok', 'partial')").fetchone()
-    return AudibleFailure(kind, failed["received_at"], failed["error"] or "", covered)
+    return AudibleFailure(kind, at, failed["error"] or "", covered)
 
 
 def audible_needs_signin(conn: sqlite3.Connection, settings: Settings) -> bool:
@@ -1091,8 +1175,13 @@ def _audible_blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Setting
         if failure.kind == "sign_in":
             return [f"Audiobook listening couldn't be read on {when}: the Audible sign-in needs redoing "
                     f"({audible.SIGN_IN_COMMAND}). {after[0].upper()}{after[1:]}."]
-        return [f"Audible's listening stats couldn't be read on {when}; {after}. "
-                "The next morning's read tries again."]
+        if failure.kind == audible.FAIL_UNREACHABLE:
+            return [f"Audible's listening stats couldn't be read on {when}; {after}. "
+                    "The next morning's read tries again."]
+        # An answer of a new shape doesn't mend itself overnight: no promise.
+        return [f"Audible's listening stats couldn't be read on {when}, because the answer wasn't in the "
+                f"shape expected; {after}. Each morning's read tries again, but if this keeps happening, "
+                "the Audible read itself needs updating."]
     last = _audible_last_read(conn)
     hours = _hours_since(clk, last)
     if hours is not None and hours > STALE_HOURS:
@@ -1192,12 +1281,24 @@ def records(conn: sqlite3.Connection, clk: Clock, settings: Settings, *, group: 
             label=resolved.label, label_basis=resolved.basis, provenance=r["provenance"],
             device=r["device"], covered_elsewhere=T.covered_elsewhere(r["kind"], r["source_key"]),
             import_id=r["import_id"], source_key=r["source_key"],
+            split_estimated=_split_estimated(r),
         ))
 
     if label is not None:
         out = [r for r in out if r.label == label]
     out.sort(key=lambda r: (r.day, r.provenance, r.source, r.item or ""), reverse=True)
     return out[:limit]
+
+
+def _split_estimated(row: sqlite3.Row) -> bool:
+    """False for an audiobook day that went whole to "book not known": nothing was divided."""
+    if row["provenance"] != T.PROV_AUDIBLE_STATS:
+        return True
+    try:
+        detail = json.loads(row["detail"] or "{}")
+    except ValueError:
+        return True
+    return not (isinstance(detail, dict) and detail.get("basis") == "book_not_known")
 
 
 # --------------------------------------------------------------------------

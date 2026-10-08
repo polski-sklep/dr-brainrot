@@ -1415,7 +1415,7 @@ def _automatic_state(conn, clk, kind, *, what, tz, never_action, stale_action)  
 ## §22 Post-build amendment — audiobooks from Audible (DR5.28)
 
 - Migration `0008_audiobooks.sql`, schema_version 8: rebuilds `imports`, `sources` and `measurements` with widened CHECKs (import `kind` + `audible`; source `kind` + `audiobook`; `provenance` + `audible_stats`), by the procedure of 0004/0005/0007. Columns, constraints, indexes and rows are unchanged. `schema.sql` stays the v1 baseline.
-- `drbr_types`: `KIND_AUDIOBOOK = "audiobook"` (key = ASIN, kept as given), `GROUP_AUDIOBOOKS = "audiobooks"` (in `REPORT_GROUPS`, not `KEEPER_GROUPS`; `report_group(KIND_AUDIOBOOK)`), `PROV_AUDIBLE_STATS = "audible_stats"` (in `PROVENANCES` after `browser_sync`; text "Audible's own listening stats"), `IMPORT_KINDS` + `"audible"`, `UNKNOWN_AUDIOBOOK_KEY = "unknown"`, `COVERED_ELSEWHERE[("iphone_app", "audible")]`. Audiobook measurements use `DEVICE_ACCOUNT`.
+- `drbr_types`: `KIND_AUDIOBOOK = "audiobook"` (key = ASIN, kept as given), `GROUP_AUDIOBOOKS = "audiobooks"` (in `REPORT_GROUPS`, not `KEEPER_GROUPS`; `report_group(KIND_AUDIOBOOK)`), `PROV_AUDIBLE_STATS = "audible_stats"` (in `PROVENANCES` after `browser_sync`; text "Audible's own listening stats"), `IMPORT_KINDS` + `"audible"`, `UNKNOWN_AUDIOBOOK_KEY = "unknown"`, `COVERED_ELSEWHERE` for `("iphone_app", "audible")`, `("web_domain", "audible.co.uk")`, `("web_domain", "audible.com")` and `("desktop_app", "com.audible.iphone")`. Audiobook measurements use `DEVICE_ACCOUNT`.
 - `config.Settings.audible_auth: Path | None` (`DRBR_AUDIBLE_AUTH`, default `data/audible_auth.json`; set but empty = None). The store file is `audible_auth.with_name("audible_store.json")`. `test_settings` keeps None.
 - `labels`:
   - `normalise_key("audiobook", asin)` → the ASIN, stripped, case kept;
@@ -1443,6 +1443,10 @@ def _automatic_state(conn, clk, kind, *, what, tz, never_action, stale_action)  
   def document(stats, books, *, store, first, last, library_problem=None, truncated=False) -> bytes
       # stats answers verbatim + the library reduced to asin/title/places; no time, no sign-in data
   def parse(data) -> Document                      # raises AudibleError; keeps first..last only
+      # Document.unusable: {day: why} for a figure in another unit, impossible (< 0, > 24 h) or
+      # listed twice with different totals. Only a change of shape (no list of totals, an entry
+      # that isn't an object or has no readable date) raises.
+  UNUSABLE_UNIT, UNUSABLE_NUMBER, UNUSABLE_OVER_A_DAY, UNUSABLE_TWICE; unusable_warning(day, why)
   def content_moved(a, b) -> dict[asin, int]       # book seconds; a new finish counts to the end
   def first_reads(snapshots) -> list[Snapshot]     # earliest read per local day
   def split_minutes(total_min, weights) -> dict    # 2 dp, sums to round(total, 2)
@@ -1451,18 +1455,22 @@ def _automatic_state(conn, clk, kind, *, what, tz, never_action, stale_action)  
   def reparse(conn, clk, settings, import_id) -> Outcome   # days a later read covers are left alone
   ```
 
-  A successful read's import period is its whole window (every day vouched for); it deletes and rewrites every `audible_stats` row in that window (DR5.15). A failed read records a failed import (`meta.failure`, `read_at`, `first_day`, `last_day`, `store`; no raw file) and changes nothing else. Every read that reaches Audible stamps `meta` `audible_read_at`, duplicates included. Each book is a source labelled `worthwhile` on creation (`meta.standing_label`, `meta.new_books`). Measurement `detail`: `basis` (`one_book` | `split` | `book_not_known`), `day_total_min`, `share`, `content_s_moved`, `between`, `why` (`before_first_read` | `no_read_after_yet` | `nothing_moved`). The real client is built from the saved sign-in only inside `sync`, with the library's warnings suppressed; a refreshed sign-in is written back to the same file, atomically, at 0600.
+  A successful read's import period is its whole window (every day vouched for); it deletes and rewrites every `audible_stats` row in that window (DR5.15). A failed read records a failed import (`meta.failure`, `read_at`, `first_day`, `last_day`, `store`; no raw file) and changes nothing else. An unusable day inside a successful read gets one `unreadable` row (minutes NULL, on "book not known", `detail.unreadable_reason`) and one warning, so the import is `partial` and its period still runs to its end: the day is unmeasured, never zero, and later reads are never held back by it. Every read that reaches Audible stamps `meta` `audible_read_at`, duplicates included. Each book is a source labelled `worthwhile` on creation (`meta.standing_label`, `meta.new_books`). Measurement `detail`: `basis` (`one_book` | `split` | `book_not_known`), `day_total_min`, `share`, `content_s_moved`, `between`, `why` (`before_first_read` | `no_read_after_yet` | `nothing_moved`). The real client is built from the saved sign-in only inside `sync`, with the library's warnings suppressed; a refreshed sign-in is written back to the same file, atomically, at 0600.
 - `jobs`: `_audible` step, last in `SYNC_STEPS` and `run_sync`. Not signed in → "not set up (no Audible sign-in): audiobooks not measured", ok. A failed read raises, failing the step.
 - `report`:
   - `IMPORT_KIND_FOR_PROVENANCE[PROV_AUDIBLE_STATS] = "audible"`; an `EXPECTED_WEEKLY` row for Audible;
   - `expects(kind, settings) -> bool`: Qbserve only while `qbserve_db` is set, Audible only while signed in, everything else always. `weekly_totals` and `insights._coverage_gaps` use it;
   - `GROUP_BLIND_SPOTS[GROUP_AUDIOBOOKS]`, `GROUP_TEXT` "Audiobooks", `ATTENTION_ORDER` before the vault;
-  - `AudibleFailure(kind, at, error, covered_through)`; `audible_failure(conn)` (the newest import failed and no read has reached Audible since); `audible_needs_signin(conn, settings)`;
-  - `blind_spots` adds at most one Audible line (a failed read, or no read for 36 hours), none when not signed in or never read;
+  - `AudibleFailure(kind, at, error, covered_through)`; `audible_failure(conn)` (the newest read failed and no read has reached Audible since); `audible_needs_signin(conn, settings)`. "Newest" is by `meta.read_at`, and a reparse (`meta.reparse_of`) is not a read: it never clears a failure or freshens "Read on …";
+  - `READ_TO_THE_END = ("audible",)`: in `weekly_totals`, a finished week is covered only once a successful read reached its Saturday; until then its status is `incomplete` (`import_id` None), even though an import overlaps it. A running week is unchanged;
+  - `latest_imports` leaves out `audible` while he is signed out and nothing was ever received; `gated_vs_ungated` and `cost_per_keeper` leave out a 0-minute Audiobooks row while he is signed out or before any read covered it (`_groups_unread`). Figures already read always show;
+  - `RecordRow.split_estimated` (default True) is False for an audiobook day given whole to "book not known";
+  - `blind_spots` adds at most one Audible line (a failed read, or no read for 36 hours), none when not signed in or never read. Only an unreachable Audible promises that the next morning tries again; an answer of a new shape says the read may need updating;
   - `needs_attention` adds an Audiobooks row: not signed in → `waiting`, no action, `AUDIBLE_NOT_SET_UP`; a failed read → `attention`, with `AUDIBLE_SIGNIN_ACTION` only when the sign-in was refused; never read → `waiting`; over 36 hours → `stale`, no action;
   - `provenance_map` adds an Audiobooks row.
 - `checklist`: `WeekNeeds.audible_signin: bool = False` (last field). `render`, when not a nudge, adds the un-numbered `AUDIBLE_SIGNIN_LINE` to the tail; `owed` is unchanged, so it never causes a send. `_automatic` lists "audiobooks" after "podcasts" while signed in and not needing a new sign-in.
-- Dashboard: group name "Audiobooks", kind name "audiobook", import kind name "Audible", badge `("listening stats", "audiblestats")` with its own `.prov-audiblestats` rule, the "split estimated" chip (`caveat`), jinja global `PROV_AUDIBLE_STATS`. `READ_DAILY` and `_AUTO` include `audible` (DR5.26 rule 4).
+- Dashboard: group name "Audiobooks", kind name "audiobook", import kind name "Audible", badge `("listening stats", "audiblestats")` with its own `.prov-audiblestats` rule, the "split estimated" chip (`caveat(prov, split=true)`; records pass `r.split_estimated`), jinja global `PROV_AUDIBLE_STATS`. `READ_DAILY` and `_AUTO` include `audible` (DR5.26 rule 4).
+- `pace.DAILY_CHANNELS[PROV_AUDIBLE_STATS] = "audible"`, and `_day_charged` reads its rows: audiobooks count in this week's pace (adding nothing while worthwhile). Signed out, the channel is skipped without a mention.
 - `progress.CHANNEL_NAMES[PROV_AUDIBLE_STATS] = "audiobook listening"`; `insights.SYSTEM_PROMPT` lists audiobooks among the groups.
 - `reparse.py` dispatches `audible`.
 - `conftest.py`: `sys.modules["audible"]` is a stub that fails the test (`pytest.fail`, a BaseException) on first use; reading the real `data/audible_auth.json` or `data/audible_store.json` raises.

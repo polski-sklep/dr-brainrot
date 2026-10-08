@@ -10,11 +10,12 @@
     a parsed screenshot may have misread the number; a phone-sync or audiobook
     figure is measured but its division across sites or books is inferred.
     Amber for the first, neutral for the second — the weaker claim gets the
-    quieter chip. -#}
-{% macro caveat(prov) -%}
+    quieter chip. `split` is false for a figure that was never divided (an
+    audiobook day given whole to "book not known"): no chip then. -#}
+{% macro caveat(prov, split=true) -%}
 {%- if prov == PROV_SCREENSHOT %} <span class="lowconf" title="{{ PROVENANCE_TEXT.get(prov, prov) }}">lower confidence</span>
 {%- elif prov == PROV_BROWSER_SYNC %} <span class="estimated" title="The total is Screen Time's measured figure for the browser. Only its division across sites is estimated, from the gap between one visit and the next.">split estimated</span>
-{%- elif prov == PROV_AUDIBLE_STATS %} <span class="estimated" title="The day's total is Audible's own listening figure. Only its division across books is estimated, from how far each book's place moved.">split estimated</span>
+{%- elif prov == PROV_AUDIBLE_STATS and split %} <span class="estimated" title="The day's total is Audible's own listening figure. Only its division across books is estimated, from how far each book's place moved.">split estimated</span>
 {%- endif -%}
 {% endmacro %}
 

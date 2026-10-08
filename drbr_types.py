@@ -124,6 +124,15 @@ COVERED_ELSEWHERE: dict[tuple[str, str], str] = {
     # while Audible counted 144 and 273 minutes of listening.
     (KIND_IPHONE_APP, "audible"): ("Audible's own listening stats (Screen Time only sees the app while the "
                                    "screen is on)"),
+    # The same listening reached another way: the web player in the Mac's
+    # browser (Cold Turkey), or the iPhone app run on the Mac (Qbserve, by
+    # its bundle id). None has been seen yet; listed so that the first time
+    # one is, it is never charged as undecided brain rot beside the audiobook
+    # minutes it duplicates. Time in the store on the same site goes with
+    # it; shopping for a book is never content either.
+    (KIND_WEB_DOMAIN, "audible.co.uk"): "Audible's own listening stats (account-level)",
+    (KIND_WEB_DOMAIN, "audible.com"): "Audible's own listening stats (account-level)",
+    (KIND_DESKTOP_APP, "com.audible.iphone"): "Audible's own listening stats (account-level)",
 }
 
 #: Qbserve files some websites it recognises in a browser tab under pseudo-apps

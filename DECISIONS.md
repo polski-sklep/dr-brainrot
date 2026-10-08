@@ -2605,6 +2605,21 @@ its history. One request covers at most 30 days; requests start 28 days apart,
 because the probe proved a request returns its start day and at least the 27
 after it, and never showed whether the 30th is included.
 
+A figure that can't be used for its own day (in another unit, over 24 hours,
+or listed twice with different totals) costs only that day: it gets an
+explicit unmeasured row and a warning, and the rest of the read stands, as
+"partial". Review found that failing the whole read instead failed every
+later one too, since each reaches back to the first uncovered day, while the
+words promised the next morning would work. Only an answer of a new shape (no
+list of totals, an entry with no readable date) still fails whole, and its
+words no longer promise that the next morning fixes it.
+
+A finished week counts as covered only once a read reached its Saturday. An
+import overlapping it is not enough: reads through Wednesday, then three
+failed mornings, used to leave the week "ok" with Thursday to Saturday
+unmeasured. The week now says "incomplete" until a read gets there. Cold
+Turkey's and Qbserve's daily reads still count by overlap.
+
 Screen Time saw the Audible app for 2 and 7 minutes in the weeks of 20 and 27
 September; Audible counted 144 and 273 minutes. Screen Time only sees the app
 while the screen is on, so `(iphone_app, "audible")` joins
@@ -2651,8 +2666,15 @@ writes by itself, after DR5.5's dashboard host, and the first he asked for as a
 standing rule. The effect: worthwhile rises; wasteful, undecided, charged
 minutes, the allowance and every week's overage do not move.
 
-Not covered elsewhere: `audible.co.uk` in Cold Turkey. The site is the store,
-a tool by his labels, and the web player is rarely used. That stays his call.
+The same listening could reach two other channels: the web player at
+`audible.co.uk` or `audible.com` in the Mac's browser (Cold Turkey), and the
+iPhone app run on the Mac (Qbserve, `com.audible.iphone`). None of these is a
+source yet: the only Audible source on the live database is Screen Time's app.
+An earlier draft of this entry called the site "a tool by his labels", but no
+such label exists, and a first visit would have arrived unlabelled, charged as
+undecided beside the audiobook minutes it duplicates. All three are therefore
+covered elsewhere, as Spotify's site and Mac app are. Time in the store goes
+with them; shopping for a book is not content either.
 
 **The client is unofficial.** mkb79's `audible` library (pinned at 0.12.0)
 talks to Audible the way the app does. It is not an interface Amazon
@@ -2678,6 +2700,27 @@ when it goes anyway, gains one un-numbered line with the exact command, `cd
 ~/Projects/drbr && .venv/bin/python audible_login.py --again`. It is never a
 reason to send. Audible being unreachable asks nothing: the next morning
 tries again.
+
+Signed out (or signed in but never read), the record browser shows no
+Audible import as missing and no 0-minute Audiobooks row in the reflex and
+cost-per-keeper tables: a zero there would claim nothing was heard. Figures
+already read stay. Days given whole to "book not known" carry no "split
+estimated" chip, because nothing was divided. Reparsing a read is not a read:
+it neither clears a refused sign-in nor freshens "Read on …"; both go by the
+time Audible was actually read.
+
+Audiobooks count in this week's pace (DR5.29) like the other daily reads. They
+add nothing while worthwhile; a book he relabels wasteful counts there as it
+does in the week.
+
+**Going live.** The bot and the dashboard keep the code they started with
+until restarted, and the bot's old `report_group` raises on `audiobook`: once
+the first read has written rows, every Screen Time or Cold Turkey import the
+old bot takes is saved but its week is not recomputed, and the reply wrongly
+says nothing was recorded. So right after the merge, before Sync now or the
+next 00:15 or 09:30 run, both are restarted (`launchctl kickstart -k` on
+`com.jacob.drbr.dashboard` and `com.jacob.pop.bot`, README "Start
+everything"), and the bot's start time is checked to be after the merge.
 
 If he signs out, Screen Time's Audible app stays covered elsewhere. Its
 minutes stay visible in that column, and the source is labelled tool anyway.

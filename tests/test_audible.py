@@ -33,6 +33,7 @@ import drbr_types as T
 import evidence
 import jobs
 import labels
+import pace
 import reparse
 import report
 from dashboard import app as dashboard_app
@@ -246,7 +247,8 @@ def rows(conn, day: str | None = None) -> list[dict]:
 def day_totals(conn) -> dict[str, float]:
     out: dict[str, float] = {}
     for r in rows(conn):
-        out[r["period_start"]] = round(out.get(r["period_start"], 0.0) + r["minutes"], 2)
+        if r["minutes"] is not None:                                    # an unmeasured day has no figure
+            out[r["period_start"]] = round(out.get(r["period_start"], 0.0) + r["minutes"], 2)
     return out
 
 
@@ -379,26 +381,37 @@ def test_an_unreachable_audible_records_a_failure_and_leaves_days_unmeasured(con
     assert audiobook_total(conn, clk, signed_in, "2026-10-11").minutes == pytest.approx(15.0)
 
 
+class Doctored(FakeClient):
+    """Answers like FakeClient, then lets a test spoil the daily totals of each stats answer."""
+
+    def __init__(self, days, books=None, *, spoil=None, **kw):
+        super().__init__(days, books, **kw)
+        self.spoil = spoil
+
+    def get(self, path, **params):
+        out = super().get(path, **params)
+        if path == audible.STATS_PATH and self.spoil is not None:
+            out = self.spoil(out)
+        return out
+
+
 def test_an_answer_of_a_new_shape_fails_whole_and_keeps_the_evidence(conn, signed_in):
     clk = clock.FrozenClock("2026-10-09T07:30:00+00:00")
     audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
     before = rows(conn)
 
-    class Seconds(FakeClient):
-        def get(self, path, **params):
-            out = super().get(path, **params)
-            if path == audible.STATS_PATH:
-                for entry in out["aggregated_daily_listening_stats"]:
-                    entry["unit"] = "Seconds"
-            return out
-
     clk.set("2026-10-10T07:30:00+00:00")
-    outcome = audible.sync(conn, clk, signed_in, client=Seconds(REAL_DAYS, library()))
-    assert outcome.status == "failed" and "milliseconds" in outcome.error
+    renamed = Doctored(REAL_DAYS, library(), spoil=lambda out: {"daily_stats": out["aggregated_daily_listening_stats"]})
+    outcome = audible.sync(conn, clk, signed_in, client=renamed)
+    assert outcome.status == "failed" and "no list of daily totals" in outcome.error
     assert rows(conn) == before                                          # the window's delete rolled back
     failed = conn.execute("SELECT * FROM imports WHERE id = ?", (outcome.import_id,)).fetchone()
     assert json.loads(failed["meta"])["failure"] == "unexpected"
     assert evidence.raw_file(signed_in, failed["raw_path"]).exists()   # kept, for a reparse once fixed
+    # A new shape doesn't mend itself overnight, so the words don't promise that it will.
+    [spot] = [s for s in report.blind_spots(conn, clk, signed_in) if "Audible" in s]
+    assert "The next morning's read tries again." not in spot
+    assert "unmeasured, not zero" in spot and "needs updating" in spot
 
 
 def test_a_refused_sign_in_asks_once_for_the_exact_command(conn, signed_in):
@@ -804,9 +817,14 @@ def test_the_fixture_shapes_are_read_as_the_real_ones(conn, signed_in):
                                       "runtime_s"}                     # reduced: nothing else kept
     with pytest.raises(audible.AudibleError):
         audible.parse(b"{not json")
-    with pytest.raises(audible.AudibleError):
+    with pytest.raises(audible.AudibleError):                          # no readable date: the shape changed
         audible.parse(json.dumps(doc | {"stats": [{"response": {"aggregated_daily_listening_stats": [
-            {"aggregated_sum": -1, "interval_identifier": "2026-09-14", "unit": "Milliseconds"}]}}]}).encode())
+            {"aggregated_sum": 1, "interval_identifier": "14/09/2026", "unit": "Milliseconds"}]}}]}).encode())
+    odd = audible.parse(json.dumps(doc | {"stats": [{"response": {"aggregated_daily_listening_stats": [
+        {"aggregated_sum": -1, "interval_identifier": "2026-09-14", "unit": "Milliseconds"},
+        {"aggregated_sum": 60000, "interval_identifier": "2026-09-15", "unit": "Milliseconds"}]}}]}).encode())
+    assert odd.days == {date(2026, 9, 15): 60000.0}                     # an impossible figure costs its own day
+    assert odd.unusable == {date(2026, 9, 14): audible.UNUSABLE_NUMBER}
 
 
 def test_reparse_rebuilds_from_the_stored_read_and_leaves_newer_days_alone(conn, signed_in):
@@ -911,6 +929,8 @@ def test_new_words_are_plain_and_never_name_the_tool_itself(conn, signed_in):
     words = [
         *report.GROUP_BLIND_SPOTS[T.GROUP_AUDIOBOOKS], report.AUDIBLE_SIGNIN_ACTION, report.AUDIBLE_NOT_SET_UP,
         checklist.AUDIBLE_SIGNIN_LINE, audible.NO_LIBRARY_WARNING, audible.TRUNCATED_WARNING,
+        audible.unusable_warning(date(2026, 10, 8), audible.UNUSABLE_OVER_A_DAY),
+        T.covered_elsewhere(T.KIND_WEB_DOMAIN, "audible.co.uk"),
         audible.BOOK_NOT_KNOWN, audible.STANDING_LABEL_NOTE, T.PROVENANCE_TEXT[T.PROV_AUDIBLE_STATS],
         T.covered_elsewhere(T.KIND_IPHONE_APP, "audible"),
         *(audible.failure_message(k, "X") for k in ("sign_in", "unreachable", "unexpected")),
@@ -956,3 +976,212 @@ def test_a_failed_read_fails_only_its_own_step_with_plain_words(conn, signed_in,
                                         "(NetworkError). The next morning's read tries again.")
     assert TOKEN not in results["audible"].error
     assert conn.execute("SELECT status FROM imports WHERE kind = 'audible'").fetchone()[0] == "failed"
+
+
+# ==========================================================================
+# What review found (each test is one finding, reproduced)
+# ==========================================================================
+
+def test_one_impossible_day_costs_only_that_day_and_every_later_read_carries_on(conn, signed_in):
+    """8 Oct over 24 hours used to fail every read from 9 to 20 Oct, while promising the next would work."""
+    days = REAL_DAYS | {"2026-10-08": audible.MAX_DAY_MS + 1, "2026-10-12": ms(15)}
+    clk = clock.FrozenClock("2026-10-09T07:30:00+00:00")
+    warning = audible.unusable_warning(date(2026, 10, 8), audible.UNUSABLE_OVER_A_DAY)
+    for n in range(12):                                                 # every morning, 9 to 20 Oct
+        today = date(2026, 10, 9) + timedelta(days=n)
+        clk.set(f"{today.isoformat()}T07:30:00+00:00")
+        outcome = audible.sync(conn, clk, signed_in, client=FakeClient(days, library()))
+        has_the_8th = date.fromisoformat(outcome.period_start) <= date(2026, 10, 8)
+        assert outcome.status == ("partial" if has_the_8th else "ok"), today
+        assert outcome.warnings == ((warning,) if has_the_8th else ()), today
+        assert audible.covered_through(conn) == today - timedelta(days=1)          # never stuck on the 7th
+        if n:
+            assert outcome.period_start == (today - timedelta(days=audible.LOOKBACK_DAYS)).isoformat()
+        assert report.audible_failure(conn) is None
+    assert [s for s in report.blind_spots(conn, clk, signed_in) if "Audible" in s] == []
+
+    [eighth] = rows(conn, "2026-10-08")                                 # unmeasured, never zero
+    assert (eighth["minutes"], eighth["source_key"]) == (None, T.UNKNOWN_AUDIOBOOK_KEY)
+    assert eighth["detail"]["unreadable_reason"] == audible.UNUSABLE_OVER_A_DAY
+    assert conn.execute("SELECT status FROM measurements WHERE provenance = 'audible_stats' "
+                        "AND period_start = '2026-10-08'").fetchone()[0] == "unreadable"
+    assert day_totals(conn)["2026-10-12"] == 15.0                       # the days after it are measured
+    week = audiobook_total(conn, clk, signed_in, "2026-10-04")
+    assert week.minutes == pytest.approx(83.48) and week.unmeasured_items == 1
+    pooled = allowance.pooled_minutes(conn, signed_in, week_of("2026-10-04"))
+    assert pooled.unmeasured_items == 1 and pooled.worthwhile_min == pytest.approx(83.48)
+
+
+def test_a_figure_in_another_unit_or_listed_twice_costs_only_its_own_day(conn, signed_in):
+    def spoil(out):
+        entries = out["aggregated_daily_listening_stats"]
+        for entry in list(entries):
+            if entry["interval_identifier"] == "2026-10-02":
+                entry["unit"] = "Seconds"
+            elif entry["interval_identifier"] == "2026-10-03":
+                entries.append(dict(entry))                             # the same total twice: harmless
+            elif entry["interval_identifier"] == "2026-10-05":
+                entries.append(dict(entry, aggregated_sum=entry["aggregated_sum"] + 1000))   # which one?
+        return out
+
+    clk = clock.FrozenClock("2026-10-09T07:30:00+00:00")
+    outcome = audible.sync(conn, clk, signed_in, client=Doctored(REAL_DAYS, library(), spoil=spoil))
+    assert outcome.status == "partial"
+    assert outcome.warnings == (audible.unusable_warning(date(2026, 10, 2), audible.UNUSABLE_UNIT),
+                                audible.unusable_warning(date(2026, 10, 5), audible.UNUSABLE_TWICE))
+    assert all("unmeasured, not zero" in w for w in outcome.warnings)
+    unmeasured = {r["period_start"]: r["detail"]["unreadable_reason"] for r in rows(conn) if r["minutes"] is None}
+    assert unmeasured == {"2026-10-02": audible.UNUSABLE_UNIT, "2026-10-05": audible.UNUSABLE_TWICE}
+    totals = day_totals(conn)
+    assert "2026-10-02" not in totals and "2026-10-05" not in totals
+    assert totals["2026-10-03"] == 30.4 and totals["2026-09-14"] == 56.53
+    stored = conn.execute("SELECT warnings FROM imports WHERE id = ?", (outcome.import_id,)).fetchone()[0]
+    assert json.loads(stored) == list(outcome.warnings)
+
+    clk.set("2026-10-10T07:30:00+00:00")                                # the next answer is clean
+    assert audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library())).status == "ok"
+    assert not [r for r in rows(conn) if r["minutes"] is None]          # asked again, and measured
+    assert day_totals(conn)["2026-10-05"] == 83.48
+
+
+def test_a_reparse_is_not_a_read_and_never_hides_a_refused_sign_in(conn, signed_in):
+    clk = clock.FrozenClock("2026-10-08T07:30:00+00:00")
+    first = audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
+    clk.set("2026-10-09T07:30:00+00:00")
+    audible.sync(conn, clk, signed_in, client=FakeClient({}, stats_error=Unauthorized()))
+    assert report.audible_needs_signin(conn, signed_in)
+
+    clk.set("2026-10-09T10:00:00+00:00")                                # 12:00 local: a reparse
+    assert reparse.reparse_import(conn, clk, signed_in, first.import_id).status == "ok"
+    failure = report.audible_failure(conn)
+    assert (failure.kind, failure.at) == ("sign_in", "2026-10-09T07:30:00+00:00")
+    assert report.audible_needs_signin(conn, signed_in)
+    spots = [s for s in report.blind_spots(conn, clk, signed_in) if "Audible" in s]
+    assert len(spots) == 1 and audible.SIGN_IN_COMMAND in spots[0]
+    state, action, _detail, last = report._audible_state(conn, clk, signed_in)
+    assert state == report.STATE_ATTENTION and audible.SIGN_IN_COMMAND in action
+    assert last == "2026-10-08T07:30:00+00:00"                          # the last read that reached Audible
+    clk.set("2026-10-10T07:00:00+00:00")                                # the next morning, still refused
+    needs = checklist.week_needs(conn, clk, signed_in, T.measurement_week(date(2026, 10, 4)))
+    assert needs.audible_signin
+
+    clk.set("2026-10-10T07:30:00+00:00")                                # signed in again, read
+    audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
+    clk.set("2026-10-10T10:00:00+00:00")
+    reparse.reparse_import(conn, clk, signed_in, first.import_id)
+    assert report._audible_state(conn, clk, signed_in)[2] == "Read on Sat 10 Oct 09:30."   # not 12:00
+
+
+def test_a_finished_week_is_incomplete_until_a_read_reaches_its_saturday(conn, signed_in):
+    clk = clock.FrozenClock("2026-10-08T07:30:00+00:00")
+    audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))     # through Wed 7 Oct
+    assert audiobook_total(conn, clk, signed_in, "2026-10-04").import_status == "ok"   # still running
+    for day in ("2026-10-09", "2026-10-10", "2026-10-11"):
+        clk.set(f"{day}T07:30:00+00:00")
+        assert audible.sync(conn, clk, signed_in, client=FakeClient({}, stats_error=NetworkError())).status == "failed"
+
+    week = audiobook_total(conn, clk, signed_in, "2026-10-04")         # Sun 11 Oct: 4 to 10 Oct is over
+    assert week.minutes == pytest.approx(83.48)
+    assert (week.import_status, week.import_id) == (report.IMPORT_INCOMPLETE, None)   # 8 to 10 Oct unread
+    assert not report.everything_in([week])
+    html = _client(signed_in, clk).get("/?week=2026-10-04").get_data(as_text=True)
+    coverage = _flat(_coverage(html))
+    assert "Audiobooks" in coverage and "incomplete" in coverage
+
+    clk.set("2026-10-12T07:30:00+00:00")                                # back: the read reaches Saturday
+    audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
+    assert audiobook_total(conn, clk, signed_in, "2026-10-04").import_status == "ok"
+
+    clk.set("2026-10-14T07:30:00+00:00")                                # read through Tue 13 Oct, then not
+    audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
+    clk.set("2026-10-18T07:30:00+00:00")
+    audible.sync(conn, clk, signed_in, client=FakeClient({}, stats_error=NetworkError()))
+    quiet = audiobook_total(conn, clk, signed_in, "2026-10-11")        # no listening in the days read
+    assert (quiet.minutes, quiet.import_status) == (0.0, report.IMPORT_INCOMPLETE)
+
+
+def _section(html: str, name: str) -> str:
+    m = re.search(rf'<section id="{name}">(.*?)</section>', html, re.S)
+    assert m, name
+    return _flat(m.group(1))
+
+
+def test_signed_out_the_records_page_owes_nothing_and_shows_no_zero(conn, settings, signed_in):
+    clk = clock.FrozenClock("2026-10-09T07:30:00+00:00")
+    _screentime_row(conn, clk, settings, "Instagram", 30.0, start="2026-10-04", end="2026-10-10")
+    out = _client(settings, clk).get("/records").get_data(as_text=True)
+    for name in ("imports", "gated", "cost-per-keeper", "weekly-totals"):
+        text = _section(out, name)
+        assert "Audible" not in text and "Audiobooks" not in text, name
+
+    signed = _client(signed_in, clk).get("/records").get_data(as_text=True)     # signed in, nothing read yet
+    assert "Audible" in _section(signed, "imports")                     # honest: none received yet
+    assert "Audiobooks" not in _section(signed, "gated")                # but never "nothing consumed"
+    assert "Audiobooks" not in _section(signed, "cost-per-keeper")      # nor a 0-minute price
+
+    audible.sync(conn, clk, signed_in, client=FakeClient(REAL_DAYS, library()))
+    read = _client(signed_in, clk).get("/records").get_data(as_text=True)
+    assert "Audiobooks" in _section(read, "cost-per-keeper")
+    assert "Audiobooks" in _section(read, "gated")
+    after = _client(settings, clk).get("/records").get_data(as_text=True)          # signed out, figures kept
+    assert "Audiobooks" in _section(after, "cost-per-keeper")
+
+
+def test_a_book_not_known_day_carries_no_split_chip(conn, signed_in):
+    clk = clock.FrozenClock("2026-10-09T07:30:00+00:00")
+    days = REAL_DAYS | {"2026-10-09": ms(50)}
+    audible.sync(conn, clk, signed_in, client=FakeClient(days, library()))
+    clk.set("2026-10-10T07:30:00+00:00")
+    audible.sync(conn, clk, signed_in, client=FakeClient(days, library(bw=36630)))
+    html = _client(signed_in, clk).get("/records?group=audiobooks").get_data(as_text=True)
+    records = re.findall(r'<tr class="record[^"]*">(.*?)</tr>', html, re.S)
+    unknown = [r for r in records if audible.BOOK_NOT_KNOWN in r]
+    known = [r for r in records if "Test Book One" in r]
+    assert len(unknown) == 10 and len(known) == 1                      # the backfill, and the 9th
+    assert not [r for r in unknown if "split estimated" in r]           # nothing was divided
+    assert "split estimated" in known[0]
+
+
+def test_audibles_web_player_and_its_app_on_the_mac_are_never_charged_twice(conn, clk, settings):
+    reason = "Audible's own listening stats (account-level)"
+    for kind, key in ((T.KIND_WEB_DOMAIN, "audible.co.uk"), (T.KIND_WEB_DOMAIN, "audible.com"),
+                      (T.KIND_DESKTOP_APP, "com.audible.iphone")):
+        assert T.covered_elsewhere(*labels.normalise_key(kind, key)) == reason
+    assert labels.normalise_key(T.KIND_WEB_DOMAIN, "www.audible.co.uk") == (T.KIND_WEB_DOMAIN, "audible.co.uk")
+
+    rec = evidence.begin_import(conn, clk, kind="coldturkey", parser_version="test")
+    site = labels.ensure_source(conn, clk, T.KIND_WEB_DOMAIN, "www.audible.co.uk", "audible.co.uk")
+    evidence.upsert_measurement(conn, rec, source_id=site.id, device=T.DEVICE_DESKTOP, provenance=T.PROV_EXPORT,
+                                period_start="2026-10-06", period_end="2026-10-06", minutes=40.0)
+    evidence.finish_import(conn, clk, settings, rec, period_start="2026-10-04", period_end="2026-10-08")
+    pooled = allowance.pooled_minutes(conn, settings, week_of("2026-10-06"))
+    assert pooled.charged_min == 0.0 and pooled.unclassified_min == 0.0      # unlabelled, still never charged
+    assert pooled.covered_excluded_min == pytest.approx(40.0)              # and still visible
+    assert site.id not in {r.source_id for r in labels.label_queue(conn, clk, settings)}
+
+
+def test_a_book_relabelled_wasteful_counts_in_this_weeks_pace(conn, settings, signed_in):
+    clk = clock.FrozenClock("2026-10-14T07:30:00+00:00")                # Wed: Sun to Tue against last week's
+    before = pace.pace(conn, clk, signed_in)
+    assert "audiobook listening, a day wasn't read" in before.left_out  # signed in, not read yet: named
+    assert not [x for x in pace.pace(conn, clk, settings).left_out if "audiobook" in x]   # signed out: silent
+
+    days = {"2026-10-05": ms(60), "2026-10-12": ms(30)}
+    audible.sync(conn, clk, signed_in, client=FakeClient(days, library()))
+    p = pace.pace(conn, clk, signed_in)
+    assert "audiobook listening" in p.counted
+    assert (p.this_week_min, p.last_week_min) == (0.0, 0.0)             # worthwhile: never brain rot
+    labels.set_source_label(conn, clk, source(conn, T.UNKNOWN_AUDIOBOOK_KEY).id, T.WASTEFUL)
+    p = pace.pace(conn, clk, signed_in)
+    assert (p.this_week_min, p.last_week_min) == (pytest.approx(30.0), pytest.approx(60.0))
+    assert "audiobook listening" in p.basis
+
+
+def test_the_nightly_refresh_names_the_audible_read_and_the_restart_includes_the_bot():
+    root = pathlib.Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text()
+    nightly = next(ln for ln in readme.splitlines() if ln.startswith("| `com.jacob.drbr.nightly`"))
+    assert "Audible" in nightly
+    assert "Audible" in (root / "launchd" / "com.jacob.drbr.nightly.plist").read_text()
+    for agent in ("com.jacob.drbr.dashboard", "com.jacob.pop.bot"):     # both always-on processes
+        assert f"launchctl kickstart -k gui/$(id -u)/{agent}" in readme

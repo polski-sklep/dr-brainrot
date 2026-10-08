@@ -545,7 +545,9 @@ visits — it says "split estimated" in a neutral chip. The weaker claim gets
 the quieter chip; using one word for both would have flattened a real
 distinction into a generic shrug. Audiobook rows reuse the same neutral
 "split estimated" chip: the day's total is Audible's own, and only its
-division across books is inferred, from how far each book's place moved.
+division across books is inferred, from how far each book's place moved. A
+day given whole to "Audible (book not known)" was never divided, so its record
+row carries no chip (`RecordRow.split_estimated`; the macro decides nothing).
 
 An unmapped provenance renders as `.prov-unknown` — a chip with an open dot —
 rather than as unstyled text, so a new provenance that nobody has given words
