@@ -65,6 +65,7 @@ import ingest_api
 import insights
 import jobs
 import labels
+import pace
 import progress
 import report
 from clock import Clock
@@ -1546,6 +1547,7 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
             insight_stale_reason=insight_staleness(c, latest_insight, week.last_complete_sunday,
                                                    settings.tz),
             rot=rot_view(progress.peak_chain(c, clk, settings), splits, eye=eye),
+            pace=pace.pace(c, clk, settings),
         )
 
     def _label_filters(args) -> tuple[str | None, str | None]:

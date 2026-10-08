@@ -2586,3 +2586,56 @@ ever uninstalled, the keeper logs one error line every 10 minutes.
 
 The agent is not installed by this change. Merging adds the file; `./drbr
 start` (or `cp` and `launchctl bootstrap`) loads it.
+
+### DR5.29 — A nightly refresh, and this week's pace against the same point last week
+
+**8 October 2026.** Jacob asked for the figures to move during the week, not
+only once it is finished: "so I can see the progress over the course of the
+week", knowing some sources are weekly.
+
+**The refresh.** `jobs.py sync` runs every automatic read and sends nothing —
+no Telegram, no reminders, no summary — under a new agent,
+`com.jacob.drbr.nightly`, at 00:15. Cold Turkey and Qbserve deliberately read
+finished days only, so the morning job could not show a day until 09:30 the
+next morning; just after midnight is the first moment the day just ended is
+whole. launchd runs a missed calendar job at the next wake, so on a Mac asleep
+overnight it runs on waking; the reads are idempotent, so running twice before
+09:30 costs nothing. It runs the working tree like the morning job (DR5.14).
+
+**The pace.** `pace.pace()` compares this week's finished days — Sunday to
+yesterday — with the same weekdays last week, under the same rule as the
+weekly comparison: only what was measured the same way in both spans.
+
+* **Daily channels only.** The Mac's browser (Cold Turkey) and Mac apps
+  (Qbserve) read every finished day; podcast listening is polled. YouTube
+  history is recorded per watch day but arrives only when the extension is
+  run, so it counts once a sync has happened since the span ended, and is
+  otherwise named with "run the extension to include it". Screen Time and the
+  phone browser arrive as one figure per week; they cannot be cut at Tuesday,
+  so they are named as joining once the week is in.
+* **A channel is counted only if every day of both spans was read**, and not
+  if any reading in them could not be measured. Left out, it is named with its
+  reason rather than read as zero.
+* **Never today**, for the same reason the readers skip it, and nothing on a
+  Sunday, when no day of the week has finished.
+
+It is computed per local day with the same rules as `pooled_minutes` —
+covered-elsewhere, tool and pre-go-live excluded, undecided charged — and a
+test pins a Sunday-to-Friday span to the week's own figure.
+
+**The first draft double-counted, and the numbers said so.** On real data it
+reported "up 208%": 150 minutes against 49. Breaking it down by day put 95
+minutes on Tuesday in a "YouTube" desktop app — Qbserve's pseudo-app for
+YouTube in a browser tab, already counted by YouTube history. DR5.23 had fixed
+exactly this, with `T.covered_elsewhere()`; `pace.py` had used the old
+exact-key dictionary. With the rule, the week read 39 against 30 — level. A
+test now fails if the dictionary lookup comes back. The weekly totals were never
+affected.
+
+Residual, stated: a day Qbserve was quit part-way through still counts as read,
+because its read of that day succeeded. The keeper (DR5.27) is what prevents it.
+
+**Mechanics:** `jobs.main` gains `sync`; `launchd/com.jacob.drbr.nightly.plist`;
+`./drbr`'s AGENTS list and the README's agent table; `pace.py` (`Pace`,
+`pace()`); `pace` is the last argument of the Overview's render call.
+Rendering it in the week-summary strip is the UI session's.

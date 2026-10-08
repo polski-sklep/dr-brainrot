@@ -22,7 +22,7 @@ PY="$ROOT/.venv/bin/python"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
 AGENTS=(com.jacob.pop.bot com.jacob.pop.poll com.jacob.pop.triage com.jacob.drbr.dashboard com.jacob.drbr.jobs
-        com.jacob.drbr.qbserve)
+        com.jacob.drbr.qbserve com.jacob.drbr.nightly)
 INGEST=com.jacob.obsidian-ingest
 
 say() { printf '%s\n' "$*"; }

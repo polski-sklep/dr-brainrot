@@ -295,8 +295,12 @@ def send_end_notice(conn, clk: Clock, settings: Settings, bot, *, asked: bool = 
 
 
 def main(argv: list[str]) -> int:  # pragma: no cover — production only
-    if argv[1:] != ["daily"]:
-        print("usage: jobs.py daily", file=sys.stderr)
+    """`daily`: the 09:30 run — every read, then every message. `sync`: the
+    nightly run (DR5.29) — the reads only, so each finished day is in the
+    figures shortly after midnight rather than at half past nine. It sends
+    nothing: no Telegram, no prompts, no summary."""
+    if argv[1:] not in (["daily"], ["sync"]):
+        print("usage: jobs.py daily|sync", file=sys.stderr)
         return 2
     import config
     from bot import _silence_token_logging
@@ -307,6 +311,16 @@ def main(argv: list[str]) -> int:  # pragma: no cover — production only
     conn = db.connect(settings)
     db.init_db(conn)
     db.migrate(conn)
+    if argv[1] == "sync":
+        try:
+            results = run_sync(conn, clock.RealClock(), settings)
+        finally:
+            conn.close()
+        failed = [name for name, result in results.items() if not result.ok]
+        if failed:
+            log.error("nightly sync finished with failures: %s", ", ".join(failed))
+            return 1
+        return 0
     telegram_bot = SyncBot(settings.telegram_bot_token)    # opens nothing until it sends
     try:
         failed = run_daily(conn, clock.RealClock(), settings, telegram_bot)
