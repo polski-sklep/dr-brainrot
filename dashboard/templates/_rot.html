@@ -13,12 +13,13 @@
     as the description. Every figure comes from app.specimen(). The brain is a
     soft volume lit from the upper left, all clipped to its outline: tissue,
     light, then its grooves (the mark's four folds and midline deepest), then
-    the mould, then the outline. A blank brain keeps every groove, flat and
-    grey: drawn, never lit. Each colony is drawn in three layers (pale fuzz,
-    ink, body), so touching colonies share one soft outline; in every layer a
-    colony is an outer <g class="rot-b"> that grows in once and an inner
-    .rot-br that breathes, both reading the seat index `i`, so the same week
-    always moves the same way. -#}
+    the mould and, from 85% of the peak week, its mushrooms, then the outline.
+    A blank brain keeps every groove, flat and grey: drawn, never lit. Each
+    colony is drawn in three layers (pale fuzz, ink, body), so touching
+    colonies share one soft outline; in every layer a colony is an outer
+    <g class="rot-b"> that grows in once and an inner .rot-br that breathes,
+    both reading the seat index `i`, so the same week always moves the same
+    way. -#}
 {%- set lit = sp.step is not none -%}
 <svg class="rot-brain{% if not lit %} rot-blank{% endif %}" viewBox="{{ sp.viewbox }}" role="img" aria-label="{{ label }}">
   <defs>
@@ -38,6 +39,11 @@
     {%- for m in sp.mould %}
     <path id="{{ m.ref }}" d="{{ m.d }}"/>
     {%- endfor %}
+    {%- if sp.shrooms %}
+    <radialGradient id="{{ sp.uid }}-cap" cx=".4" cy=".34" r=".72" fx=".3" fy=".2"><stop offset="0" class="rot-cap-0"/><stop offset=".55" class="rot-cap-1"/><stop offset="1" class="rot-cap-2"/></radialGradient>
+    <linearGradient id="{{ sp.uid }}-stem"><stop offset="0" class="rot-stem-0"/><stop offset=".5" class="rot-stem-1"/><stop offset="1" class="rot-stem-2"/></linearGradient>
+    <radialGradient id="{{ sp.uid }}-mound" cx=".4" cy=".3" r=".75"><stop offset="0" class="rot-t3-0"/><stop offset=".55" class="rot-t3-1"/><stop offset="1" class="rot-t3-2"/></radialGradient>
+    {%- endif %}
   </defs>
   <path class="rot-tissue" d="{{ sp.outline }}"/>
   <g clip-path="url(#{{ sp.uid }}-clip)">
@@ -77,6 +83,14 @@
     {#- Undecided, apart: round, striped, dashed, amber, and still. Only brain rot moves. -#}
     {%- if sp.undecided %}
     <g class="rot-undecided" fill="url(#{{ sp.uid }}-open)">{% for u in sp.undecided %}<path d="{{ u.d }}"/>{% endfor %}</g>
+    {%- endif %}
+    {#- From 85% of the peak week the mould fruits: toadstools on its older
+        colonies, nearest in front, inside the outline by construction. Each
+        tilts about its own foot (a static attribute) and comes up from it
+        once the mould has grown in (.rot-sprout, whose box's bottom middle is
+        the foot), through a mound of ripe mould drawn in front of the stem. -#}
+    {%- if sp.shrooms %}
+    <g class="rot-shrooms">{% for s in sp.shrooms %}<g transform="rotate({{ s.tilt }} {{ s.x }} {{ s.y }})"><g class="rot-sprout" style="--i:{{ s.i }}"><path class="rot-gills" d="{{ s.gills }}"/><path class="rot-stem" d="{{ s.stem }}" fill="url(#{{ sp.uid }}-stem)"/><path class="rot-stem-shade" d="{{ s.shade }}"/><path class="rot-cap" d="{{ s.cap }}" fill="url(#{{ sp.uid }}-cap)"/><path class="rot-spots" d="{{ s.spots }}"/><path class="rot-cap-shine" d="{{ s.shine }}" stroke-width="{{ s.shine_w }}"/></g><path class="rot-mound" style="--i:{{ s.i }}" d="{{ s.mound }}" fill="url(#{{ sp.uid }}-mound)"/></g>{% endfor %}</g>
     {%- endif %}
   </g>
   <path class="rot-outline" d="{{ sp.outline }}"/>
@@ -132,7 +146,7 @@
       <p class="rot-line">And {{ rot.earlier_steps }} earlier week{{ "" if rot.earlier_steps == 1 else "s" }}, back to your {% if rot.is_new_peak %}previous {% endif %}peak week.</p>
       {%- endif %}
       {%- endif %}
-      <p class="rot-key">The more mould, the closer the week came to your peak: your heaviest week so far, compared like for like. A yardstick, not a target.</p>
+      <p class="rot-key">The more mould, the closer the week came to your peak: your heaviest week so far, compared like for like.{% if rot.fruit_from %} From {{ rot.fruit_from }}% of it, mushrooms sprout too, growing a little with each point up to a new peak.{% endif %} A yardstick, not a target.</p>
       <p class="rot-line">Only what {% if rot.single %}both weeks{% else %}this week and the week before{% endif %} measured: {{ rot.counted_min|min }}
         {%- if rot.week_charged_min is not none %} of this week's {{ rot.week_charged_min|min }}{% endif %}
         {%- if rot.set_aside %}, with <a href="#progress-set-aside">{{ rot.set_aside }} set aside</a>{% endif %}.

@@ -7,6 +7,7 @@ independently.
 """
 from __future__ import annotations
 
+import math
 import pathlib
 import re
 import sys
@@ -806,3 +807,150 @@ def test_a_week_just_above_the_peak_is_the_benchmark_it_is_about_to_become():
 ])
 def test_a_source_links_to_its_own_page_only_when_it_has_one(kind, key, url):
     assert dashboard_app.source_url(kind, key) == url
+
+
+# --- mushrooms: from 85% of the peak week the mould fruits (DR5.22) -----------
+
+@pytest.mark.parametrize("ratio,pct", [
+    (None, None), (0.0, None), (0.84, None), (0.8449, None), (0.845, 85), (0.85, 85),
+    (0.86, 86), (0.29 * 3, 87), (1.0, 100), (1.05, 105), (1.1, 110), (1.12, 110), (3.0, 110),
+])
+def test_mushrooms_come_up_at_85_and_are_full_grown_at_the_new_peak_line(ratio, pct):
+    """By the whole point, half-points up, float noise guarded (0.29 * 3 is
+    0.8699999999999999), and held at the page's own new-peak line."""
+    assert dashboard_app.fruit_pct(ratio) == pct
+    assert dashboard_app.FRUIT_FULL == 100 + progress.LEVEL_PCT
+
+
+def test_no_mushroom_below_85_and_the_first_at_85():
+    A = dashboard_app
+    for r in (None, 0.0, 0.1, 0.5, 0.84, 0.8449):
+        assert A.specimen(r).shrooms == () and A.specimen(r).fruit is None
+    first = A.specimen(0.845)
+    assert len(first.shrooms) == 1 and first.fruit == 85
+    assert first.shrooms[0].seat == 0                  # on the mark's own biggest speck
+
+
+def test_every_point_past_85_makes_every_mushroom_a_little_bigger():
+    A = dashboard_app
+    states = A.FRUIT_STATES
+    assert len(states) == A.FRUIT_FULL - A.FRUIT_FROM + 1           # one per whole point
+    for now, nxt in zip(states, states[1:]):
+        before, after = {s.born: s.w for s in now}, {s.born: s.w for s in nxt}
+        assert set(before) <= set(after)                            # none ever goes back down
+        assert all(after[b] > w for b, w in before.items())         # every one grows, every point
+        # Those already up gain at least this much cap between them at every point
+        # (about 1px at 320px), arrivals aside, so every point draws a new picture.
+        assert sum(after[b] - w for b, w in before.items()) >= 0.065
+        assert {s.cap for s in now} != {s.cap for s in nxt}
+    # Past the new-peak line they hold, whatever the ratio.
+    assert A.specimen(1.12).shrooms == A.specimen(3.0).shrooms == A.specimen(1.1).shrooms
+    assert [len(s) for s in states][::5] == [1, 3, 4, 6, 7, 7]       # 85, 90, 95, 100, 105, 110
+
+
+def test_the_mushrooms_are_precomputed_and_a_render_only_selects():
+    A = dashboard_app
+    assert all(A._shrooms_at(p) == A.FRUIT_STATES[p - A.FRUIT_FROM]
+               for p in range(A.FRUIT_FROM, A.FRUIT_FULL + 1))
+    assert A.specimen(0.93, 0.0, "a").shrooms is A.FRUIT_STATES[93 - A.FRUIT_FROM]
+    assert A.specimen(1.3, 0.0, "b").shrooms is A.FRUIT_STATES[-1]
+    assert A.specimen(0.97, 0.2, "a") == A.specimen(0.97, 0.2, "a")
+
+
+def test_the_mushrooms_stay_little():
+    """Full grown, the biggest cap is under a seventh of the brain's width (17.1),
+    and all of them together, caps and stems, cover under 8% of its area
+    (measured on their control polygons, which only ever overstate it)."""
+    full = dashboard_app.FRUIT_STATES[-1]
+    assert len(full) == len(dashboard_app.SHROOMS) <= 8
+    assert max(s.w for s in full) <= 2.45
+
+    def area(pts):
+        return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]))) / 2
+
+    covered = sum(area(_pairs(s.cap)) + area(_pairs(s.stem)) for s in full)
+    assert covered < 0.08 * area(_outline_polygon())
+    first = dashboard_app.FRUIT_STATES[0][0]
+    assert 1.2 <= first.w <= 1.5                     # little, but a mushroom at 240px
+
+
+def test_every_mushroom_stands_well_inside_the_brain_rooted_in_its_colony():
+    poly = _outline_polygon()
+
+    def inside(px, py):
+        hit, j = False, len(poly) - 1
+        for k, (xi, yi) in enumerate(poly):
+            xj, yj = poly[j]
+            if (yi > py) != (yj > py) and px < (xj - xi) * (py - yi) / (yj - yi) + xi:
+                hit = not hit
+            j = k
+        return hit and min(((px - x) ** 2 + (py - y) ** 2) ** 0.5 for x, y in poly) >= 0.5
+
+    for state in (dashboard_app.FRUIT_STATES[0], dashboard_app.FRUIT_STATES[-1]):
+        for s in state:
+            x, y, turn = float(s.x), float(s.y), math.radians(float(s.tilt))
+            c, n = math.cos(turn), math.sin(turn)
+            for d in (s.cap, s.stem, s.mound):
+                for px, py in _pairs(d):              # every point, tilted about the foot
+                    qx, qy = x + (px - x) * c - (py - y) * n, y + (px - x) * n + (py - y) * c
+                    assert inside(qx, qy), (s.born, qx, qy)
+    for born, seat, x, y, *_ in dashboard_app.SHROOMS:
+        # Its foot is in its colony from the point it comes up (half a point under it).
+        step = dashboard_app.drawn_step(born / 100 - .005)
+        host = {c.seat: c for c in dashboard_app.STEP_COLONIES[step]}[seat]
+        assert ((x - host.cx) ** 2 + (y - host.cy) ** 2) ** 0.5 < host.r, (born, step)
+
+
+def test_undecided_time_never_fruits():
+    A = dashboard_app
+    for share in (0.0, 0.1, 0.3, 0.45, 0.6, 0.9, 1.0):
+        for ratio in (0.85, 0.93, 1.0, 1.2):
+            sp = A.specimen(ratio, share, "a")
+            drawn = {m["i"] for m in sp.mould}
+            assert {s.seat for s in sp.shrooms} <= drawn
+            assert sorted(s.i for s in sp.shrooms) == list(range(len(sp.shrooms)))
+            assert (sp.fruit is None) == (sp.shrooms == ())
+    assert A.specimen(1.0, 1.0).shrooms == () and A.specimen(1.0, 1.0).fruit is None
+
+
+def test_the_printed_percent_and_the_mushrooms_count_the_same_point():
+    """The page prints whole points half up, as the mushrooms count them, so a
+    week at 84.5% says 85% beside its first mushroom. The step lines keep _pct."""
+    A = dashboard_app
+    assert A._share(0.845) == "85%" and A.fruit_pct(0.845) == 85
+    for k in range(8000, 10001):
+        r = k / 10000
+        assert A._share(r) == f"{A.whole_pct(r)}%"
+        assert (A.fruit_pct(r) is not None) == (int(A._share(r)[:-1]) >= 85)
+    view = A.rot_view(_chain(0.845, [_link("2026-09-20", 200.0, 169.0)]), [])
+    assert view["pct"] == "85%" and view["specimen"].shrooms
+
+
+def test_the_page_says_so_only_when_mushrooms_are_drawn():
+    under = dashboard_app.rot_view(_chain(0.84, [_link("2026-09-20", 100.0, 84.0)]), [])
+    assert "mushroom" not in under["alt"] and under["fruit_from"] is None
+    view = dashboard_app.rot_view(_chain(0.9, [_link("2026-09-20", 100.0, 90.0)]), [])
+    assert view["specimen"].fruit == 90 and view["fruit_from"] == 85
+    assert ("Three little mushrooms sprout from the mould, as they do from 85% of your peak "
+            "week, a little bigger with each point.") in view["alt"]
+    one = dashboard_app.rot_view(_chain(0.85, [_link("2026-09-20", 100.0, 85.0)]), [])
+    assert "One little mushroom sprouts from the mould, as it does from 85%" in one["alt"]
+    peak = dashboard_app.rot_view(_chain(1.2, [_link("2026-09-20", 100.0, 120.0)]), [])
+    assert peak["specimen"].step == 10 and peak["pct"] == "100%"
+    assert "Seven mushrooms sprout from the mould, fully grown." in peak["alt"]
+    # Said after the mould and before undecided time, counting only those drawn.
+    und = dashboard_app.rot_view(
+        _chain(1.0, [_link("2026-09-20", 100.0, 100.0, undecided=60.0)]), [])
+    n = len(und["specimen"].shrooms)
+    assert 0 < n < 6 and f"{dashboard_app._COUNT[n]} little mushroom" in und["alt"]
+    assert und["alt"].index("mushroom") < und["alt"].index("undecided time")
+
+
+def test_full_grown_mushrooms_mean_a_new_peak_never_a_level_week():
+    """100 to 112 min is 12% up but under the 15-minute level rule: the page says
+    "too little to call a new peak", so the toadstools stop a point short."""
+    level = dashboard_app.rot_view(_chain(1.12, [_link("2026-09-20", 100.0, 112.0)]), [])
+    assert level["above_peak"] and not level["is_new_peak"]
+    assert level["specimen"].fruit == dashboard_app.FRUIT_FULL - 1 and "fully grown" not in level["alt"]
+    peak = dashboard_app.rot_view(_chain(1.2, [_link("2026-09-20", 100.0, 120.0)]), [])
+    assert peak["is_new_peak"] and peak["specimen"].fruit == dashboard_app.FRUIT_FULL

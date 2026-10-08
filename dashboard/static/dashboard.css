@@ -1345,6 +1345,19 @@ ul.progress-aside { margin-bottom: 0; }
      soft stripes of this a shade deeper, and its dashed edge: still open, so
      never a solid disc. */
   --rot-open-line: #F3DC8E;
+  /* -- Mushrooms, from 85% of your peak week: the mould fruiting. Caramel
+        caps lit from the upper left, cream spots and stems, a cocoa outline as
+        fine as the mould's ink. Warm browns and creams (hue 25-42), never red:
+        red means danger on this page. */
+  --rot-cap-lit:    #F6D6A4;   /* the cap's lit crown.                             */
+  --rot-cap:        #DEA462;   /* caramel.                                         */
+  --rot-cap-shade:  #B97A3A;   /* where the cap turns under.                       */
+  --rot-cocoa:      #774827;   /* their outline. 7.7:1 on --surface.               */
+  --rot-gill:       #E2BF8B;   /* the gills, just showing under the cap.           */
+  --rot-spot:       #FFF6E4;
+  --rot-stem-lit:   #FFFBF2;
+  --rot-stem:       #F6E8CE;
+  --rot-stem-shade: #DCC39C;
   /* Motion. How many slow breaths each colony takes after the grow-in, then
      it stays still. A count, not `infinite`: SVG motion is repainted on the
      main thread every frame, so a loop would cost a share of a core for as long
@@ -1397,6 +1410,16 @@ ul.progress-aside { margin-bottom: 0; }
    edged in short round dashes, and never animated. */
 .rot-undecided { stroke: var(--series-undecided-edge); stroke-width: .13; stroke-linecap: round; stroke-dasharray: .14 .25; }
 .rot-mote { fill: var(--rot-mote); stroke: var(--rot-ink); stroke-width: .05; opacity: 0; }
+/* Mushrooms: one cocoa outline as fine as the mould's visible ink, round
+   joins; the mound at each foot is ripe mould, edged in the mould's own ink. */
+.rot-shrooms path { stroke: var(--rot-cocoa); stroke-width: .085; stroke-linejoin: round; }
+.rot-shrooms .rot-gills { fill: var(--rot-gill); }
+.rot-shrooms .rot-stem-shade { fill: var(--rot-cocoa); stroke: none; opacity: .16; }
+.rot-shrooms .rot-spots { fill: var(--rot-spot); stroke: none; }
+.rot-shrooms .rot-cap-shine { fill: none; stroke: var(--rot-shine); stroke-linecap: round; opacity: .55; }
+.rot-shrooms .rot-mound { stroke: var(--rot-ink); stroke-width: .07; }
+.rot-cap-0 { stop-color: var(--rot-cap-lit); } .rot-cap-1 { stop-color: var(--rot-cap); } .rot-cap-2 { stop-color: var(--rot-cap-shade); }
+.rot-stem-0 { stop-color: var(--rot-stem-lit); } .rot-stem-1 { stop-color: var(--rot-stem); } .rot-stem-2 { stop-color: var(--rot-stem-shade); }
 
 /* Nothing to draw is not a clean brain: absence is not zero. Grey tissue, the
    same grooves flat and grey with no light, and a dashed grey outline (5.4:1),
@@ -1412,7 +1435,9 @@ ul.progress-aside { margin-bottom: 0; }
       (the motes stay at opacity 0). Only transform and opacity move, each on
       its own element: the outer .rot-b grows in once, the inner .rot-br
       breathes. The brain itself and undecided time never move. */
-.rot-b, .rot-br, .rot-mote { transform-box: fill-box; transform-origin: center; }
+.rot-b, .rot-br, .rot-mote, .rot-mound { transform-box: fill-box; transform-origin: center; }
+/* A mushroom comes up from its foot: the bottom middle of its box. */
+.rot-sprout { transform-box: fill-box; transform-origin: 50% 100%; }
 @media screen and (prefers-reduced-motion: no-preference) {
   /* Grows in from the icon's specks outward, in seat order, with one soft
      overshoot; then each colony breathes, slowly, on its own phase. */
@@ -1421,6 +1446,11 @@ ul.progress-aside { margin-bottom: 0; }
      negative delay would spend later colonies' breaths before the page shows. */
   .rot-br { animation: rot-breathe 9s ease-in-out calc(1s + var(--i) * .7s) var(--rot-breaths); }
   .rot-mote { animation: rot-drift 11s ease-out calc(2.4s + var(--i) * 2.7s) 2; }
+  /* Once the mould is in (its last colony lands by 2.1s), the mushrooms come
+     up one by one in the order they arrived, each through its mound: a
+     stretch, a squash, one small wobble, then still. Hidden until their turn. */
+  .rot-mound { animation: rot-grow .5s cubic-bezier(.34, 1.4, .64, 1) calc(2.15s + var(--i) * .3s) both; }
+  .rot-sprout { animation: rot-sprout 1.5s ease-in-out calc(2.2s + var(--i) * .3s) both; }
 }
 @keyframes rot-grow {
   from { transform: scale(0); }
@@ -1429,6 +1459,17 @@ ul.progress-aside { margin-bottom: 0; }
 @keyframes rot-breathe {
   0%, 100% { transform: scale(1); }
   50%      { transform: scale(1.035, 1.025); }
+}
+/* One list shape in every frame (rotate, then scale), so it interpolates as
+   written. */
+@keyframes rot-sprout {
+  0%   { transform: rotate(0deg) scale(.3, 0); }
+  28%  { transform: rotate(0deg) scale(.9, 1.12); }
+  40%  { transform: rotate(0deg) scale(1.06, .95); }
+  52%  { transform: rotate(-5deg) scale(1, 1); }
+  70%  { transform: rotate(3.5deg) scale(1, 1); }
+  85%  { transform: rotate(-1.2deg) scale(1, 1); }
+  100% { transform: rotate(0deg) scale(1, 1); }
 }
 @keyframes rot-drift {
   0%   { opacity: 0;   transform: translate(0, 0) scale(.4); }

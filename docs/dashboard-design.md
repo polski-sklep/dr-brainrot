@@ -105,6 +105,17 @@ literals, placed by hand once; the 21px mark still draws only the outline,
 the folds and its three specks, and the tab icon only the outline and specks. A scaled-up icon read as "sloppy or lazily designed" at
 400px; the detail is what a large brain owes the eye.
 
+**From 85% of the peak week the mould fruits** (DR5.22). Little caramel
+toadstools come up out of older colonies, the mark's specks first, each
+through a mound of ripe mould: a new one every two to four points and every one
+a little bigger at each whole point, until 110%, the page's own new-peak line,
+where they are full grown and stop (seven at most, the biggest a seventh of the
+brain across). The mould is still drawn in tenths; only the mushrooms follow the
+point, at Jacob's request, and the share beside the brain rounds the same way
+(half up), so the two always count the same point. They stand only on mould
+drawn as brain rot, never on undecided time, inside the outline. Their states
+are frozen at import (`FRUIT_STATES`), so a render only selects one.
+
 ## 1. Visual direction
 
 A restrained analytical tool, not a product dashboard. Neutral surfaces,
@@ -295,6 +306,10 @@ against the page.
 | `--rot-shine` | `#FFFFFF` | one highlight per puff (50%; 28% on ripe ones) |
 | `--rot-mote` | `#F1FAF3` | motes drifting up: motion only |
 | `--rot-open-line` | `#F3DC8E` | the stripes on undecided patches |
+| `--rot-cap-lit` / `--rot-cap` / `--rot-cap-shade` | `#F6D6A4` / `#DEA462` / `#B97A3A` | a mushroom's caramel cap: lit crown, body, where it turns under |
+| `--rot-cocoa` | `#774827` | a mushroom's outline, as fine as the mould's ink (7.7:1 on `--surface`) |
+| `--rot-gill` / `--rot-spot` | `#E2BF8B` / `#FFF6E4` | the gills under the cap; its cream spots |
+| `--rot-stem-lit` / `--rot-stem` / `--rot-stem-shade` | `#FFFBF2` / `#F6E8CE` / `#DCC39C` | the cream stem, lit side to shaded |
 | `--rot-breaths` | `3` | slow breaths each colony takes after the grow-in, then it is still |
 
 There are no filters. Mould colonies are soft cartoon clouds computed once at
@@ -305,10 +320,12 @@ ripens. That mint is the same hue family as `--win-bg-solid` and
 green, and gave that up to lose the "medical" look, so the separation now rests
 on shape and component — soft clouds on the brain, never a bar, panel or chip
 (DR5.21). Undecided patches reuse `--series-undecided` with deeper stripes and a
-dashed edge, round where mould is a cloud, and never move. Motion — a grow-in
-from the specks outward, three slow breaths, motes drifting up twice, then
-stillness after under a minute — is transform and
-opacity only, under `screen and (prefers-reduced-motion: no-preference)`;
+dashed edge, round where mould is a cloud, and never move. The mushrooms are
+warm browns and creams (hue 25–42), never red: red means danger (DR5.22).
+Motion — a grow-in from the specks outward, three slow breaths, motes drifting
+up twice, then stillness after under a minute; from 85%, mushrooms coming up
+from their feet once the mould is in, with one small wobble — is
+transform and opacity only, under `screen and (prefers-reduced-motion: no-preference)`;
 reduced motion and print get the finished still drawing. The brain itself
 never moves.
 

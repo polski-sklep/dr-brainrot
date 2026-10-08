@@ -49,7 +49,7 @@ import logging
 import math
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from typing import Callable, Sequence
 
@@ -774,6 +774,180 @@ def drawn_step(ratio: float | None) -> int | None:
     return min(STEPS, max(1, math.floor(round(ratio * STEPS, 6) + 0.5)))
 
 
+# --- the mushrooms ------------------------------------------------------------
+#: From FRUIT_FROM% of your peak week the mould fruits, at Jacob's request
+#: (DR5.22): little caramel toadstools come up out of its older colonies, the
+#: mark's three specks first. Every whole point past it makes every one a
+#: little bigger, and every few points another comes up, until FRUIT_FULL, the
+#: page's own new-peak line (progress.LEVEL_PCT above the peak). There they are
+#: full grown and stop, so the drawing never claims more than the words beside
+#: it. Drawn by the whole point the page prints, though the figure itself is
+#: only good to about +/-15 (see STEPS): the growth is kept small for that.
+FRUIT_FROM = 85
+FRUIT_FULL = 100 + round(progress.LEVEL_PCT)
+#: (born, host seat, foot x, foot y, cap width when born, full grown, tilt in
+#: degrees, button), in the order they come up. A toadstool stands about as
+#: tall as its cap is wide; a button is the young, rounder kind, beside an
+#: older one. Placed once by hand in brain units: three clumps on the mark's
+#: three specks and one alone at the upper right, every foot inside its host
+#: colony from the point it comes up (older colonies, which undecided time
+#: reaches late), clear of the midline, the outline and one another. Frozen
+#: here: nothing is generated at render time.
+SHROOMS = (
+    (85, 0, 8.15, 10.0, 1.3, 2.4, -5, False),
+    (87, 1, 15.6, 13.3, 1.15, 2.15, 4, False),
+    (90, 5, 9.65, 10.45, .9, 1.4, 10, True),
+    (93, 2, 10.7, 15.9, 1.1, 1.95, -4, False),
+    (96, 4, 14.25, 13.65, .9, 1.35, -9, True),
+    (100, 14, 16.05, 9.75, 1.0, 1.7, 5, False),
+    (104, 6, 11.85, 16.35, .85, 1.25, 8, True),
+)
+#: Each grows fastest just after it comes up and slows toward full size:
+#: w = born + (full - born) * (1 - (1 - t) ** FRUIT_EASE), t its share of the
+#: way from its own first point to FRUIT_FULL. So the first, alone for two
+#: points, grows visibly from the start, and those already up gain at least
+#: .065 of cap width between them at every point (about 1px at 320px); near
+#: full size the oldest grow by less than a drawn hundredth, the young carry it.
+FRUIT_EASE = 1.6
+#: Cream spots on a cap: (across the cap, -1..1; up it, 0 rim..1 crown; radius
+#: over cap width), the biggest first, so a small cap keeps the biggest. Two
+#: sets, alternated, and never where the cap catches the light (upper left).
+SPOT_SETS = (
+    ((.4, .62, .085), (-.06, .87, .07), (-.62, .3, .06), (.8, .26, .05), (.12, .38, .055)),
+    ((.3, .78, .08), (-.18, .46, .065), (.7, .36, .06), (-.68, .2, .045), (.08, .2, .05)),
+)
+#: How many spots by cap width: (from width, count), so a cap gains spots as it grows.
+SPOT_COUNT = ((0, 2), (1.0, 3), (1.4, 4), (1.8, 5))
+SPOT_MIN_R = .075               # brain units: a spot never shrinks out of sight
+#: A low mound of ripe mould round each foot, in front of the stem, so it comes
+#: up through the mould rather than standing on it: three bumps (x, y, r over
+#: the cap's width, from the foot), never narrower than MOUND_MIN_W's would be.
+MOUND = ((-.21, -.02, .1), (-.01, -.06, .13), (.19, -.025, .105))
+MOUND_BASE, MOUND_MIN_W = .04, 1.0
+
+
+@dataclass(frozen=True)
+class Shroom:
+    born: int                   # the whole point it comes up at
+    seat: int                   # its host colony: drawn only while that is brain rot
+    i: int                      # the order it comes up in, which staggers the motion
+    x: str                      # its foot, which it rises from and tilts about
+    y: str
+    w: float                    # cap width, brain units
+    tilt: str
+    gills: str
+    stem: str
+    shade: str                  # the cap's shade on the stem
+    cap: str
+    spots: str
+    shine: str                  # one highlight, upper left (a stroke shine_w wide)
+    shine_w: str
+    mound: str                  # the mould it comes up through
+
+
+def _ellipse(x: float, y: float, rx: float, ry: float, turn: float = 0.0) -> str:
+    c, s = math.cos(math.radians(turn)), math.sin(math.radians(turn))
+    x1, y1, x2, y2 = x - rx * c, y - rx * s, x + rx * c, y + rx * s
+    a = f"A{_n(rx)} {_n(ry)} {_n(turn)} 1 0"
+    return f"M{_n(x1)} {_n(y1)}{a} {_n(x2)} {_n(y2)}{a} {_n(x1)} {_n(y1)}Z"
+
+
+def _mound(x: float, y: float, w: float) -> str:
+    """A low cloud of three round bumps over a flat base just below the foot:
+    each bump an arc over its top, meeting the next at their upper crossing."""
+    s = max(w, MOUND_MIN_W)
+    bumps = [(x + dx * s, y + dy * s, r * s) for dx, dy, r in MOUND]
+    base = y + MOUND_BASE * s
+    meets = []
+    for (x1, y1, r1), (x2, y2, r2) in zip(bumps, bumps[1:]):
+        dx, dy = x2 - x1, y2 - y1
+        d = math.hypot(dx, dy)
+        along = (r1 * r1 - r2 * r2 + d * d) / (2 * d)
+        h = math.sqrt(max(r1 * r1 - along * along, 0.0))
+        mx, my = x1 + along * dx / d, y1 + along * dy / d
+        meets.append(min(((mx - h * dy / d, my + h * dx / d), (mx + h * dy / d, my - h * dx / d)),
+                         key=lambda p: p[1]))                        # the upper crossing
+    (lx, ly, lr), (rx, ry, rr) = bumps[0], bumps[-1]
+    d = [f"M{_n(lx - lr)} {_n(ly)}"]
+    for (cx, cy, r), (ex, ey) in zip(bumps, meets + [(rx + rr, ry)]):
+        d.append(f"A{_n(r)} {_n(r)} 0 0 1 {_n(ex)} {_n(ey)}")
+    d.append(f"Q{_n(rx + rr)} {_n(base)} {_n(rx)} {_n(base)}L{_n(lx)} {_n(base)}"
+             f"Q{_n(lx - lr)} {_n(base)} {_n(lx - lr)} {_n(ly)}Z")
+    return "".join(d)
+
+
+def _toadstool(born: int, seat: int, i: int, x: float, y: float, w: float, tilt: int,
+               button: bool) -> Shroom:
+    """One toadstool standing on (x, y), upright: a domed cap with a little lip,
+    the gills just showing under it, a short chubby stem, cream spots, one
+    highlight upper left. Symmetric about x below the cap, with nothing below
+    y, so the bottom middle of its box is its foot, which it grows from and
+    tilts about."""
+    R = w / 2                                                   # cap half-width
+    rh, ch = (.3 * w, .58 * w) if button else (.4 * w, .5 * w)  # rim height, cap height
+    fw, tw = (.23 * w, .17 * w) if button else (.21 * w, .15 * w)  # stem: foot, top half-widths
+    rim, top = y - rh, y - rh - ch
+
+    def at(u: float, v: float) -> tuple[float, float]:
+        return x + u * R, rim - v * ch
+
+    def P(*pts: tuple[float, float]) -> str:
+        return " ".join(f"{_n(px)} {_n(py)}" for px, py in pts)
+
+    st = y - rh - .06 * w                                       # the stem's top, under the cap
+    stem = (f"M{P((x - tw, st))}"
+            f"C{P((x - tw - .03 * w, y - .6 * rh), (x - fw - .02 * w, y - .25 * rh), (x - fw, y - .06 * w))}"
+            f"Q{P((x - fw + .005 * w, y), (x - fw + .07 * w, y))}L{P((x + fw - .07 * w, y))}"
+            f"Q{P((x + fw - .005 * w, y), (x + fw, y - .06 * w))}"
+            f"C{P((x + fw + .02 * w, y - .25 * rh), (x + tw + .03 * w, y - .6 * rh), (x + tw, st))}Z")
+    lift = .7 if button else .62                                # how soon the dome turns over
+    cap = (f"M{P((x - R, rim))}C{P((x - R - .01 * w, rim - lift * ch), (x - .56 * R, top), (x, top))}"
+           f"C{P((x + .56 * R, top), (x + R + .01 * w, rim - lift * ch), (x + R, rim))}"
+           f"Q{P((x + R + .005 * w, rim + .05 * w), (x + R - .08 * w, rim + .045 * w))}"
+           f"Q{P((x, rim - .05 * w), (x - R + .08 * w, rim + .045 * w))}"
+           f"Q{P((x - R - .005 * w, rim + .05 * w), (x - R, rim))}Z")
+    n = next(c for lo, c in reversed(SPOT_COUNT) if w >= lo)
+    spots = "".join(_ellipse(*at(u, v), max(s * w, SPOT_MIN_R), .8 * max(s * w, SPOT_MIN_R), 22 * u)
+                    for u, v, s in SPOT_SETS[i % 2][:n])
+    a, c, b = at(-.74, .36), at(-.7, .82), at(-.28, .88)
+    return Shroom(born, seat, i, _n(x), _n(y), round(w, 3), str(tilt),
+                  gills=_ellipse(x, rim + .035 * w, .41 * w, .065 * w), stem=stem,
+                  shade=_ellipse(x, rim + .05 * w, tw, .07 * w), cap=cap, spots=spots,
+                  shine=f"M{P(a)}Q{P(c, b)}", shine_w=_n(.075 * w), mound=_mound(x, y, w))
+
+
+def _shrooms_at(pct: int) -> tuple[Shroom, ...]:
+    out = []
+    for i, (born, seat, x, y, w0, w1, tilt, button) in enumerate(SHROOMS):
+        if pct < born:
+            continue
+        t = (pct - born) / (FRUIT_FULL - born)
+        w = w0 + (w1 - w0) * (1 - (1 - t) ** FRUIT_EASE)
+        out.append(_toadstool(born, seat, i, x, y, w, tilt, button))
+    return tuple(sorted(out, key=lambda s: float(s.y)))         # the nearer stands in front
+
+
+#: Every whole point's toadstools, from FRUIT_FROM to FRUIT_FULL, computed once
+#: at import: a render is selection only.
+FRUIT_STATES = tuple(_shrooms_at(p) for p in range(FRUIT_FROM, FRUIT_FULL + 1))
+
+
+def whole_pct(ratio: float) -> int:
+    """The ratio in whole points, half-points up, as drawn_step rounds its
+    tenths; round(x, 6) first, so float noise such as 0.29 * 100 =
+    28.999999999999996 never moves a point."""
+    return math.floor(round(ratio * 100, 6) + 0.5)
+
+
+def fruit_pct(ratio: float | None) -> int | None:
+    """The whole point the toadstools are drawn at: None below FRUIT_FROM,
+    held at FRUIT_FULL above it."""
+    if ratio is None:
+        return None
+    p = whole_pct(ratio)
+    return min(p, FRUIT_FULL) if p >= FRUIT_FROM else None
+
+
 @dataclass(frozen=True)
 class Specimen:
     step: int | None               # 0..10; None draws the blank, grey and unlit
@@ -786,6 +960,8 @@ class Specimen:
     uid: str
     bloom: tuple[dict, ...] = ()   # {ref, i, w}: grown puffs, under a pale fuzz w wide
     tiers: tuple[int, ...] = ()    # the puff tiers present (1-3), one gradient each
+    shrooms: tuple[Shroom, ...] = ()   # from FRUIT_FROM% only, and only on drawn mould
+    fruit: int | None = None       # the whole point they are drawn at, while any are
     # The brain itself: the same on every week, blank included (the macro
     # leaves the light off a blank brain).
     outline: str = BRAIN_OUTLINE
@@ -801,7 +977,8 @@ class Specimen:
 
 
 def specimen(ratio: float | None, undecided_share: float = 0.0, uid: str = "rot") -> Specimen:
-    """Geometry for one brain. `ratio` is the shown week over your peak week, like for like.
+    """Geometry for one brain. `ratio` is the shown week over your peak week, like for
+    like, uncapped: the mould stops at the peak (drawn_step), the toadstools at FRUIT_FULL.
 
     `undecided_share` is undecided minutes over the compared minutes of the
     shown week. That share of the mould's area is drawn apart, youngest colonies
@@ -836,10 +1013,33 @@ def specimen(ratio: float | None, undecided_share: float = 0.0, uid: str = "rot"
             turn = math.radians(c.seat * GOLDEN_DEG)
             spores.append({"cx": _n(c.cx + 0.35 * c.r * math.cos(turn)), "cy": _n(c.cy - 0.75 * c.r),
                            "r": _n(0.24 + 0.05 * (c.seat % 3)), "i": len(spores)})
+    # The mould fruits only where it is drawn as brain rot: a toadstool whose
+    # colony is undecided time stays down, and the rest close up their order.
+    fruit = fruit_pct(ratio)
+    shrooms = FRUIT_STATES[fruit - FRUIT_FROM] if fruit is not None else ()
+    if any(s.seat in undecided for s in shrooms):
+        kept = [s for s in shrooms if s.seat not in undecided]
+        order = {i: n for n, i in enumerate(sorted(s.i for s in kept))}
+        shrooms = tuple(replace(s, i=order[s.i]) for s in kept)
     return Specimen(step, tuple(mould), tuple(und), tuple(spores), uid,
+                    shrooms=shrooms, fruit=fruit if shrooms else None,
                     bloom=tuple({"ref": m["ref"], "i": m["i"], "w": m["w"]}
                                 for m in mould if not m["young"]),
                     tiers=tuple(sorted({m["tier"] for m in mould if not m["plain"]})))
+
+
+_COUNT = ("No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine")
+
+
+def fruit_phrase(n: int, fruit: int) -> str:
+    """The toadstools, said in the alt: how many are drawn, and what they mean."""
+    one = n == 1
+    if fruit >= FRUIT_FULL:
+        return (f"{_COUNT[n]} mushroom{'' if one else 's'} sprout{'s' if one else ''} "
+                "from the mould, fully grown.")
+    return (f"{_COUNT[n]} little mushroom{'' if one else 's'} sprout{'s' if one else ''} from the mould, "
+            f"as {'it does' if one else 'they do'} from {FRUIT_FROM}% of your peak week, "
+            "a little bigger with each point.")
 
 
 def _pct(x: float) -> str:
@@ -871,9 +1071,10 @@ def source_url(kind: str | None, key: str | None) -> str | None:
 
 
 def _share(x: float) -> str:
-    """_pct for a share of the peak week. Any brain rot at all draws mould, so a
-    share above zero never prints as 0%."""
-    s = _pct(x)
+    """A share of the peak week in whole points, half-points up (whole_pct), so
+    the number beside the brain and its mushrooms count the same point. Any
+    brain rot at all draws mould, so a share above zero never prints as 0%."""
+    s = f"{whole_pct(x)}%"
     return "under 1%" if x > 0 and s == "0%" else s
 
 
@@ -917,7 +1118,7 @@ _BLANK = {
     "peak_saturday": None, "counted_min": None, "week_charged_min": None, "set_aside": "",
     "undecided_min": None, "undecided_text": None, "undecided_drawn": 0,
     "settle_can_move": False, "peak_not_tallest": False, "since_sunday": None, "cut": None,
-    "clean_both": False,
+    "clean_both": False, "fruit_from": None,
 }
 
 
@@ -975,7 +1176,9 @@ def rot_view(chain: progress.PeakChain | None, splits: list[report.WeekSplit],
     new_peak = ratio > 1 and (ratio - 1) * 100 >= progress.LEVEL_PCT and (
         not single or last.direction == "up")
     undecided_share = (last.undecided_after_min / last.after_min) if last.after_min > 0 else 0.0
-    sp = specimen(min(ratio, 1.0), undecided_share, uid)
+    # Uncapped: drawn_step caps the mould. Full-grown toadstools mean a new peak,
+    # so a rise the page calls level (too few minutes to count) stops a point short.
+    sp = specimen(ratio if new_peak else min(ratio, (FRUIT_FULL - 1) / 100), undecided_share, uid)
     newest = list(reversed(chain.steps))
     earlier = max(0, len(newest) - MAX_STEPS_SHOWN)
     first_against = "your previous peak week" if new_peak else "your peak week"
@@ -1021,6 +1224,8 @@ def rot_view(chain: progress.PeakChain | None, splits: list[report.WeekSplit],
         share = share if share.startswith("under") else f"about {share}"
         alt = (f"Brain with mould for {share} of your peak week, {peak}, "
                f"taking each week against the one before it: {parts}.")
+    if sp.shrooms:
+        alt += " " + fruit_phrase(len(sp.shrooms), sp.fruit)
     if sp.undecided:
         alt += (f" {_undecided_min(last.undecided_after_min)} of the week's "
                 f"{fmt_min(last.after_min)} is undecided time, drawn as dashed patches.")
@@ -1045,6 +1250,8 @@ def rot_view(chain: progress.PeakChain | None, splits: list[report.WeekSplit],
             (chain.from_sunday or "") <= r.day <= chain.week_saturday for r in eye),
         "peak_not_tallest": peak_not_tallest,
         "since_sunday": chain.since_sunday, "cut": chain.cut,
+        # Said beside the drawing only while mushrooms are on it.
+        "fruit_from": FRUIT_FROM if sp.shrooms else None,
     }
 
 

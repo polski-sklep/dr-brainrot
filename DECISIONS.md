@@ -2201,3 +2201,60 @@ apart by shape and placement, not hue — soft clouds on the brain inside #rot,
 never a bar, panel or chip — accepted because the greyed, stained mould was the
 "medical" look he asked to lose. The rest of DR5.20 stands: no red, no score, no named levels, and
 the figures always printed beside the drawing.
+
+### DR5.22 — Past 85% of the peak week, the mould grows mushrooms
+
+**7 October 2026.** Jacob asked: "Once I start crossing the 85% brainrot levels
+add little mushrooms appearing on the brain too, which grow and become larger
+(although nothing crazy) with every percentage point I go beyond." Three
+designs were drawn and judged: caramel toadstools, brain-pink toadstools and
+mint ones in the mould's own green. The caramel ones won: they read as
+mushrooms at 240px, and their run from 85% visibly fills in point by point.
+Mint on mint vanished; pink caps with white dots read as a softened red
+toadstool.
+
+**What it draws.** From 85% of the peak week the mould fruits. Little caramel
+toadstools, with a cocoa outline as fine as the mould's ink, cream spots and
+stems, and light from the upper left, come up out of older colonies, the mark's
+three specks first, each through a low mound of ripe mould at its foot.
+A new one comes up every two to four points (85, 87, 90, 93, 96, 100, 104) and
+every one already up is a little bigger at each whole point. Each grows
+fastest just after it comes up, so the first is bigger at 86 than at 85, and
+those already up gain at least .065 brain units of cap between them at every
+point (about a pixel at 320px). Caps gain spots as they grow, two to five.
+
+**Where it stops: 110%, the page's own new-peak line** (100 +
+`progress.LEVEL_PCT`). There the page says "New peak week" and the mushrooms
+are full grown; 125% or 300% draws the same seven. The drawing never claims
+more than the words beside it, and a week a little over the peak (100–109%,
+printed "100%, a little above it") still grows them a little. Nothing crazy:
+full grown, the biggest cap is 2.4 of the brain's 17.1 units across and all
+seven cover about 7% of its area, over mould already there, so the level still
+reads.
+
+**By the whole point, which DR5.20 called false precision.** The mould stays in
+tenths. The mushrooms follow the point because that is what he asked for; a
+point is kept to about a pixel, so a noise-sized move barely shows, and the
+arrivals carry the run. The share beside the brain now rounds half up
+(`whole_pct`, `drawn_step`'s own rule), so it and the mushrooms always count the
+same point: 84.5% used to print "84%" beside the first mushroom. Only the share
+changed; the step lines ("down 33%") keep `_pct`.
+
+**Only on brain rot.** A mushroom stands only on a colony drawn as brain rot.
+Undecided time takes the youngest colonies first and the mushrooms stand on
+older ones (six of seven on colonies from the first three steps), so the two
+rarely meet; when they do, that mushroom stays down and the
+alt counts only those drawn.
+
+**Said once, only while drawn.** The key beside the brain adds "From 85% of it,
+mushrooms sprout too, growing a little with each point up to a new peak." and
+the alt counts them ("Four little mushrooms sprout from the mould, as they do
+from 85% of your peak week, a little bigger with each point."; at 110% "Seven
+mushrooms sprout from the mould, fully grown."). This names one level, 85%,
+his own number, and only once it is crossed; there is still no score, and the
+tenths stay unnamed.
+
+Motion as DR5.21: once the mould has grown in, the mushrooms come up one by one
+from their feet (a stretch, a squash, one small wobble) and are still. Opt-in,
+transform only, once; reduced motion and print draw them full grown. No red:
+the caps and their outline sit at hue 25–42, tested against the danger red.

@@ -657,7 +657,7 @@ def test_the_brain_only_moves_when_motion_is_welcome():
                        rot, re.S).group(1)
     assert "animation:" in motion and "animation:" not in rot.replace(motion, "")
     frames = re.findall(r"@keyframes ([\w-]+) \{(.*?)\n\}", rot, re.S)
-    assert {name for name, _ in frames} == {"rot-grow", "rot-breathe", "rot-drift"}
+    assert {name for name, _ in frames} == {"rot-grow", "rot-breathe", "rot-drift", "rot-sprout"}
     for _, body in frames:
         assert set(re.findall(r"([a-z-]+)\s*:", body)) <= {"transform", "opacity"}
 
@@ -682,6 +682,65 @@ def test_the_lead_row_gives_the_panel_below_its_margin_back():
     for rule in (".lead + section { margin-top: var(--s8); }", ".lead > section { margin-top: 0; }"):
         assert css.index(rule) > first_of_type        # same specificity: source order decides
 
+
+def _rot_svg():
+    env = dashboard_app.create_app(config.test_settings(), None, lambda: None).jinja_env
+    return env.get_template("_rot.html").module.rot_svg
+
+
+def test_mushrooms_grow_inside_the_brain_each_with_its_own_ids():
+    """From 85% of the peak week only: inside the brain's clip, after undecided
+    time and under the outline, so the outline can never be crossed; one
+    sprout and one mound per mushroom; ids unique per brain and per page."""
+    rot_svg = _rot_svg()
+    assert "rot-shrooms" not in str(rot_svg(dashboard_app.specimen(0.84, 0, "a"), "x"))
+    sp = dashboard_app.specimen(0.97, 0.1, "b")
+    svg = str(rot_svg(sp, "x"))
+    assert 'role="img"' in svg and 'aria-label="x"' in svg
+    clip = svg[svg.index('clip-path="url(#b-clip)"'):svg.index('<path class="rot-outline"')]
+    assert 'class="rot-shrooms"' in clip
+    assert clip.index('class="rot-undecided"') < clip.index('class="rot-shrooms"')
+    assert svg.count('class="rot-sprout"') == svg.count('class="rot-mound"') == len(sp.shrooms) == 5
+    assert all(f'id="b-{g}"' in svg for g in ("cap", "stem", "mound"))
+    ids = re.findall(r'\sid="([^"]+)"', svg)
+    assert len(ids) == len(set(ids))
+    other = re.findall(r'\sid="([^"]+)"', str(rot_svg(dashboard_app.specimen(1.1, 0, "c"), "y")))
+    assert not set(ids) & set(other)
+
+
+def test_mushrooms_are_caramel_and_cream_never_red():
+    """Red means danger on this page: every mushroom colour is a warm brown or
+    cream (hue 20-50), and the rules only read tokens."""
+    css = CSS.read_text()
+    rot = css[css.index("The brain against your peak week (#rot)"):]
+    tokens = dict(re.findall(r"(--rot-(?:cap|cocoa|gill|spot|stem)[\w-]*):\s*(#[0-9A-Fa-f]{6})", rot))
+    assert len(tokens) == 9
+    danger = {v.upper() for v in re.findall(r"--danger[\w-]*:\s*(#[0-9A-Fa-f]{6})", css)}
+    for name, hexa in tokens.items():
+        r, g, b = (int(hexa[k:k + 2], 16) / 255 for k in (1, 3, 5))
+        hi, lo = max(r, g, b), min(r, g, b)
+        assert hi == r and r > g > b, name                       # warm, red over green over blue
+        hue = 60 * (g - b) / (hi - lo)
+        assert 20 <= hue <= 50 and hexa.upper() not in danger, (name, hue)
+    rules = re.findall(r"\.rot-(?:shrooms|cap-\d|stem-\d)[^{]*\{([^}]*)\}", rot)
+    assert rules and not any(re.search(r"#[0-9A-Fa-f]{3,6}\b", body) for body in rules)
+
+
+def test_mushrooms_come_up_once_from_their_foot_and_then_are_still():
+    css = CSS.read_text()
+    rot = css[css.index("The brain against your peak week (#rot)"):]
+    assert "infinite" not in re.sub(r"/\*.*?\*/", "", rot, flags=re.S)     # comments may say why
+    motion = re.search(r"@media screen and \(prefers-reduced-motion: no-preference\) \{(.*?)\n\}",
+                       rot, re.S).group(1)
+    for cls, name in (("rot-sprout", "rot-sprout"), ("rot-mound", "rot-grow")):
+        # One run (no count given), held at the end, after the mould has grown in.
+        line = re.search(rf"\.{cls} \{{ animation: {name} ([^;]*); \}}", motion).group(1)
+        assert line.endswith(" both") and not re.search(r"\s\d+\s|\binfinite\b", line), line
+        assert re.search(r"calc\(2\.\d+s \+ var\(--i\) \* \.3s\)", line), line
+    outside = rot.replace(motion, "")
+    assert ".rot-sprout { transform-box: fill-box; transform-origin: 50% 100%; }" in outside
+    frames = dict(re.findall(r"@keyframes ([\w-]+) \{(.*?)\n\}", rot, re.S))
+    assert "100% { transform: rotate(0deg) scale(1, 1); }" in frames["rot-sprout"]   # ends as drawn
 
 LINK = '<a class="source-link" href="https://x.com" target="_blank" rel="noopener noreferrer"'
 
