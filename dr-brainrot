@@ -114,13 +114,13 @@ print('    schema version', c.execute(\"SELECT value FROM meta WHERE key='schema
 
 status() {
   say ""
-  printf '  %-26s %-8s %s\n' AGENT STATE PID
+  printf '  %-32s %-8s %s\n' AGENT STATE PID
   for a in "${AGENTS[@]}" "$INGEST"; do
     if loaded "$a"; then
       pid="$(launchctl print "$DOMAIN/$a" 2>/dev/null | awk '/^\tpid = /{print $3}')"
-      printf '  %-26s %-8s %s\n' "$a" loaded "${pid:--  (scheduled, not running now)}"
+      printf '  %-32s %-8s %s\n' "$a" loaded "${pid:--  (scheduled, not running now)}"
     else
-      printf '  %-26s %-8s\n' "$a" "NOT loaded"
+      printf '  %-32s %-8s\n' "$a" "NOT loaded"
     fi
   done
   local p
