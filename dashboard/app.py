@@ -1212,6 +1212,26 @@ def set_aside_phrase(channels: tuple[str, ...], sources: int) -> str:
     return " and ".join(parts)
 
 
+#: Where the extension's Sync button is pressed: the one thing that brings
+#: YouTube into this week's pace before the week is over.
+YOUTUBE_HISTORY_URL = "https://www.youtube.com/feed/history"
+
+
+def pace_parts(p: pace.Pace) -> dict:
+    """pace.Pace, cut for the page: the lead ("So far this week (Sun–Wed)") apart
+    from the figures, and the YouTube hint turned into a link. Wording only."""
+    lead, sep, rest = p.text.partition(": ")
+    left_out = []
+    for entry in p.left_out:
+        reason, _, hint = entry.partition(" — ")
+        sync = entry.startswith("YouTube history") and "run the extension" in hint
+        left_out.append({"text": reason if sync else entry, "sync": sync})
+    return {"lead": lead if sep else "", "rest": rest if sep else p.text,
+            "counted": progress._names(list(p.counted)) if p.counted else "",
+            "left_out": left_out,
+            "joins_later": progress._names(list(p.joins_later)) if p.joins_later else ""}
+
+
 def progress_set_aside(p: progress.Progress) -> str:
     """set_aside_phrase where it opens a sentence, as it does in the progress panel."""
     phrase = set_aside_phrase(p.channels_set_aside, p.unreadable_sources + p.below_cut_sources)
@@ -1477,7 +1497,8 @@ def create_app(settings: Settings, clk: Clock, get_conn: Callable[[], sqlite3.Co
         UNKNOWN_CHANNEL_REASON=UNKNOWN_CHANNEL_REASON, WASTEFUL=T.WASTEFUL, WORTHWHILE=T.WORTHWHILE,
         TOOL=T.TOOL, TOOL_TEXT=TOOL_TEXT,
         BRAIN={"outline": BRAIN_OUTLINE, "folds": BRAIN_FOLDS},
-        progress_set_aside=progress_set_aside, source_url=source_url,
+        progress_set_aside=progress_set_aside, source_url=source_url, pace_parts=pace_parts,
+        YOUTUBE_HISTORY_URL=YOUTUBE_HISTORY_URL,
     )
 
     @app.context_processor

@@ -425,6 +425,25 @@ thead th .hint { border-bottom-color: var(--accent-border); }
 
 /* One figure, then the parts it is made of. The parts are a list, not more
    cards: they are subordinate to the headline, not four rivals to it. */
+/* This week so far against the same days last week (DR5.29). A part-week
+   figure, so it is a quiet inset under the headline, never a second hero: the
+   lead says "so far" before any number does. A fall takes the good-week green
+   edge, quietly; a rise is only reported, never red. */
+.pace {
+  max-width: var(--measure);
+  margin-top: var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-panel);
+}
+.pace-down { border-left-color: var(--win); background: var(--win-bg); }
+.pace-text { margin: 0; font-size: var(--fs-body); color: var(--text); }
+.pace-text strong { font-weight: 650; font-variant-numeric: tabular-nums; }
+.pace-lead { font-weight: 650; }
+.pace-basis { margin: 2px 0 0; font-size: var(--fs-meta); color: var(--text-secondary); }
+
 .headline {
   display: flex;
   flex-wrap: wrap;

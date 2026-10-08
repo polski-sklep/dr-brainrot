@@ -810,3 +810,46 @@ def test_a_sites_name_opens_the_site_wherever_it_is_listed(client, conn, clk, se
     assert 'href="https://www.youtube.com/channel/UCgood"' not in overview
     assert LINK in text(client.get("/records"))
     assert LINK in text(client.get("/labels"))
+
+
+# --- This week so far against the same days last week (DR5.29) ----------------------------
+
+def _pace(**kw):
+    import pace
+    base = dict(first_day="2026-10-04", last_day="2026-10-07", days=4, this_week_min=39.13,
+                last_week_min=29.8, direction="level",
+                text="So far this week (Sun–Wed): 39 min, level with 30 min by Wednesday last week.",
+                counted=("the Mac's browser", "Mac apps", "podcast listening"),
+                left_out=("YouTube history, not synced since the last day counted — run the extension "
+                          "to include it",),
+                joins_later=("Screen Time", "the phone browser by site"))
+    return pace.Pace(**{**base, **kw})
+
+
+def test_pace_reads_as_a_part_week_and_links_the_youtube_sync():
+    from dashboard import app as dashboard_app
+    parts = dashboard_app.pace_parts(_pace())
+    assert parts["lead"] == "So far this week (Sun–Wed)"
+    assert parts["rest"].startswith("39 min, level with 30 min")
+    assert parts["left_out"] == [{"text": "YouTube history, not synced since the last day counted",
+                                  "sync": True}]
+    assert parts["counted"] == "the Mac's browser, Mac apps and podcast listening"
+    other = dashboard_app.pace_parts(_pace(left_out=("Mac apps, a day wasn't read",), text="odd"))
+    assert other["left_out"] == [{"text": "Mac apps, a day wasn't read", "sync": False}]
+    assert other["lead"] == "" and other["rest"] == "odd"
+
+
+def test_pace_shows_on_the_current_week_only(client, conn, clk, settings, monkeypatch):
+    from dashboard import app as dashboard_app
+    populate(conn, clk, settings)
+    monkeypatch.setattr(dashboard_app.pace, "pace", lambda *a, **k: _pace(direction="down"))
+    current = section(text(client.get("/")), "week-summary")
+    assert '<div class="pace pace-down">' in current
+    assert '<span class="pace-lead">So far this week (Sun–Wed)</span>' in current
+    assert 'href="https://www.youtube.com/feed/history"' in current
+    assert "the same days so far are just below" in current
+    past = section(text(client.get(f"/?week={WEEK_SUNDAY}")), "week-summary")
+    assert 'class="pace' not in past
+    monkeypatch.setattr(dashboard_app.pace, "pace", lambda *a, **k: None)
+    none = section(text(client.get("/")), "week-summary")
+    assert 'class="pace' not in none and "not a comparison yet" in none
