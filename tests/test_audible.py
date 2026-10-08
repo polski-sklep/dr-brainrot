@@ -31,6 +31,7 @@ import config
 import db
 import drbr_types as T
 import evidence
+import jobs
 import labels
 import reparse
 import report
@@ -900,3 +901,36 @@ def test_new_words_are_plain_and_never_name_the_tool_itself(conn, signed_in):
     assert len(words) > 15 and not [w for w in words if "DRBR" in w]
     assert audible.SIGN_IN_COMMAND in report.AUDIBLE_SIGNIN_ACTION
 
+
+# ==========================================================================
+# The morning job (commit: "Run the Audible read every morning, last")
+# ==========================================================================
+
+def test_the_morning_job_reads_audible_last(conn, signed_in, monkeypatch):
+    assert jobs.SYNC_STEPS[-1] == "audible"
+    monkeypatch.setitem(sys.modules, "audible", fake_library_module(REAL_DAYS, library(), refresh=False))
+    clk = clock.FrozenClock("2026-10-09T07:30:00+00:00")
+    results = jobs.run_sync(conn, clk, signed_in)
+    assert list(results) == list(jobs.SYNC_STEPS)
+    assert results["audible"].ok
+    imp = conn.execute("SELECT id FROM imports WHERE kind = 'audible'").fetchone()[0]
+    assert results["audible"].summary == f"import {imp} ok, 10 book-day figure(s)"
+    assert jobs.run_sync(conn, clk, signed_in)["audible"].summary == f"unchanged since import {imp}"
+
+
+def test_signed_out_the_step_succeeds_and_says_why_nothing_was_read(conn, settings):
+    results = jobs.run_sync(conn, clock.FrozenClock("2026-10-09T07:30:00+00:00"), settings)
+    assert results["audible"].ok
+    assert results["audible"].summary == "not set up (no Audible sign-in): audiobooks not measured"
+    assert conn.execute("SELECT COUNT(*) FROM imports WHERE kind = 'audible'").fetchone()[0] == 0
+
+
+def test_a_failed_read_fails_only_its_own_step_with_plain_words(conn, signed_in, monkeypatch):
+    monkeypatch.setitem(sys.modules, "audible",
+                        fake_library_module({}, None, refresh=False, fail=NetworkError(TOKEN)))
+    results = jobs.run_sync(conn, clock.FrozenClock("2026-10-09T07:30:00+00:00"), signed_in)
+    assert not results["audible"].ok
+    assert results["audible"].error == ("RuntimeError: audible read failed: Audible couldn't be reached "
+                                        "(NetworkError). The next morning's read tries again.")
+    assert TOKEN not in results["audible"].error
+    assert conn.execute("SELECT status FROM imports WHERE kind = 'audible'").fetchone()[0] == "failed"

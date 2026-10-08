@@ -10,7 +10,9 @@ the functions each source owns:
 2. `coldturkey_local.sync` — this Mac's Cold Turkey statistics, hostnames only
    (DR5.1), before the check-in so a week it covers is never asked for.
 3. `qbserve.sync` — desktop app minutes from Qbserve, browsers skipped
-   (DR5.3); then `brave_history.sync`, the phone browser's sites (DR5.13).
+   (DR5.3); then `brave_history.sync`, the phone browser's sites (DR5.13);
+   then `audible.sync`, Audible's own listening stats split across books
+   (DR5.28), skipped quietly when he isn't signed in.
 4. The Qbserve warning — one Telegram message a day while Qbserve has
    stopped recording though this Mac was in use (Cold Turkey is the witness;
    without it, a 36-hour timer), DR5.27. Its own step, after every read, so it
@@ -58,7 +60,7 @@ import insights
 import report
 from clock import Clock
 from config import Settings
-from sources import brave_history, coldturkey_local, qbserve, vault
+from sources import audible, brave_history, coldturkey_local, qbserve, vault
 from triage import SyncBot, send
 
 log = logging.getLogger("drbr.jobs")
@@ -85,7 +87,7 @@ class StepResult:
 #: The data-fetching steps, in dependency order: captures are read before the
 #: scan that decides their outcome, and this Mac's own sources before anything
 #: that asks the user for a week they might already cover.
-SYNC_STEPS = ("read_outbox", "vault_scan", "coldturkey_local", "qbserve", "phone_browser")
+SYNC_STEPS = ("read_outbox", "vault_scan", "coldturkey_local", "qbserve", "phone_browser", "audible")
 
 
 def _run_step(conn, name: str, fn: Callable[[], object]) -> StepResult:
@@ -104,8 +106,8 @@ def run_sync(conn, clk: Clock, settings: Settings) -> dict[str, StepResult]:
     """Fetch everything DRBR can fetch by itself. -> one StepResult per step.
 
     The half of the daily run that only *reads* sources: the capture outbox,
-    the vault scan, Cold Turkey's own statistics, Qbserve and the phone
-    browser. It sends nothing at all, so it is safe to run on demand — a
+    the vault scan, Cold Turkey's own statistics, Qbserve, the phone browser
+    and Audible. It sends nothing at all, so it is safe to run on demand — a
     dashboard "Sync now" button is exactly this function — and `run_daily`
     calls it rather than keeping a second copy of the order. Nothing here can
     wait on Telegram (DR5.25).
@@ -116,6 +118,8 @@ def run_sync(conn, clk: Clock, settings: Settings) -> dict[str, StepResult]:
         "coldturkey_local": _run_step(conn, "coldturkey_local", lambda: _coldturkey(conn, clk, settings)),
         "qbserve": _run_step(conn, "qbserve", lambda: _qbserve(conn, clk, settings)),
         "phone_browser": _run_step(conn, "phone_browser", lambda: _phone_browser(conn, clk, settings)),
+        # Last (DR5.14): the one read that needs the internet, after every local one.
+        "audible": _run_step(conn, "audible", lambda: _audible(conn, clk, settings)),
     }
 
 
@@ -172,6 +176,27 @@ def _phone_browser(conn, clk: Clock, settings: Settings) -> str:
     for warning in outcome.warnings:
         log.warning("phone browser: %s", warning)
     return f"import {outcome.import_id} {outcome.status}: {outcome.measurements_written} site figure(s)"
+
+
+def _audible(conn, clk: Clock, settings: Settings) -> str:
+    """Read Audible's listening stats and split each day across books (DR5.28).
+
+    Not signed in is a choice, not a failure: the step says so and succeeds.
+    A failed read is recorded as a failed import (the days stay unmeasured)
+    and fails the step, as every other read does.
+    """
+    if audible.setup(settings) is None:
+        return "not set up (no Audible sign-in): audiobooks not measured"
+    outcome = audible.sync(conn, clk, settings)
+    if outcome is None:
+        return "no finished days to read yet"
+    if outcome.duplicate_of is not None:
+        return f"unchanged since import {outcome.duplicate_of}"
+    for warning in outcome.warnings:
+        log.warning("audible: %s", warning)
+    if outcome.status == "failed":
+        raise RuntimeError(f"audible read failed: {outcome.error}")
+    return f"import {outcome.import_id} {outcome.status}, {outcome.measurements_written} book-day figure(s)"
 
 
 def _outbox(conn, clk: Clock, settings: Settings) -> str:
