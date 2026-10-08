@@ -2,7 +2,7 @@
 
 An eight-week diagnostic of **brain-rot content**: how much content you
 consume across Spotify podcasts, YouTube, iPhone apps, desktop websites, desktop
-apps and X, and how much of it is brain rot. It is not a screen-time or
+apps, X and audiobooks, and how much of it is brain rot. It is not a screen-time or
 productivity tracker: shopping, email, banking and other errands are out of
 scope. You label content sources wasteful or worthwhile, and anything that
 isn't content at all as **tool** (not counted). The system counts content
@@ -83,6 +83,7 @@ All configuration is in `.env`. `.env.example` lists every key with placeholders
 | `DRBR_RAW_DIR` | Raw evidence kept for re-parsing (`data/raw`) |
 | `DRBR_COLDTURKEY_DB` | Cold Turkey's local statistics database, read daily (hostnames only). Empty = manual exports |
 | `DRBR_QBSERVE_DB` | Qbserve's database, read daily for desktop app time (per app per day; no window titles). Empty = desktop apps not measured |
+| `DRBR_AUDIBLE_AUTH` | **Optional.** The Audible sign-in `audible_login.py` saves (default `data/audible_auth.json`, beside `audible_store.json`). Not there = audiobooks not measured |
 | `DRBR_GO_LIVE` | First local date that counts (a Sunday). Earlier history is evidence only |
 | `DRBR_DIAGNOSTIC_WEEKS` | Length of the diagnostic (8) |
 | `DRBR_DASHBOARD_PORT` | Dashboard and extension ingest port on 127.0.0.1 (8750) |
@@ -126,7 +127,7 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 | `com.jacob.pop.bot` | always on | Telegram: capture, triage buttons, screenshot/export imports, labels |
 | `com.jacob.pop.poll` | daily 09:17 | Spotify positions, lock lifts, deadline posts, allowance alerts |
 | `com.jacob.pop.triage` | Sunday 18:00 | Week rollover (records last week's overage), expiry, the triage post, only when the queue has something |
-| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read; then, as separate steps, Qbserve's stale warning, the Sunday check-in and its one Monday reminder (or the whole list late, on the first morning after a missed Sunday and Monday), end notice |
+| `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read, phone browser read, Audible read; then, as separate steps, Qbserve's stale warning, the Sunday check-in and its one Monday reminder (or the whole list late, on the first morning after a missed Sunday and Monday), end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
 | `com.jacob.drbr.qbserve` | every 10 min | Reopens Qbserve in the background if it isn't running; never touches its data (DR5.27) |
 
@@ -314,6 +315,45 @@ If the database can't be read, the daily job logs a failed `qbserve` step.
 Re-parse stored evidence with `reparse.py <import_id>`. Leaving
 `DRBR_QBSERVE_DB` empty turns desktop app measurement off.
 
+## Audible (automatic, optional)
+
+Audiobooks are measured but never counted as brain rot (DR5.28). Nothing to do
+weekly. Sign in once, yourself, in Terminal:
+
+```bash
+cd ~/Projects/drbr && .venv/bin/python audible_login.py
+```
+
+It opens Amazon's sign-in page; your password and two-step code go to Amazon
+only. It saves `data/audible_auth.json` (readable by you only, never
+committed) and `data/audible_store.json`, the store that holds your books.
+Every morning `jobs.py daily` then reads, read-only:
+
+- **Audible's own daily listening totals**, in wall-clock minutes, across every
+  device on the account. The first read goes back to go-live; after that the
+  last 8 days are re-read, so offline listening lands. A day with no listening
+  in a read is 0; a day no read covered is unmeasured.
+- **Where every book is**, to split each day across the books whose place
+  moved since the morning before. The total is measured; the split is
+  estimated ("split estimated" on the page). Days before the first read, or
+  with no book moving, are "Audible (book not known)".
+- **Every book is worthwhile**, labelled when first seen, as your standing
+  decision. Relabel one on the Labels page and your label wins.
+
+Screen Time's Audible app is covered elsewhere: it only sees the app while the
+screen is on. The client library is unofficial (mkb79's `audible`), so a
+change at Amazon can break the read: it then fails loudly and the days stay
+unmeasured. If Audible ever refuses the sign-in, the dashboard and the Sunday
+check-in say so with the command to sign in again:
+
+```bash
+cd ~/Projects/drbr && .venv/bin/python audible_login.py --again
+```
+
+**To sign out,** remove the device it registered from your Amazon account's
+devices, then delete `data/audible_auth.json` and `data/audible_store.json`.
+Audiobooks then stop being measured, and nothing asks about them.
+
 ## Obsidian / vault procedure
 
 Nothing to do weekly. obsidian-ingest writes a `drbr_capture_id` into every new
@@ -488,6 +528,8 @@ absent. obsidian-ingest's tests run from its own directory with the same venv.
 bot.py poll.py triage.py db.py spotify.py clock.py config.py   POP, label-aware (CONTRACTS Part I + II §7)
 drbr_types.py evidence.py labels.py allowance.py report.py     shared DRBR core
 sources/youtube.py screentime.py ocr_vision.py coldturkey.py coldturkey_local.py qbserve.py vault.py
+sources/brave_history.py audible.py                             phone browser by site (DR5.13), audiobooks (DR5.28)
+audible_login.py                                                one-time Audible sign-in, run by you (DR5.28)
 insights.py                                                     the Overview's weekly written summary (DR5.8)
 checklist.py                                                    the Sunday check-in and its one reminder (DR5.24)
 handlers_imports.py handlers_labels.py                          Telegram extensions
@@ -516,6 +558,11 @@ Accepted deliberately, and stated on the dashboard rather than absorbed:
 - **Desktop apps (Qbserve):** this Mac only, and only while Qbserve is running;
   browsers are left to Cold Turkey; no keeper path (vault captures aren't
   attributed to apps).
+- **Audiobooks (Audible):** worthwhile by your standing decision, so never
+  charged. The day's total is Audible's own; its split across books is
+  estimated from how far each book's place moved, and every day before the
+  first read is "book not known". The client is unofficial and can break. No
+  keeper path.
 - **Screen Time:** OCR, lower confidence than the API figures; only full past
   weeks count; YouTube and Spotify app minutes are excluded as double counts;
   Spotify music is out of scope.

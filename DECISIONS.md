@@ -2586,3 +2586,121 @@ ever uninstalled, the keeper logs one error line every 10 minutes.
 
 The agent is not installed by this change. Merging adds the file; `./drbr
 start` (or `cp` and `launchctl bootstrap`) loads it.
+
+### DR5.28 — Audiobooks are measured, and never counted as brain rot
+
+**8 October 2026.** Asked "Do you want Audible in at all?", Jacob answered:
+"Yes, I want it; albeit not considered as brainrot". He then signed in himself
+with `audible_login.py` and reported back: "Ok it says uk, 114 titles".
+
+**What is measured.** Audible's own listening total for each day: wall-clock
+minutes, across every device signed in to the account, screen on or off. The
+answer lists only days with listening, so a day inside a successful read with
+no entry is a real zero, and a day no successful read covered is unmeasured,
+never zero. The first read reaches back to go-live; after that every morning
+re-reads the last eight days, because listening done offline reaches Audible
+when the phone next syncs. After a gap (the Mac asleep, Audible unreachable)
+the next read starts the day after the last one covered, since Audible keeps
+its history. One request covers at most 30 days; requests start 28 days apart,
+because the probe proved a request returns its start day and at least the 27
+after it, and never showed whether the 30th is included.
+
+Screen Time saw the Audible app for 2 and 7 minutes in the weeks of 20 and 27
+September; Audible counted 144 and 273 minutes. Screen Time only sees the app
+while the screen is on, so `(iphone_app, "audible")` joins
+`COVERED_ELSEWHERE` (DR1.9, DR5.23). Its minutes stay visible in that column.
+
+**Which book.** Each morning's read also notes where every book in the library
+is. A day's listening, which is Audible's measured total, is split across the
+books whose place moved between that day's first read and the next day's first
+read, in proportion to how far each moved. If no book moved in that time, the
+listening must have happened that morning before the read, so the window
+before that read is used instead. If no book moved there either, or the day
+came before the first read, the day goes to "Audible (book not known)".
+
+The total is measured and only the split is estimated, so these rows carry the
+neutral "split estimated" chip, as the phone browser's do (DR5.13). A place
+moves in book time and he listens at 1.25x, so movement is only ever a
+weight: it divides the measured total and never becomes minutes itself. A book
+newly finished counts from where it was to its end; the reset to the start
+that Audible does after a finish is never movement, nor is any place that
+went back. Later reads on the same day (Sync now) are kept but never become
+boundaries, so a day's split doesn't depend on when the button was pressed.
+Because a later read can move a day from "book not known" to a book, every
+read owns its window and rewrites it whole (DR5.15).
+
+Accepted limits: marking a book finished without hearing it, or a large skip
+ahead, counts as movement and can take most of that day's split (the day's
+total never changes). Listening before the morning read is credited to the
+wrong book when a different book also moved after the read. A gap with no
+reads splits every day in it by the same proportions. Titles past the first
+1,000, or outside the library, can't be matched. Everything before the first
+read is "book not known": the whole backfill.
+
+**Why worthwhile, and how.** An audiobook is content, so it is not a tool
+(DR5.5); by his decision it is not brain rot. Each book is a source of its own
+(kind `audiobook`, key the ASIN, named by its title), labelled worthwhile the
+moment it is first seen. That is recorded as his label (basis `source_label`,
+and each import's `meta.standing_label` cites this decision), not as a default
+guess. A label he later sets on one book wins: the standing label is written
+only when the source is created (`labels.ensure_source(label_on_create=)`), and
+an existing row is never touched. "Audible (book not known)" is labelled the
+same way and, unlike YouTube's unknown channel, may be relabelled, because
+everything in it is audiobook listening. This is the second label the system
+writes by itself, after DR5.5's dashboard host, and the first he asked for as a
+standing rule. The effect: worthwhile rises; wasteful, undecided, charged
+minutes, the allowance and every week's overage do not move.
+
+Not covered elsewhere: `audible.co.uk` in Cold Turkey. The site is the store,
+a tool by his labels, and the web player is rarely used. That stays his call.
+
+**The client is unofficial.** mkb79's `audible` library (pinned at 0.12.0)
+talks to Audible the way the app does. It is not an interface Amazon
+supports, and it can stop working whenever Amazon changes something; the read
+then fails loudly and the days stay unmeasured. Signing in registered a device
+on his Amazon account: removing that device there and deleting
+`data/audible_auth.json` signs it out. The file holds that device's key and
+tokens. It is chmod 600, never committed (`data/` is gitignored), never
+logged, and never copied into evidence; errors carry only an exception's
+class name. When the library refreshes a token, the file is written back
+atomically at 0600. The calls are read-only: daily stats and the library.
+Audible decides where its day boundary falls. `data/audible_store.json` names
+the store that holds the books (`uk`). The library's warning about its slower
+crypto fallback is suppressed: it is about the library, not the figures.
+
+**Optional, and quiet.** Without a sign-in the morning step says "not set up"
+and succeeds. Audiobooks then have no coverage row, no blind spot, no line in
+the Sunday check-in, and no import is owed. A failed read is recorded as a
+failed import, fails its own step in the log, and adds one plain line to the
+blind spots naming the days now unmeasured. Only a refused sign-in asks
+anything of him: "what needs you" carries the action, and the Sunday list,
+when it goes anyway, gains one un-numbered line with the exact command, `cd
+~/Projects/drbr && .venv/bin/python audible_login.py --again`. It is never a
+reason to send. Audible being unreachable asks nothing: the next morning
+tries again.
+
+If he signs out, Screen Time's Audible app stays covered elsewhere. Its
+minutes stay visible in that column, and the source is labelled tool anyway.
+
+**Mechanics.** Migration `0008_audiobooks.sql` (schema_version 8) widens
+`sources.kind` with `audiobook`, `measurements.provenance` with
+`audible_stats` and `imports.kind` with `audible`, by the rebuild of 0007.
+`drbr_types` gains the kind, the Audiobooks group (device `account`), the
+provenance ("Audible's own listening stats") and the import kind.
+`sources/audible.py` holds the read, the evidence document (the stats answers
+verbatim, the library reduced to titles and places), the split, the import and
+`reparse`. `jobs.SYNC_STEPS` ends with `audible`: last, as the one read that
+needs the internet, and adding it is what arms it (DR5.14). The dashboard
+shows a `listening stats` badge of its own. `DRBR_AUDIBLE_AUTH` overrides where
+the sign-in is (default `data/audible_auth.json`); set but empty, it turns
+audiobooks off.
+
+**What the first read changes.** Replayed against a copy of the live database
+with the probe's figures, the first read writes 703.46 minutes for 13 September
+to 8 October, all "book not known": 202.56, 144.26, 273.16 and 83.48 (so far)
+by week. Screen Time's Audible app (2 and 7 minutes, labelled tool) moves from
+tool to covered elsewhere. Worthwhile rises by those amounts; wasteful,
+undecided, charged and every overage are unchanged. Because the read fills in
+weeks the Overview's summary already described, that summary counts as
+written before new data (DR5.26) until it is rewritten. Later morning reads
+don't.

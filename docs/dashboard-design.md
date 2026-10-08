@@ -475,6 +475,11 @@ but not competing with the data.
   border, 11px: a small dot plus text. The evidence tier is encoded in the
   dot's **shape** (solid → filled grey → hollow → open) and the text weight
   (650 → 550 → 500 → italic), falling as the evidence gets less direct.
+  Two sources measure a total and estimate only its split: `phone sync`
+  (`.prov-browsersync`, a pale split dot, weight 450) and `listening stats`
+  (`.prov-audiblestats`, Audiobooks: a filled mid-grey dot, weight 500, a step
+  firmer because the total comes from the service itself). Each has a rule
+  body of its own, like every tier.
 - *State* (`.state-*`, `.lowconf`, `.import-*`) — tinted fill, border, medium
   weight. Reserved for what the reader may need to act on.
 
@@ -538,7 +543,9 @@ confidence" in amber. A phone-sync figure's total is Screen Time's measured
 number and only its *division across sites* is inferred from the gap between
 visits — it says "split estimated" in a neutral chip. The weaker claim gets
 the quieter chip; using one word for both would have flattened a real
-distinction into a generic shrug.
+distinction into a generic shrug. Audiobook rows reuse the same neutral
+"split estimated" chip: the day's total is Audible's own, and only its
+division across books is inferred, from how far each book's place moved.
 
 An unmapped provenance renders as `.prov-unknown` — a chip with an open dot —
 rather than as unstyled text, so a new provenance that nobody has given words

@@ -12,9 +12,9 @@ file is readable by you only). Amazon lists it as a new device under your
 account's devices, where you can remove it at any time; delete the file too.
 Nothing is bought, changed or read beyond one test call to your library.
 
-Audible listening is measured but never counted as brain rot (user decision,
-7 Oct 2026). The unofficial `audible` library (mkb79) does the talking; it can
-stop working if Amazon changes things, and that is the only cost.
+Audible listening is measured but never counted as brain rot (DECISIONS DR5.28).
+The unofficial `audible` library (mkb79) does the talking; it can stop working
+if Amazon changes things, and that is the only cost.
 """
 from __future__ import annotations
 
