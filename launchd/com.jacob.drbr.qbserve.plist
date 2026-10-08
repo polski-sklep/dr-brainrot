@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Qbserve keeper: reopens Qbserve in the background when it is not running (DR5.27).
+
+  WHY. Qbserve stopped on Wed 30 Sep at 14:41 and stayed stopped until it was
+  opened by hand on Fri 2 Oct at 09:42, so Thursday's desktop-app time was
+  never recorded. Qbserve records live and cannot fill a gap afterwards. The
+  Mac had not restarted, so open-at-login would not have helped.
+
+  WHAT. At load (login) and every 10 minutes: if no process is named exactly
+  "Qbserve", open it hidden and in the background (open -g: not brought to the
+  front; -j: launched hidden) and append one line to logs/qbserve.log. When it
+  is running, nothing happens and nothing is logged.
+
+  It never reads or writes Qbserve's data and runs no code from this repository,
+  only /usr/bin/pgrep and /usr/bin/open (DR5.14).
+
+  To quit Qbserve on purpose, stop this agent first, or it is reopened within
+  10 minutes:
+            launchctl bootout gui/$(id -u)/com.jacob.drbr.qbserve
+
+  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.drbr.qbserve.plist
+  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.drbr.qbserve
+  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.drbr.qbserve
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jacob.drbr.qbserve</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>/usr/bin/pgrep -xq Qbserve || { /bin/date '+%Y-%m-%d %H:%M:%S reopening Qbserve'; /usr/bin/open -g -j -a Qbserve; }</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/Jacob/Projects/drbr/logs/qbserve.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/Jacob/Projects/drbr/logs/qbserve.log</string>
+</dict>
+</plist>

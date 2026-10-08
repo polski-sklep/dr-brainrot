@@ -128,6 +128,7 @@ The other subcommands are `./drbr status`, `./drbr stop` and `./drbr restart`.
 | `com.jacob.pop.triage` | Sunday 18:00 | Week rollover (records last week's overage), expiry, the triage post, only when the queue has something |
 | `com.jacob.drbr.jobs` | daily 09:30 | Outbox read, vault scan, Cold Turkey read, Qbserve read; then, as separate steps, Qbserve's stale warning, the Sunday check-in and its one Monday reminder, end notice |
 | `com.jacob.drbr.dashboard` | always on | `http://127.0.0.1:8750/` plus the extension's ingest API |
+| `com.jacob.drbr.qbserve` | every 10 min | Reopens Qbserve in the background if it isn't running; never touches its data (DR5.27) |
 
 Telegram being unreachable never stops a data step. Each scheduled run reads
 and records first and sends after; a message that can't go is logged, the run
@@ -272,9 +273,12 @@ automatic read off.
 
 ## Qbserve (automatic)
 
-Nothing to do weekly, but **keep Qbserve open at login** (System Settings →
-General → Login Items, or Qbserve's own launch-at-login setting). Every day, `jobs.py daily` reads Qbserve's
-database on this Mac (`DRBR_QBSERVE_DB`, usually
+Nothing to do weekly. Qbserve has to be running to record, so the
+`com.jacob.drbr.qbserve` agent checks every 10 minutes (and at login) and
+reopens it hidden in the background if it isn't running. It only runs
+`pgrep` and `open`, never touches Qbserve's data, and logs one line to
+`logs/qbserve.log` each time it reopens it (DR5.27). Every day, `jobs.py daily`
+reads Qbserve's database on this Mac (`DRBR_QBSERVE_DB`, usually
 `~/Library/Application Support/Qbserve/UserDatabase.sqlite`), read-only
 (DR5.3):
 
@@ -289,9 +293,17 @@ database on this Mac (`DRBR_QBSERVE_DB`, usually
 - **Finished days only**, re-reading the last 8, like Cold Turkey.
 
 **If Qbserve isn't running,** nothing is recorded, and DRBR won't treat that
-as zero. Days after Qbserve's last record stay "not received". While that
-record is over 36 hours old, the bot sends one warning a day and the dashboard
-lists it under blind spots. Open Qbserve and set it to open at login.
+as zero. Days after Qbserve's last record stay "not received". Cold Turkey is
+the witness for whether that matters: when it saw at least 10 minutes of
+browsing on this Mac on days after the day of Qbserve's last record, the Mac
+was in use and Qbserve wasn't recording. Then the bot sends one warning a day
+and the dashboard lists it under blind spots. An idle Mac never warns. When
+Cold Turkey isn't read automatically, or its read hasn't brought anything new
+for 36 hours, the old rule applies instead: a last record over 36 hours old.
+
+**To quit Qbserve on purpose,** stop the keeper first, or it reopens Qbserve
+within 10 minutes: `launchctl bootout gui/$(id -u)/com.jacob.drbr.qbserve`
+(`./drbr stop` stops it too; `./drbr start` brings it back).
 
 If the database can't be read, the daily job logs a failed `qbserve` step.
 Re-parse stored evidence with `reparse.py <import_id>`. Leaving
@@ -449,7 +461,7 @@ the original bytes are kept.
   missing, or has the wrong letter case. The scan refuses rather than count
   every capture as kept.
 - **Anything else:** look in `logs/` (`bot.log`, `jobs.log`, `dashboard.log`,
-  `poll.log`, `triage.log`, `check_env.last`) and run `./drbr status`.
+  `poll.log`, `triage.log`, `qbserve.log`, `check_env.last`) and run `./drbr status`.
 
 ## Tests
 

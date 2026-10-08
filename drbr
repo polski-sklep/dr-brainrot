@@ -6,12 +6,13 @@
 #   ./drbr restart   stop, then start
 #   ./drbr status    what is loaded, running, and answering
 #
-# Everything runs under launchd, POP's existing convention (README "Scheduling"):
+# Everything runs under launchd, POP's existing convention (README "Start everything"):
 #   com.jacob.pop.bot        Telegram bot: capture, triage buttons, imports, labels  (KeepAlive)
 #   com.jacob.pop.poll       daily 09:17  Spotify resume_point deltas, alerts
 #   com.jacob.pop.triage     Sunday 18:00 weekly rollover and triage post
 #   com.jacob.drbr.dashboard dashboard + extension ingest on 127.0.0.1               (KeepAlive)
-#   com.jacob.drbr.jobs      daily 09:30  vault scan, Cold Turkey read, import prompts, label batches
+#   com.jacob.drbr.jobs      daily 09:30  vault scan, Cold Turkey and Qbserve reads, Sunday check-in
+#   com.jacob.drbr.qbserve   every 10 min reopens Qbserve in the background if it isn't running
 # obsidian-ingest (com.jacob.obsidian-ingest) lives in its own repo; start only
 # makes sure it is loaded, because DRBR's vault measurement depends on it.
 set -euo pipefail
@@ -20,7 +21,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="$ROOT/.venv/bin/python"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
-AGENTS=(com.jacob.pop.bot com.jacob.pop.poll com.jacob.pop.triage com.jacob.drbr.dashboard com.jacob.drbr.jobs)
+AGENTS=(com.jacob.pop.bot com.jacob.pop.poll com.jacob.pop.triage com.jacob.drbr.dashboard com.jacob.drbr.jobs
+        com.jacob.drbr.qbserve)
 INGEST=com.jacob.obsidian-ingest
 
 say() { printf '%s\n' "$*"; }

@@ -11,8 +11,9 @@ the functions each source owns:
    (DR5.1), before the check-in so a week it covers is never asked for.
 3. `qbserve.sync` — desktop app minutes from Qbserve, browsers skipped
    (DR5.3); then `brave_history.sync`, the phone browser's sites (DR5.13).
-4. The Qbserve warning — one Telegram message a day while Qbserve has not
-   recorded for more than 36 hours. Its own step, after every read, so it
+4. The Qbserve warning — one Telegram message a day while Qbserve has
+   stopped recording though this Mac was in use (Cold Turkey is the witness;
+   without it, a 36-hour timer), DR5.27. Its own step, after every read, so it
    still goes out when today's Qbserve read failed: an earlier import is
    still the last word.
 5. `checklist.send_due` — the Sunday check-in for the week just finished
@@ -41,7 +42,6 @@ later run.
 """
 from __future__ import annotations
 
-import json
 import logging
 import sys
 from collections.abc import Callable
@@ -54,6 +54,7 @@ import db
 import drbr_types as T
 import evidence
 import insights
+import report
 from clock import Clock
 from config import Settings
 from sources import brave_history, coldturkey_local, qbserve, vault
@@ -63,7 +64,6 @@ log = logging.getLogger("drbr.jobs")
 
 END_KIND = "diagnostic_end"
 QBSERVE_STALE_KIND = "qbserve_stale"
-QBSERVE_STALE_HOURS = 36
 
 
 @dataclass(frozen=True)
@@ -219,34 +219,37 @@ def _qbserve(conn, clk: Clock, settings: Settings) -> str:
 
 
 def _qbserve_stale_warning(conn, clk: Clock, settings: Settings, bot) -> str:
-    """One Telegram message a day while Qbserve has not recorded for over 36 hours (DR5.3).
+    """One Telegram message a day while Qbserve has stopped recording (DR5.3, DR5.27).
 
-    The day's `prompts_sent` row is written only after the send, so a failed
-    send is tried again by the next run.
+    Stopped means `report.qbserve_silence`: Cold Turkey saw this Mac in use
+    after Qbserve's newest record, or, with no Cold Turkey read to ask, that
+    record is over 36 hours old. An idle Mac never warns. The day's
+    `prompts_sent` row is written only after the send, so a failed send is
+    tried again by the next run.
     """
-    hours = qbserve.staleness_hours(conn, clk)
-    if hours is None or hours <= QBSERVE_STALE_HOURS:
-        return "qbserve recording is current" if hours is not None else "no qbserve record to judge staleness"
+    silence = report.qbserve_silence(conn, clk, settings)
+    if silence is None:
+        return "qbserve is recording, or this Mac has not been in use since its last record"
     if evidence.diagnostic(conn, clk, settings).ended:
-        return "qbserve stale; diagnostic ended, no warning"
+        return "qbserve stopped; diagnostic ended, no warning"
     today = T.iso_date(T.local_date(clk.now(), settings.tz))
     if conn.execute("SELECT 1 FROM prompts_sent WHERE kind = ? AND sent_on = ?",
                     (QBSERVE_STALE_KIND, today)).fetchone():
-        return "qbserve stale; warning already sent today"
-    row = conn.execute("SELECT meta FROM imports WHERE kind = ? AND status != 'failed' ORDER BY id DESC LIMIT 1",
-                       (qbserve.KIND,)).fetchone()
-    latest = json.loads(row["meta"] or "{}").get("latest_record_at")
+        return "qbserve stopped; warning already sent today"
+    since = clock.fmt_local(silence.latest_record_at, settings.tz)
+    in_use = ("" if silence.witnessed_min is None else
+              f", though this Mac has been in use since (Cold Turkey saw {round(silence.witnessed_min)} min "
+              "of browsing)")
     send(bot, settings, (
-        f"Qbserve hasn't recorded anything since {clock.fmt_local(latest, settings.tz)}.\n\n"
-        "Desktop app time isn't being measured until it runs again. "
-        "Open Qbserve, and set it to open at login so this doesn't recur."
+        f"Qbserve hasn't recorded anything since {since}{in_use}.\n\n"
+        "Desktop app time isn't being measured. Open Qbserve and check it's recording."
     ))
     conn.execute(
         "INSERT OR IGNORE INTO prompts_sent (kind, period_start, sent_on, sent_at) VALUES (?, ?, ?, ?)",
         (QBSERVE_STALE_KIND, today, today, clock.iso(clk.now())),
     )
     conn.commit()
-    return "qbserve stale; warning sent"
+    return "qbserve stopped; warning sent"
 
 
 def send_end_notice(conn, clk: Clock, settings: Settings, bot) -> str:

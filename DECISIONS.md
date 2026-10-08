@@ -2466,3 +2466,60 @@ summary #8 now says "new data"; summaries #5–#7 still say "a newer week".
 It is derived on every render, like DR5.18: no new state and no migration.
 The chip only says so; Rewrite stays the person's choice. The dashboard needs
 a restart to show it.
+
+### DR5.27 — Qbserve is kept running, and only warns when the Mac was in use
+
+**8 October 2026.** Jacob approved "keep Qbserve running", fifth in his order
+for the Sunday session.
+
+Qbserve stopped on Wed 30 Sep at 14:41 and recorded nothing until he reopened
+it on Fri 2 Oct at 09:42. Cold Turkey saw 35.6 minutes of browsing on Thursday,
+so the Mac was in use, and Thursday's desktop-app time is lost: Qbserve records
+live and cannot fill a gap afterwards. The Mac had not restarted, so the old
+advice, "set it to open at login", would not have helped.
+
+**A keeper agent.** `launchd/com.jacob.drbr.qbserve.plist` runs at login and
+every 10 minutes. If no process is named exactly `Qbserve`, it opens it hidden
+and in the background (`open -g -j -a Qbserve`) and logs one line to
+`logs/qbserve.log`. It runs only `pgrep` and `open`: no code from this
+repository (so DR5.14's working-tree risk doesn't apply), and it never reads or
+writes Qbserve's data. It is in `./drbr`'s agent list, so `start`, `stop` and
+`status` include it. The price: quitting Qbserve on purpose is undone within 10
+minutes unless the agent is stopped first, which the README and the plist say
+how to do.
+
+**The warning asks Cold Turkey whether the Mac was in use.** The old rule was a
+timer: warn when Qbserve's newest record is over 36 hours old. That cannot tell
+a stopped Qbserve from an idle Mac. On 29 Sep it warned about a record from Sun
+27 Sep 12:12, but Cold Turkey saw nothing on the 28th, and by 10:12 that
+morning Qbserve was recording again. The Mac had simply not been used.
+
+So Cold Turkey is the witness (`report.qbserve_silence`). Qbserve's newest
+record falls on day D. If Cold Turkey recorded at least 10 minutes of browsing
+on this Mac on days after D, the Mac was in use and Qbserve wasn't recording.
+Every Cold Turkey minute counts, whatever its label, because this is about
+activity, not content. Without a witness (Cold Turkey isn't read automatically,
+or its read hasn't brought a new import for 36 hours), the timer applies as
+before. Replayed against copies of the live database:
+
+* 29 Sep: no warning. The timer would have warned.
+* 1 Oct: no warning. Thursday wasn't over yet.
+* 2 Oct 09:30: the warning goes, as it actually did, now saying why: "Qbserve
+  hasn't recorded anything since Wed 30 Sep 14:41, though this Mac has been in
+  use since (Cold Turkey saw 36 min of browsing)." It ends "Open Qbserve and
+  check it's recording."
+
+The dashboard follows the same rule: the blind-spots line and the Desktop apps
+row in "what needs you". An unconfigured Qbserve never warns.
+
+**Accepted limits.** Detection is by day, so a stop is caught the morning after
+the first day of use, about as early as the timer. Reading Cold Turkey's
+per-minute rows would catch it a day sooner, but that means a second read of a
+database that holds full URLs, and two rules. The witness sees browsers only:
+Mac use without a browser goes unnoticed. If Cold Turkey's read finds nothing
+new for 36 hours (an idle stretch whose oldest days also had no browsing), it
+counts as no witness and the timer decides, as before. If Qbserve is ever
+uninstalled, the keeper logs one error line every 10 minutes.
+
+The agent is not installed by this change. Merging adds the file; `./drbr
+start` (or `cp` and `launchctl bootstrap`) loads it.

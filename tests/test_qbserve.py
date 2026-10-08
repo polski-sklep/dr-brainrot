@@ -25,7 +25,9 @@ import labels
 import reparse
 import report
 from dashboard import app as dashboard_app
+from sources import coldturkey, coldturkey_local
 from sources import qbserve as qb
+from tests.test_coldturkey_local import make_ct_db
 
 SECRET = "zz-private-window-title"
 TZ = "Europe/Warsaw"
@@ -430,8 +432,9 @@ def test_stale_qbserve_warns_once_a_day_until_the_diagnostic_ends(conn, clk, set
     assert "qbserve" not in jobs.run_daily(conn, later, settings, bot)
     warnings = [m["text"] for m in bot.sent if "Qbserve" in m["text"]]
     assert len(warnings) == 1
-    assert "hasn't recorded anything since Wed 16 Sep 10:00" in warnings[0]
-    assert "Desktop app time isn't being measured" in warnings[0] and "open at login" in warnings[0]
+    # No Cold Turkey read to ask whether the Mac was in use: the 36-hour timer decides.
+    assert warnings[0] == ("Qbserve hasn't recorded anything since Wed 16 Sep 10:00.\n\n"
+                           "Desktop app time isn't being measured. Open Qbserve and check it's recording.")
 
     bot = Bot()
     jobs.run_daily(conn, later, settings, bot)                            # same day: not again
@@ -472,6 +475,129 @@ def test_telegram_down_still_reads_qbserve_and_retries_the_warning(conn, clk, se
     bot = Bot()
     assert "qbserve_warning" not in jobs.run_daily(conn, later, settings, bot)   # online again
     assert len([m for m in bot.sent if "Qbserve" in m["text"]]) == 1
+
+
+# --- stopped, or just idle? Cold Turkey is the witness (DR5.27) --------------------------------
+#
+# The fixture's newest Qbserve record is Wed 16 Sep 08:00Z (10:00 in Warsaw), so D = 16 Sep.
+# The daily job runs at 09:30 Warsaw (07:30Z) and reads Cold Turkey before Qbserve.
+
+THU_0930 = "2026-09-17T07:30:00+00:00"
+FRI_0930 = "2026-09-18T07:30:00+00:00"
+SAT_0930 = "2026-09-19T07:30:00+00:00"
+
+
+def with_cold_turkey(settings, path, rows):
+    """`settings` with this Mac's Cold Turkey statistics read from a synthetic database."""
+    return config.test_settings(**{**settings.__dict__, "coldturkey_db": make_ct_db(path, rows)})
+
+
+def qbserve_messages(bot):
+    return [m["text"] for m in bot.sent if "Qbserve" in m["text"]]
+
+
+def desktop_apps_row(conn, clk, settings):
+    return next(r for r in report.needs_attention(conn, clk, settings) if r.group == T.GROUP_DESKTOP_APPS)
+
+
+def test_qbserve_stopped_while_the_mac_was_in_use_warns_with_what_cold_turkey_saw(conn, settings, tmp_path):
+    """Qbserve stopped Wed 30 Sep 14:41; Thursday had 35.6 min of browsing; the warning went Friday."""
+    s = with_cold_turkey(settings, tmp_path / "ct.db", [
+        ("2026-09-15T10:00:00", "https://news.example/a", 1200),        # before D
+        ("2026-09-16T12:00:00", "https://news.example/b", 1800),        # on D itself: day-level, not counted
+        ("2026-09-17T09:00:00", "https://news.example/c", 1296),        # Thursday: 21.6 min
+        ("2026-09-17T10:00:00", "https://www.youtube.com/watch?v=x", 840),  # covered elsewhere, still activity
+    ])
+    bot = Bot()
+    jobs.run_daily(conn, clock.FrozenClock(THU_0930), s, bot)          # Thursday not over: nothing to see yet
+    assert not qbserve_messages(bot)
+
+    fri = clock.FrozenClock(FRI_0930)
+    bot = Bot()
+    assert "qbserve_warning" not in jobs.run_daily(conn, fri, s, bot)
+    assert qbserve_messages(bot) == [
+        "Qbserve hasn't recorded anything since Wed 16 Sep 10:00, though this Mac has been in use since "
+        "(Cold Turkey saw 36 min of browsing).\n\n"
+        "Desktop app time isn't being measured. Open Qbserve and check it's recording."]
+    assert report.qbserve_silence(conn, fri, s) == report.QbserveSilence("2026-09-16T08:00:00+00:00",
+                                                                         pytest.approx(35.6))
+    assert ("Qbserve has not recorded since Wed 16 Sep 10:00, though this Mac was in use (Cold Turkey saw "
+            "36 min of browsing); desktop app time after that is unmeasured, not zero."
+            ) in report.blind_spots(conn, fri, s)
+    row = desktop_apps_row(conn, fri, s)
+    assert (row.state, row.action_text) == (report.STATE_STALE, report.QBSERVE_ACTION)
+    assert row.detail == ("The read is current but Qbserve has recorded nothing since Wed 16 Sep 10:00, though "
+                          "this Mac was in use (Cold Turkey saw 36 min of browsing).")
+
+    bot = Bot()
+    jobs.run_daily(conn, fri, s, bot)                                   # once a day
+    assert not qbserve_messages(bot)
+
+
+def test_the_witness_can_warn_before_the_36_hour_timer_would(conn, settings, tmp_path, qb_db):
+    add_rows(qb_db, [("2026-09-16T21:00:00", 3, 60)])                  # Wed 23:00: 34.5 h before Fri 09:30
+    s = with_cold_turkey(settings, tmp_path / "ct.db", [("2026-09-17T09:00:00", "https://news.example/", 900)])
+    bot = Bot()
+    jobs.run_daily(conn, clock.FrozenClock(FRI_0930), s, bot)
+    assert [m.split(".")[0] for m in qbserve_messages(bot)] == [
+        "Qbserve hasn't recorded anything since Wed 16 Sep 23:00, though this Mac has been in use since "
+        "(Cold Turkey saw 15 min of browsing)"]
+
+
+def test_an_idle_mac_is_not_a_stopped_qbserve(conn, settings, tmp_path):
+    """29 Sep: the 36-hour timer warned, but Cold Turkey saw nothing on the 28th. The Mac was idle."""
+    s = with_cold_turkey(settings, tmp_path / "ct.db", [
+        ("2026-09-14T10:00:00", "https://news.example/a", 1200),
+        ("2026-09-16T07:00:00", "https://news.example/b", 1800),        # D, before Qbserve's last record
+    ])
+    sat = clock.FrozenClock(SAT_0930)                                   # 71.5 h after the last record
+    bot = Bot()
+    assert "qbserve_warning" not in jobs.run_daily(conn, sat, s, bot)
+    assert not qbserve_messages(bot)
+    assert report.qbserve_silence(conn, sat, s) is None
+    assert not any("Qbserve" in line for line in report.blind_spots(conn, sat, s))
+    assert desktop_apps_row(conn, sat, s).state == report.STATE_OK
+
+    # Without the witness, the same data is the timer's call, as before.
+    assert report.qbserve_silence(conn, sat, settings) == report.QbserveSilence("2026-09-16T08:00:00+00:00", None)
+
+
+def test_under_ten_minutes_of_browsing_is_not_use_enough_to_warn(conn, settings, tmp_path):
+    s = with_cold_turkey(settings, tmp_path / "ct.db", [("2026-09-17T09:00:00", "https://news.example/", 540)])
+    fri = clock.FrozenClock(FRI_0930)
+    bot = Bot()
+    jobs.run_daily(conn, fri, s, bot)
+    assert not qbserve_messages(bot) and report.qbserve_silence(conn, fri, s) is None
+    assert report.QBSERVE_WITNESS_MIN == 10.0
+
+
+def test_a_cold_turkey_read_older_than_36_hours_is_no_witness_so_the_timer_decides(conn, settings, tmp_path):
+    s = with_cold_turkey(settings, tmp_path / "ct.db", [("2026-09-15T10:00:00", "https://news.example/", 1200)])
+    jobs.run_daily(conn, clock.FrozenClock(THU_0930), s, Bot())         # Cold Turkey read once, then fails
+    broken = config.test_settings(**{**s.__dict__, "coldturkey_db": tmp_path / "gone.db"})
+    # An export sent by hand is evidence for its week, not proof that the daily read is alive.
+    coldturkey.ingest(conn, clock.FrozenClock(FRI_0930), broken,
+                      coldturkey_local.export_document({(date(2026, 9, 17), "news.example"): 30.0}),
+                      filename="export.json")
+    sat = clock.FrozenClock(SAT_0930)
+    bot = Bot()
+    failed = jobs.run_daily(conn, sat, broken, bot)
+    assert "coldturkey_local" in failed and "qbserve_warning" not in failed
+    assert qbserve_messages(bot) == [
+        "Qbserve hasn't recorded anything since Wed 16 Sep 10:00.\n\n"
+        "Desktop app time isn't being measured. Open Qbserve and check it's recording."]
+    assert report.qbserve_silence(conn, sat, broken).witnessed_min is None
+
+
+def test_unconfigured_qbserve_never_warns_about_old_imports(conn, clk, settings, tmp_path):
+    jobs.run_daily(conn, clk, settings, Bot())
+    plain = config.test_settings(**{**settings.__dict__, "qbserve_db": None})
+    later = clock.FrozenClock(SAT_0930)
+    assert report.qbserve_silence(conn, later, settings) is not None
+    assert report.qbserve_silence(conn, later, plain) is None
+    bot = Bot()
+    jobs._qbserve_stale_warning(conn, later, plain, bot)
+    assert not bot.sent
 
 
 def test_blind_spots_when_configured_but_never_imported(conn, clk, settings, tmp_path):
@@ -530,7 +656,8 @@ def test_check_env_qbserve_step(tmp_path, qb_db, capsys, monkeypatch):
 
     old = make_qb_db(tmp_path / "old.sqlite", rows=[("2026-01-05T08:00:00", 3, 60)])
     out, failed = _check({"DRBR_QBSERVE_DB": str(old)}, capsys)
-    assert not failed and "WARN" in out and "open at login" in out    # stale is a note, never a failure
+    assert not failed and "WARN" in out and "reopens it within 10 minutes" in out   # a note, never a failure
+    assert "open at login" not in out
 
 
 def test_days_before_qbserve_resumed_are_uncovered_not_zero(conn, settings, tmp_path):

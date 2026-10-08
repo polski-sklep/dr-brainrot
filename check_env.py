@@ -380,7 +380,7 @@ def check_qbserve(env: dict[str, str]) -> None:
     age_h = (dt.datetime.now(dt.timezone.utc) - newest).total_seconds() / 3600
     if age_h > 36:
         print(f"  WARN  Qbserve's newest record is {age_h:.0f} h old: is Qbserve running? "
-              "Set it to open at login (not a failure)")
+              "The com.jacob.drbr.qbserve agent reopens it within 10 minutes (not a failure)")
 
 
 def check_anthropic(env: dict[str, str]) -> None:

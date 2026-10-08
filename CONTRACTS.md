@@ -902,7 +902,7 @@ All additive and defaulted; every earlier call site stays valid. Reasons and tes
   - `staleness_hours(conn, clk) -> float | None`.
 
   An import's period ends at the local day of Qbserve's newest record, and is NULL when nothing in the window was recorded.
-- `jobs.run_daily` step `qbserve` runs after `coldturkey_local` and before `import_prompts`. While `staleness_hours > 36` and the diagnostic hasn't ended, it sends one Telegram warning per local day.
+- `jobs.run_daily` step `qbserve` runs after `coldturkey_local` and before `import_prompts`. While `staleness_hours > 36` and the diagnostic hasn't ended, it sends one Telegram warning per local day. (Since DR5.27 the warning is its own step and asks `report.qbserve_silence` instead; see §21.)
 - `report`:
   - `IMPORT_KIND_FOR_PROVENANCE[PROV_APP_TRACKER] = "qbserve"`;
   - an `EXPECTED_WEEKLY` row for Qbserve, applied only while `settings.qbserve_db` is set;
@@ -1342,3 +1342,38 @@ def _new_data_since(conn, written, week: T.MeasurementWeek, tz) -> bool
 Cold Turkey `local_db`, `qbserve`, `brave_sync` and `vault_scan` imports never
 count: they re-read eight days every morning. Read-only, no new state, derived
 on every render. `overview.html` names the reason in the same order.
+
+### Keeping Qbserve running (DR5.27)
+
+```python
+# report.py
+QBSERVE_WITNESS_MIN = 10.0                  # Cold Turkey minutes after Qbserve's last record that mean "in use"
+@dataclass(frozen=True)
+class QbserveSilence: latest_record_at: str; witnessed_min: float | None   # None: the 36-hour timer decided
+def _coldturkey_witness(conn, clk, settings, *, after: date) -> float | None
+    # sum of ok `manual_export` minutes with period_start > after, any label;
+    # None when settings.coldturkey_db is unset or the newest ok/partial
+    # Cold Turkey import with meta.origin == "local_db" is over 36 h old
+def qbserve_silence(conn, clk, settings) -> QbserveSilence | None
+    # None when qbserve_db is unset or no record exists. D = local day of the
+    # latest usable Qbserve import's meta.latest_record_at. With a witness:
+    # silent when it saw >= QBSERVE_WITNESS_MIN after D. Without: silent when
+    # the record is over QBSERVE_STALE_HOURS old.
+QBSERVE_ACTION = "Open Qbserve and check it's recording; it is reopened automatically every 10 minutes."
+def _automatic_state(conn, clk, kind, *, what, tz, never_action, stale_action)   # latest_record_at removed
+```
+
+* `jobs._qbserve_stale_warning` sends when `qbserve_silence` holds, at most
+  once per local day (`prompts_sent` kind `qbserve_stale`), never after the
+  diagnostic has ended. `jobs.QBSERVE_STALE_HOURS` is removed;
+  `qbserve.staleness_hours` stays but nothing schedules on it.
+* `blind_spots`: the "last read" line (read over 36 h old) is unchanged and
+  comes first; the "has not recorded since" line follows `qbserve_silence`.
+* `needs_attention` Qbserve row: `_automatic_state` first (never read,
+  failed, read over 36 h old); when that is `ok` and `qbserve_silence`
+  holds, `STATE_STALE` with `QBSERVE_ACTION`.
+* `launchd/com.jacob.drbr.qbserve.plist`: `/bin/sh -c "/usr/bin/pgrep -xq
+  Qbserve || { /bin/date ...; /usr/bin/open -g -j -a Qbserve; }"`,
+  `StartInterval` 600, `RunAtLoad` true, output to `logs/qbserve.log`. In
+  `./drbr`'s `AGENTS`, so `start`, `stop` and `status` include it. No
+  repository code, no Qbserve data.

@@ -73,8 +73,14 @@ EXPECTED_WEEKLY = (
     ("qbserve", T.GROUP_DESKTOP_APPS, T.PROV_APP_TRACKER, T.DEVICE_DESKTOP, "Qbserve"),
 )
 
-#: Qbserve (DR5.3) is read daily; older than this, the job warns and blind_spots says so.
+#: Qbserve (DR5.3) is read daily. A read older than this means the read is not
+#: happening; a newest record older than this is the stopped-Qbserve rule when
+#: there is no witness to say whether the Mac was in use (`qbserve_silence`).
 QBSERVE_STALE_HOURS = 36
+
+#: Minutes of browsing Cold Turkey must have seen after Qbserve's newest record
+#: before Qbserve counts as stopped while the Mac was in use (DR5.27).
+QBSERVE_WITNESS_MIN = 10.0
 
 #: What the Import column says about a week's evidence. Four of these are two
 #: pairs: the same fact about coverage, worded by whether the week has been
@@ -867,13 +873,80 @@ def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> lis
     return out
 
 
+@dataclass(frozen=True)
+class QbserveSilence:
+    """Qbserve has stopped recording while it should have been (DR5.27).
+
+    `witnessed_min` is the browsing Cold Turkey saw on this Mac after the day
+    of Qbserve's newest record; None when there was no witness and the
+    36-hour timer decided instead.
+    """
+
+    latest_record_at: str
+    witnessed_min: float | None
+
+
+def _coldturkey_witness(conn: sqlite3.Connection, clk: Clock, settings: Settings, *,
+                        after: date) -> float | None:
+    """Browser minutes Cold Turkey recorded on this Mac on days after `after`.
+
+    None when there is no witness: Cold Turkey isn't read automatically, or
+    its read hasn't produced an import in the last `QBSERVE_STALE_HOURS`.
+    Every Cold Turkey minute counts, whatever its label: this is activity on
+    the Mac, not content. Only finished days are ever recorded.
+    """
+    if getattr(settings, "coldturkey_db", None) is None:
+        return None
+    row = conn.execute(
+        "SELECT received_at FROM imports WHERE kind = 'coldturkey' AND status IN ('ok', 'partial') "
+        "AND (CASE WHEN json_valid(meta) THEN json_extract(meta, '$.origin') END) = 'local_db' "
+        "ORDER BY id DESC LIMIT 1").fetchone()
+    hours = _hours_since(clk, row["received_at"]) if row is not None else None
+    if hours is None or hours > QBSERVE_STALE_HOURS:
+        return None
+    (minutes,) = conn.execute(
+        "SELECT COALESCE(SUM(minutes), 0) FROM measurements "
+        "WHERE provenance = ? AND status = 'ok' AND period_start > ?",
+        (T.PROV_EXPORT, after.isoformat())).fetchone()
+    return float(minutes)
+
+
+def qbserve_silence(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> QbserveSilence | None:
+    """Has Qbserve stopped recording while this Mac was in use? (DR5.27)
+
+    Cold Turkey is the witness. Qbserve's newest record falls on local day D;
+    if Cold Turkey saw at least `QBSERVE_WITNESS_MIN` of browsing on days
+    after D, the Mac was used and Qbserve was not recording. An idle Mac
+    (nothing after D) is not a stopped Qbserve. With no witness, Qbserve is
+    stopped once its newest record is more than `QBSERVE_STALE_HOURS` old, the
+    rule before DR5.27. None when Qbserve isn't configured or has no record.
+    """
+    if getattr(settings, "qbserve_db", None) is None:
+        return None
+    latest = _qbserve_latest_record(conn)
+    if not latest:
+        return None
+    witnessed = _coldturkey_witness(conn, clk, settings, after=T.local_date(latest, settings.tz))
+    if witnessed is None:
+        hours = _hours_since(clk, latest)
+        return QbserveSilence(latest, None) if hours is not None and hours > QBSERVE_STALE_HOURS else None
+    return QbserveSilence(latest, witnessed) if witnessed >= QBSERVE_WITNESS_MIN else None
+
+
+def _witness_clause(silence: QbserveSilence) -> str:
+    """The "though this Mac was in use" clause when Cold Turkey saw it; empty when the timer decided."""
+    if silence.witnessed_min is None:
+        return ""
+    return f", though this Mac was in use (Cold Turkey saw {round(silence.witnessed_min)} min of browsing)"
+
+
 def _qbserve_blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> list[str]:
     """Desktop app time is only as current as Qbserve's own recording (DR5.3).
 
     Stale when the latest usable Qbserve import was received more than
-    `QBSERVE_STALE_HOURS` ago (the daily read is not happening), or Qbserve's
-    newest record in it is that old (Qbserve is not running). No import at all
-    while `settings.qbserve_db` is configured says so too.
+    `QBSERVE_STALE_HOURS` ago (the daily read is not happening), or Qbserve
+    has stopped recording while the Mac was in use (`qbserve_silence`). No
+    import at all while `settings.qbserve_db` is configured says so too.
     """
     row = conn.execute("SELECT received_at, meta FROM imports WHERE kind = 'qbserve' AND status != 'failed' "
                        "ORDER BY id DESC LIMIT 1").fetchone()
@@ -891,10 +964,13 @@ def _qbserve_blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Setting
     if received_h > QBSERVE_STALE_HOURS:
         return [f"Desktop app time was last read from Qbserve on {clock.fmt_local(row['received_at'], settings.tz)}; "
                 "later app use is unmeasured, not zero."]
-    if not latest or (now - clock.parse(latest)).total_seconds() / 3600 > QBSERVE_STALE_HOURS:
-        since = clock.fmt_local(latest, settings.tz) if latest else "the start of the read"
-        return [f"Qbserve has not recorded since {since}; desktop app time after that is unmeasured, "
-                "not zero. Keep Qbserve open at login."]
+    if not latest:
+        return ["Qbserve has not recorded since the start of the read; desktop app time after that is "
+                "unmeasured, not zero."]
+    silence = qbserve_silence(conn, clk, settings)
+    if silence is not None:
+        return [f"Qbserve has not recorded since {clock.fmt_local(silence.latest_record_at, settings.tz)}"
+                f"{_witness_clause(silence)}; desktop app time after that is unmeasured, not zero."]
     return []
 
 
@@ -1149,13 +1225,12 @@ def _weekly_manual_state(conn: sqlite3.Connection, clk: Clock, settings: Setting
 
 
 def _automatic_state(conn: sqlite3.Connection, clk: Clock, kind: str, *, what: str, tz: str,
-                     never_action: str, stale_action: str,
-                     latest_record_at: str | None = None) -> tuple[str, str, str, str | None]:
+                     never_action: str, stale_action: str) -> tuple[str, str, str, str | None]:
     """-> (state, action_text, detail, last_data_at) for a source DRBR reads itself.
 
-    `latest_record_at` is the newest fact *inside* the newest import, where the
-    tool has one (Qbserve): an import that ran fine but found nothing new means
-    the tool stopped, which the received time alone would hide.
+    Answers "is the read happening". Whether the tool itself is still
+    recording is a separate question, asked only of Qbserve
+    (`qbserve_silence`, in `needs_attention`).
     """
     latest_any = _latest_import_row(conn, kind, include_failed=True)
     row = _latest_import_row(conn, kind)
@@ -1174,11 +1249,6 @@ def _automatic_state(conn: sqlite3.Connection, clk: Clock, kind: str, *, what: s
     if hours is not None and hours > STALE_HOURS:
         return (STATE_STALE, stale_action,
                 f"{what} was last read on {clock.fmt_local(last, tz)}; later use is unmeasured, not zero.", last)
-    record_hours = _hours_since(clk, latest_record_at)
-    if latest_record_at is not None and record_hours is not None and record_hours > STALE_HOURS:
-        return (STATE_STALE, stale_action,
-                f"The read is current but {what} has recorded nothing since "
-                f"{clock.fmt_local(latest_record_at, tz)}.", last)
     return STATE_OK, "", f"Read on {clock.fmt_local(last, tz)}.", last
 
 
@@ -1201,7 +1271,7 @@ COLDTURKEY_EXPORT_ACTION = ("Cold Turkey Blocker → Statistics → Websites usa
                             "and send the JSON file to the bot.")
 COLDTURKEY_READ_ACTION = ("Cold Turkey's own statistics are read on this Mac; check logs/jobs.log, and "
                           "export last week by hand meanwhile.")
-QBSERVE_ACTION = "Open Qbserve and set it to open at login, so desktop app time keeps being recorded."
+QBSERVE_ACTION = "Open Qbserve and check it's recording; it is reopened automatically every 10 minutes."
 QBSERVE_UNCONFIGURED_ACTION = ("Desktop app time is not measured: set DRBR_QBSERVE_DB in .env and let the "
                                "next daily run pick it up.")
 VAULT_ACTION = "Check DRBR_VAULT_PATH and logs/jobs.log: the vault has not been scanned."
@@ -1282,7 +1352,13 @@ def needs_attention(conn: sqlite3.Connection, clk: Clock, settings: Settings) ->
     else:
         state, action, detail, last = _automatic_state(
             conn, clk, "qbserve", what="Qbserve", tz=tz, never_action=QBSERVE_ACTION,
-            stale_action=QBSERVE_ACTION, latest_record_at=_qbserve_latest_record(conn))
+            stale_action=QBSERVE_ACTION)
+        # The read is happening, but is Qbserve recording? Only while the Mac is in use (DR5.27).
+        silence = qbserve_silence(conn, clk, settings) if state == STATE_OK else None
+        if silence is not None:
+            state, action = STATE_STALE, QBSERVE_ACTION
+            detail = (f"The read is current but Qbserve has recorded nothing since "
+                      f"{clock.fmt_local(silence.latest_record_at, tz)}{_witness_clause(silence)}.")
         rows.append(NeedsRow(T.GROUP_DESKTOP_APPS, GROUP_TEXT[T.GROUP_DESKTOP_APPS], MODE_AUTOMATIC,
                              SCHEDULE_CONTINUOUS, last, qb_covered, state, action, detail))
 

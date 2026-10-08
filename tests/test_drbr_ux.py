@@ -131,8 +131,8 @@ def test_qbserve_that_stopped_recording_is_stale_with_one_thing_to_do(conn, tmp_
     conn.commit()
     row = row_for(report.needs_attention(conn, clk, configured), T.GROUP_DESKTOP_APPS)
     assert (row.mode, row.state) == (report.MODE_AUTOMATIC, report.STATE_STALE)
-    assert "recorded nothing since" in row.detail
-    assert "open at login" in row.action_text
+    assert row.detail == "The read is current but Qbserve has recorded nothing since Mon 14 Sep 10:00."
+    assert row.action_text == report.QBSERVE_ACTION and "check it's recording" in row.action_text
 
 
 def test_qbserve_unconfigured_says_desktop_apps_are_unmeasured_not_zero(conn, clk, settings):
