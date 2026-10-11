@@ -393,6 +393,33 @@ def _since_bounds(since: str | None, tz: str) -> tuple[str | None, str | None]:
     return clock.iso(clock.parse(since)), T.iso_date(T.local_date(since, tz))
 
 
+
+
+
+def screentime_list_complete(conn: sqlite3.Connection, imp: sqlite3.Row) -> bool | None:
+    """Does this Screen Time capture show every app worth counting?
+
+    True when the list was captured to its end, or when it was cut off below
+    an app under `T.SCREENTIME_TAIL_MIN`. Otherwise the capture's own flag:
+    False for a list that stopped at "Show More" above that, None when its end
+    was never seen.
+    """
+    try:
+        flag = json.loads(imp["meta"] or "{}").get("most_used_complete")
+    except ValueError:
+        flag = None
+    if flag is True:
+        return True
+    smallest = conn.execute(
+        "SELECT MIN(minutes) FROM measurements WHERE import_id = ? AND provenance = ? "
+        "AND status = 'ok' AND minutes > 0",
+        (imp["id"], T.PROV_SCREENSHOT),
+    ).fetchone()[0]
+    if smallest is not None and smallest <= T.SCREENTIME_TAIL_MIN:
+        return True
+    return flag
+
+
 def _covering_import(conn: sqlite3.Connection, settings: Settings, kind: str,
                      week: T.MeasurementWeek) -> sqlite3.Row | None:
     """The latest ok/partial import of `kind` that covers a measurement week.

@@ -2800,3 +2800,31 @@ because its read of that day succeeded. The keeper (DR5.27) is what prevents it.
 `./dr-brainrot`'s AGENTS list and the README's agent table; `pace.py` (`Pace`,
 `pace()`); `pace` is the last argument of the Overview's render call.
 Rendering it in the week-summary strip is the UI session's.
+
+### DR5.30 — A Screen Time list cut off among tiny apps is complete enough
+
+**11 October 2026.** The Sunday check-in asked, once more, for Screen Time for
+27 Sep – 3 Oct because its screenshots stopped at "Show More". Jacob: "these
+are menial", and the system should not get hung up on screenshots of seconds.
+He was right on the numbers: that capture (import #80) listed 39 apps, down to
+one at 1 minute a week.
+
+**The rule.** iOS sorts Most Used by time, so a list stopped at "Show More"
+hides only apps smaller than the smallest one it shows. Once it shows an app
+under `T.SCREENTIME_TAIL_MIN` (5 minutes a week), nothing hidden is worth a
+retake, and the capture counts as complete:
+
+* the check-in and its Monday reminder no longer ask for it (`checklist`);
+* the weekly comparison reads an app absent from it as a real zero, under
+  5 minutes, not as unknown (`progress`);
+* the bot's reply to the upload drops the "tap Show More and resend" warning.
+
+`report.screentime_list_complete()` is the one place the rule lives. The
+import's own `most_used_complete` flag is left as it was read: the list did
+stop at "Show More", and the record says so. A list cut off while its smallest
+app is above 5 minutes is still asked for, once, as before (DR5.24): what it
+hides could be real time.
+
+**Why 5 minutes.** It is under a minute a day, below anything a weekly
+comparison treats as a change (`progress.LEVEL_MIN` is 15), and a test pins 5
+as complete and 6 as not.

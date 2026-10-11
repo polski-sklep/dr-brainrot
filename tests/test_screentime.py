@@ -260,9 +260,18 @@ def test_mixed_week_labels_write_nothing():
 
 def test_most_used_list_not_expanded_is_a_warning():
     pages, _ = load("last_week.json")
-    r = parse(pages[:4])            # ends on the page whose list ends in "Show More"
+    r = parse(pages[:2])            # stops at "Show More" while apps of 38 min are still showing
     assert r.meta["most_used_complete"] is False
     assert any("Show More" in w for w in r.warnings)
+
+
+def test_a_list_cut_off_among_apps_of_seconds_is_not_a_warning():
+    """DR5.30: the list already reached 13-second apps, so whatever "Show More" hides is
+    smaller still. The flag stays honest; only the request to resend goes."""
+    pages, _ = load("last_week.json")
+    r = parse(pages[:4])
+    assert r.meta["most_used_complete"] is False
+    assert not any("Show More" in w for w in r.warnings)
 
 
 def test_images_that_are_not_screen_time_raise():

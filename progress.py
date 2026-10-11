@@ -33,7 +33,6 @@ suggest how anything should be labelled.
 """
 from __future__ import annotations
 
-import json
 import math
 import sqlite3
 from dataclasses import dataclass
@@ -220,11 +219,11 @@ def _load(conn, clk, settings, mweek: T.MeasurementWeek, splits: dict) -> _Week:
         if t.import_status in (T.IMPORT_OK, T.IMPORT_PARTIAL):
             channels.add(t.provenance)
     imp = report._covering_import(conn, settings, "screentime", mweek)
-    meta = json.loads(imp["meta"] or "{}") if imp is not None else {}
+    complete = imp is not None and report.screentime_list_complete(conn, imp) is True
     lines = {_key(line): line
              for line in report.top_sources(conn, clk, settings, start, limit=None)}
     return _Week(start, allowance.pooled_minutes(conn, settings, start), lines,
-                 frozenset(channels), bool(meta.get("most_used_complete")), splits.get(start))
+                 frozenset(channels), complete, splits.get(start))
 
 
 def _name(conn, key: tuple, *weeks: _Week) -> str:

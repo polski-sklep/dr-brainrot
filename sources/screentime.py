@@ -590,7 +590,7 @@ def parse_observations(pages: list[list[TextObservation]], *, received_at: str, 
                         "\"Show Apps\" under Most Used and resend.")
     elif not saw_most_used:
         warnings.append("No Most Used list was found, so no app minutes were read. " + RESEND_HOWTO)
-    elif complete is False:
+    elif complete is False and not _reaches_the_tail(readings):
         warnings.append("The Most Used list ends in \"Show More\", so apps below it are missing. Tap Show More "
                         "until it disappears and resend.")
     elif complete is None:
@@ -821,6 +821,16 @@ def _run(conn, clk, settings, raw_path, raw_sha, images, received_at, images_key
     except (evidence.ParseError, labels.LabelError, evidence.EvidenceError) as exc:
         evidence.fail_import(conn, rec, f"could not record the parse: {exc}")
         return evidence.Outcome(rec.id, T.IMPORT_FAILED, 0, tuple(rec.warnings), f"could not record the parse: {exc}")
+
+
+def _reaches_the_tail(readings: dict) -> bool:
+    """Does the list already show an app under `T.SCREENTIME_TAIL_MIN`?
+
+    Then a "Show More" below it hides only smaller apps still, and asking for
+    the screenshots again would be for minutes nobody needs (DR5.30).
+    """
+    return any(r.minutes is not None and 0 < r.minutes <= T.SCREENTIME_TAIL_MIN
+               for rows in readings.values() for r in rows if r.value is not None)
 
 
 # --- human correction of an unreadable row (DR5.6) --------------------------

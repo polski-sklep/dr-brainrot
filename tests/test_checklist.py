@@ -404,6 +404,41 @@ def test_telegram_down_sunday_and_monday_sends_the_list_on_tuesday(conn, clk, se
     assert run(conn, clk, settings, bot, at=FRIDAY) == [] and len(bot.sent) == 2
 
 
+
+def phone_apps(conn, rec, sunday=W, **apps):
+    """Most Used rows on a Screen Time import: {app: minutes}."""
+    week = T.measurement_week(T.parse_date(sunday))
+    for name, minutes in apps.items():
+        src = labels.ensure_source(conn, clock.FrozenClock(SUNDAY), T.KIND_IPHONE_APP, name)
+        evidence.upsert_measurement(conn, rec, source_id=src.id, device=T.DEVICE_IPHONE,
+                                    provenance=T.PROV_SCREENSHOT, period_start=week.start,
+                                    period_end=week.end, minutes=float(minutes))
+
+
+def test_a_list_cut_off_below_a_tiny_app_is_not_asked_for_again(conn, clk, settings):
+    """DR5.30, the live case: #80 stopped at "Show More" after an app at 1 min a week.
+    Whatever is hidden is smaller still, so a retake would be for seconds."""
+    rec = screen_time(conn, clk, settings, complete=False)
+    phone_apps(conn, rec, TikTok=300, Maps=12, Calculator=1)
+    week = T.measurement_week(T.parse_date(W))
+    assert checklist.week_needs(conn, clk, settings, week).screentime == checklist.IN
+
+
+def test_a_list_cut_off_while_the_apps_still_matter_is_asked_for_again(conn, clk, settings):
+    rec = screen_time(conn, clk, settings, complete=False)
+    phone_apps(conn, rec, TikTok=300, Instagram=40)        # the smallest shown is 40 min: more could hide
+    week = T.measurement_week(T.parse_date(W))
+    assert checklist.week_needs(conn, clk, settings, week).screentime == checklist.CUT_OFF
+
+
+@pytest.mark.parametrize("smallest,asked", [(5, False), (6, True)])
+def test_the_tail_floor_is_five_minutes_inclusive(conn, clk, settings, smallest, asked):
+    rec = screen_time(conn, clk, settings, complete=False)
+    phone_apps(conn, rec, TikTok=300, Small=smallest)
+    week = T.measurement_week(T.parse_date(W))
+    assert (checklist.week_needs(conn, clk, settings, week).screentime == checklist.CUT_OFF) is asked
+
+
 # --- an older capture cut off at "Show More" ------------------------------------------
 # The live case: import #80 (27 Sep – 3 Oct) and #24 (13 – 19 Sep) stopped at "Show More"
 # before the check-in existed. On Sun 11 Oct the iPhone still has 27 Sep (‹ twice), not 13 Sep.

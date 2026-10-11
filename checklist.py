@@ -212,13 +212,10 @@ def _screentime(conn: sqlite3.Connection, settings: Settings, week: T.Measuremen
     st = report._covering_import(conn, settings, "screentime", week)
     if st is None:
         return MISSING
-    try:
-        meta = json.loads(st["meta"] or "{}")
-    except ValueError:
-        meta = {}
     # Only an explicit False is "cut off". A capture whose end of list was
-    # never seen (None) was already flagged in the import reply.
-    return CUT_OFF if meta.get("most_used_complete") is False else IN
+    # never seen (None) was already flagged in the import reply, and one cut
+    # off below a tiny app hides nothing worth asking for (DR5.30).
+    return CUT_OFF if report.screentime_list_complete(conn, st) is False else IN
 
 
 def _asked_again(conn: sqlite3.Connection) -> dict[str, str]:

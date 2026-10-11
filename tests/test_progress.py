@@ -118,6 +118,19 @@ def test_an_app_missing_from_a_cut_off_list_is_unknown(conn, clk, settings):
     assert "1 phone app below the end of a cut-off Screen Time list" in p.set_aside
 
 
+def test_a_list_cut_off_below_a_tiny_app_counts_as_complete(conn, clk, settings):
+    """DR5.30: everything below a 1-minute app is smaller still, so Facebook's absence
+    is a real (under 1 min) zero, not an unknown that needs a retake."""
+    screen_time(conn, clk, settings, A, {"Instagram": 80, "Calculator": 1}, complete=False)
+    screen_time(conn, clk, settings, B, {"Instagram": 80, "Facebook": 56})
+    wasteful(conn, clk, (APP, "Instagram"), (APP, "Facebook"))
+
+    p = progress.progress(conn, clk, settings)
+    assert p.below_cut_sources == 0 and p.like_for_like
+    assert [f.text for f in p.tips if f.kind == "riser"] == [
+        "Facebook rose from nothing to 56 min. A Screen Time app limit on the phone is the direct lever."]
+
+
 def test_an_app_missing_from_a_complete_list_is_a_real_zero(conn, clk, settings):
     screen_time(conn, clk, settings, A, {"Instagram": 80})
     screen_time(conn, clk, settings, B, {"Instagram": 80, "Facebook": 56})

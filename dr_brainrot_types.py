@@ -82,6 +82,13 @@ PROV_LABEL = "user_label"                # explicit user labels
 PROVENANCES = (PROV_API, PROV_PAGE, PROV_SCREENSHOT, PROV_EXPORT, PROV_APP_TRACKER,
                PROV_BROWSER_SYNC, PROV_AUDIBLE_STATS, PROV_VAULT, PROV_LABEL)
 
+#: A phone app with less than this in a week is noise, not brain rot worth a
+#: screenshot. A Most Used list stopped at "Show More" hides only apps smaller
+#: than the smallest one it shows, so once it shows one this small, nothing
+#: hidden is worth asking for (DR5.30). The user, on being asked to retake a
+#: week whose list already went down to 1 min: "these are menial".
+SCREENTIME_TAIL_MIN = 5.0
+
 PROVENANCE_TEXT = {
     PROV_API: "API (Spotify resume position)",
     PROV_PAGE: "Page data (YouTube history) x API duration",
