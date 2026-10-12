@@ -145,7 +145,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("sync").addEventListener("click", async () => {
     await saveSettings();
     $("sync").disabled = true;
-    await chrome.runtime.sendMessage({ type: "dr-brainrot-start" });
+    // A background script left over from before an update ignores a message it
+    // doesn't know, and the button would stay grey with nothing happening (as
+    // after the dr-brainrot rename, 12 Oct). Say so instead of failing silently.
+    let reply;
+    try {
+      reply = await chrome.runtime.sendMessage({ type: "dr-brainrot-start" });
+    } catch (_) {
+      reply = null;
+    }
+    if (!reply || !reply.ok) {
+      $("sync").disabled = false;
+      const panel = $("status");
+      panel.replaceChildren();
+      panel.className = "panel failed";
+      panel.appendChild(el("div", "THE SYNC DIDN'T START", "title"));
+      panel.appendChild(el("div", "The extension's background script didn't answer, so it is still running an "
+        + "older version. Open brave://extensions, click the reload arrow on this extension, reload this "
+        + "tab, and press Run weekly sync again."));
+    }
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.lastRun) render(changes.lastRun.newValue);
