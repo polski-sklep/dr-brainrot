@@ -342,7 +342,8 @@ def find_unnamed_rows(pages: list[list[TextObservation]]) -> list[tuple[int, Tex
 #: Crops tried when re-reading an unnamed row's name area, relative to the
 #: duration's top y. Two crops that must agree: a single glyph read on one
 #: crop and not the other is not trusted.
-RECOVERY_CROPS = ((0.17, -0.040, 0.28, 0.038), (0.17, -0.035, 0.28, 0.030))
+#: The third, taller one is the only crop that read X on the 18 Oct capture.
+RECOVERY_CROPS = ((0.17, -0.040, 0.28, 0.038), (0.17, -0.035, 0.28, 0.030), (0.17, -0.050, 0.20, 0.050))
 
 
 def recover_unnamed_rows(pages: list[list[TextObservation]], images: list[bytes],
@@ -389,7 +390,8 @@ class AppRow:
     #: rather than only described in a warning — otherwise the only way back to
     #: those two numbers is re-reading the screenshots (DR5.6).
     readings: tuple[float, ...] = ()
-    #: Why the row is unreadable: 'conflicting_durations' | 'no_duration'. None when ok.
+    #: Why the row is unreadable: 'conflicting_durations' | 'no_duration' | 'below_tail'
+    #: (no duration, under an app below T.SCREENTIME_TAIL_MIN, so never asked about). None when ok.
     reason: str | None = None
 
 
@@ -593,11 +595,12 @@ def parse_observations(pages: list[list[TextObservation]], *, received_at: str, 
     elif complete is False and not _reaches_the_tail(readings):
         warnings.append("The Most Used list ends in \"Show More\", so apps below it are missing. Tap Show More "
                         "until it disappears and resend.")
-    elif complete is None:
+    elif complete is None and not _reaches_the_tail(readings):
         warnings.append("The end of the Most Used list wasn't in the screenshots, so apps below it may be "
                         "missing. Keep scrolling until the Pickups section shows.")
 
     app_rows: list[AppRow] = []
+    smallest = None                # smallest duration read so far, in list (= time) order
     for k, rows in readings.items():
         named = display[k]
         with_value = [r for r in rows if r.value is not None]
@@ -605,10 +608,17 @@ def parse_observations(pages: list[list[TextObservation]], *, received_at: str, 
         pages_seen = tuple(sorted({r.page + 1 for r in rows}))
         recovered = any(r.name.origin == "region" for r in rows)
         if not with_value:
+            # Most Used is sorted by time: below an app this small, it is smaller still (DR5.30).
+            if smallest is not None and smallest <= T.SCREENTIME_TAIL_MIN:
+                app_rows.append(AppRow(named, None, "unreadable", raw, None, pages_seen, recovered,
+                                       (), "below_tail"))
+                continue
             warnings.append(f"The app {named!r} has no readable duration; it is stored as unreadable, not zero.")
             app_rows.append(AppRow(named, None, "unreadable", raw, None, pages_seen, recovered,
                                    (), "no_duration"))
             continue
+        read = min(r.minutes for r in with_value)
+        smallest = read if smallest is None else min(smallest, read)
         values = {round(r.minutes, 4) for r in with_value}
         conf = min(min(r.name.confidence, r.value.confidence) for r in with_value)
         if len(values) > 1:

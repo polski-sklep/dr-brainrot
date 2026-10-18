@@ -57,10 +57,10 @@ class OcrError(Exception):
     """Vision could not process the image (undecodable bytes, framework failure)."""
 
 
-def _request(Vision):
+def _request(Vision, language_correction: bool = True):
     req = Vision.VNRecognizeTextRequest.alloc().init()
     req.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
-    req.setUsesLanguageCorrection_(True)
+    req.setUsesLanguageCorrection_(language_correction)
     return req
 
 
@@ -76,9 +76,9 @@ def _cg_image(image_bytes: bytes):
     return img
 
 
-def _perform(Vision, cg_image) -> list:
+def _perform(Vision, cg_image, language_correction: bool = True) -> list:
     handler = Vision.VNImageRequestHandler.alloc().initWithCGImage_options_(cg_image, None)
-    req = _request(Vision)
+    req = _request(Vision, language_correction)
     ok, err = handler.performRequests_error_([req], None)
     if not ok:
         raise OcrError(f"Vision text recognition failed: {err}")
@@ -133,5 +133,7 @@ def recognize_region(image_bytes: bytes, x: float, y: float, w: float, h: float)
     if crop is None:
         return []
     out = [_to_observation(r, ox=x0, oy=y0, sx=x1 - x0, sy=y1 - y0, origin="region")
-           for r in _perform(Vision, crop)]
+           # A crop holds one app name, not prose: correction turned the lone "X" (18 Oct)
+           # into nothing or a 0.3-confidence guess; without it Vision reads it at 1.0.
+           for r in _perform(Vision, crop, language_correction=False)]
     return [o for o in out if o is not None]

@@ -517,19 +517,19 @@ def test_dr_brainrot_end_to_end(tmp_path, monkeypatch, caplog):
     write_note, real_writer = load_vault_writer(monkeypatch, vault_root, outbox, clk)
     notes = {
         "stays": write_note("A thread on sleep", "Tweet body about sleep.", "01-Inbox/Read/X Bookmarks",
-                            {"type": "reference", "format": "x-post", "url": "https://x.com/a/status/1",
+                            {"type": "reference", "format": "x-post", "url": "https://x.com/a/status/1", "source_type": "x-post", "source_url": "https://x.com/a/status/1",
                              "author": "someone"}, "x-post"),
         "developed": write_note("Long article on attention", "The long-form X article body.", "01-Inbox/Read",
-                                {"type": "reference", "format": "x-article", "url": "https://x.com/b/status/2"},
+                                {"type": "reference", "format": "x-article", "url": "https://x.com/b/status/2", "source_type": "x-article", "source_url": "https://x.com/b/status/2"},
                                 "x-article"),
         "deleted": write_note("Talk transcript", "Transcript text.", "01-Inbox/YoutubeTranscripts",
-                              {"type": "reference", "format": "youtube",
-                               "url": f"https://www.youtube.com/watch?v={CAPTURED_VIDEO}"}, "youtube"),
+                              {"type": "reference", "format": "youtube", "source_type": "youtube",
+                               "url": f"https://www.youtube.com/watch?v={CAPTURED_VIDEO}", "source_url": f"https://www.youtube.com/watch?v={CAPTURED_VIDEO}"}, "youtube"),
         "archived": write_note("Blog post", "An article body.", "01-Inbox/Read",
-                               {"type": "reference", "format": "article", "url": "https://www.example.org/post"},
+                               {"type": "reference", "format": "article", "url": "https://www.example.org/post", "source_type": "article", "source_url": "https://www.example.org/post"},
                                "article"),
         "trashed": write_note("Another thread", "Tweet body two.", "01-Inbox/Read/X Bookmarks",
-                              {"type": "reference", "format": "x-post", "url": "https://x.com/c/status/3"},
+                              {"type": "reference", "format": "x-post", "url": "https://x.com/c/status/3", "source_type": "x-post", "source_url": "https://x.com/c/status/3"},
                               "x-post"),
     }
     outbox_lines = [json.loads(line) for line in outbox.read_text().splitlines()]

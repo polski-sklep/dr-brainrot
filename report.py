@@ -1835,6 +1835,8 @@ def needs_your_eye(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> 
         raw = tuple(str(x) for x in detail.get("raw", []) if str(x).strip())
         options = _eye_readings(raw, detail.get("readings"))
         reason = detail.get("unreadable_reason")
+        if reason == "below_tail":         # under a tiny app in a time-sorted list: not worth asking (DR5.30)
+            continue
         if reason == "conflicting_durations" or len(options) > 1:
             text = (f"{r['display_name']} was read with more than one duration "
                     f"({', '.join(raw) or 'no readable text'}), so nothing was recorded rather than guessed.")

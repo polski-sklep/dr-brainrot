@@ -350,3 +350,78 @@ def test_screen_time_reply_points_at_readings_to_settle(settings, conn, clk):
     assert "needs-your-eye" not in reply_for(other)
     assert "needs-your-eye" not in reply_for(evidence.Outcome(7, "ok", 0, (), None, duplicate_of=7))
     assert "needs-your-eye" not in reply_for(evidence.Outcome(9, "failed", 0, (), "boom"))
+
+
+# --- a network blip while downloading (18 Oct: one screenshot of ten was lost) ------------------
+
+class FlakyFileRef(FakeFileRef):
+    """Fails `failures` times with `error`, then downloads."""
+
+    def __init__(self, data, failures, error):
+        super().__init__(data)
+        self.failures, self.error, self.calls = failures, error, 0
+
+    async def get_file(self):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise self.error
+        return FakeTgFile(self.data)
+
+
+def test_a_screenshot_lost_to_a_network_blip_is_retried_and_stays_in_order(settings, conn, clk, monkeypatch):
+    from telegram.error import NetworkError
+    monkeypatch.setattr(hi, "DOWNLOAD_RETRY_S", (0, 0, 0))
+    ingest = RecordingIngest(OK)
+    ctx, gate = make_ctx(settings, conn, clk, screentime_ingest=ingest)
+    flaky = FlakyFileRef(b"b", 2, NetworkError("nodename nor servname provided"))
+    msgs = [photo_message(b"a"), FakeMessage(photo=[flaky], media_group_id="album-1"), photo_message(b"c")]
+
+    async def scenario():
+        for m in msgs:
+            await hi.on_image(FakeUpdate(m), ctx)
+        gate.open()
+        await ctx.bot_data[hi.BATCHER_KEY].drain()
+
+    asyncio.run(scenario())
+    assert flaky.calls == 3
+    assert [[d for d, _ in images] for images, _ in ingest.calls] == [[b"a", b"b", b"c"]]
+
+
+def test_a_bad_request_is_not_retried(monkeypatch):
+    from telegram.error import BadRequest
+    monkeypatch.setattr(hi, "DOWNLOAD_RETRY_S", (0, 0, 0))
+    ref = FlakyFileRef(b"x", 5, BadRequest("file is too big"))
+    with pytest.raises(BadRequest):
+        asyncio.run(hi._download(ref))
+    assert ref.calls == 1
+
+
+def test_the_batch_waits_for_a_screenshot_still_downloading(settings, conn, clk):
+    ingest = RecordingIngest(OK)
+    release = asyncio.Event()
+
+    class SlowFileRef(FakeFileRef):
+        async def get_file(self):
+            await release.wait()
+            return FakeTgFile(self.data)
+
+    async def yield_once(_delay):
+        await asyncio.sleep(0)
+
+    batcher = hi.ImageBatcher(delay=4.0, sleep=yield_once)
+    ctx = FakeContext({"settings": settings, "conn": conn, "clk": clk, hi.BATCHER_KEY: batcher,
+                       "screentime_ingest": ingest})
+
+    async def scenario():
+        slow = asyncio.create_task(hi.on_image(FakeUpdate(FakeMessage(photo=[SlowFileRef(b"b")])), ctx))
+        await asyncio.sleep(0)                                    # its download is now in flight
+        await hi.on_image(FakeUpdate(photo_message(b"a")), ctx)
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert ingest.calls == []                                  # held open for the slow one
+        release.set()
+        await slow
+        await batcher.drain()
+
+    asyncio.run(scenario())
+    assert [sorted(d for d, _ in images) for images, _ in ingest.calls] == [[b"a", b"b"]]

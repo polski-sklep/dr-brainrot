@@ -2828,3 +2828,19 @@ hides could be real time.
 **Why 5 minutes.** It is under a minute a day, below anything a weekly
 comparison treats as a change (`progress.LEVEL_MIN` is 15), and a test pins 5
 as complete and 6 as not.
+
+**Addendum, 18 October 2026.** The same rule covers two more cases from that
+Sunday's capture. An app whose duration can't be read, sitting below an app
+under 5 minutes, is stored as unreadable with the reason `below_tail` and is not
+put to the user: Vestiaire and NordVPN, below 1-minute apps. A list whose end was
+never seen ("keep scrolling until Pickups") is not warned about once it has
+reached such an app.
+
+The same capture showed a real loss the rule must not hide: X, at 3h 2m, the
+second-biggest app of the week, was unnamed because its name is one letter.
+The re-read of a cropped name (`recover_unnamed_rows`) now uses a taller third
+crop and Vision without language correction — the only combination that read
+"X" (confidence 1.0, against nothing or 0.3 before). Re-parsing import #179 as
+#180 recorded it. And a download that hits a network error is retried
+(2, 5, 10 s), with the batch held open until it lands, so a moment without DNS
+no longer drops a screenshot.

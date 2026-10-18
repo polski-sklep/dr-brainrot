@@ -71,6 +71,7 @@ class ImageBatcher:
         self._pending: dict[object, _Pending] = {}
         self._waiting: dict[object, asyncio.Task] = {}
         self._tasks: set[asyncio.Task] = set()
+        self._downloading: dict[object, int] = {}   # key -> downloads still in flight
 
     async def add(self, key, image: tuple[bytes, str], *, received_at: str, media_group_id: str | None,
                   message, process: Callable[[_Pending], Awaitable[None]]) -> None:
@@ -88,8 +89,15 @@ class ImageBatcher:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
+    def downloading(self, key, delta: int) -> None:
+        """Count a download starting (+1) or ending (-1) for this key's batch."""
+        self._downloading[key] = self._downloading.get(key, 0) + delta
+
     async def _later(self, key, process) -> None:
         await self.sleep(self.delay)
+        # A screenshot still downloading (or retrying) belongs to this burst: wait for it.
+        while self._downloading.get(key, 0) > 0:
+            await self.sleep(self.delay)
         # No await between here and pop: a new image can't slip into this batch.
         self._waiting.pop(key, None)
         batch = self._pending.pop(key, None)
@@ -207,9 +215,23 @@ def _readings_to_settle(conn, clk: Clock, settings: Settings, outcome: evidence.
             f"Settle {'it' if one else 'them'} here: {checklist.url(settings, '/#needs-your-eye')}")
 
 
+#: Seconds to wait before each retry of a download. On 18 Oct one screenshot of
+#: ten was lost to a moment without DNS; a few seconds later it would have come.
+DOWNLOAD_RETRY_S = (2, 5, 10)
+
+
 async def _download(file_like) -> bytes:
-    tg_file = await file_like.get_file()
-    return bytes(await tg_file.download_as_bytearray())
+    from telegram.error import BadRequest, NetworkError  # noqa: PLC0415 — only the bot needs telegram
+
+    for wait in (*DOWNLOAD_RETRY_S, None):
+        try:
+            tg_file = await file_like.get_file()
+            return bytes(await tg_file.download_as_bytearray())
+        except NetworkError as exc:
+            if wait is None or isinstance(exc, BadRequest):     # BadRequest won't fix itself
+                raise
+            log.warning("download failed on a network error; retrying in %ds", wait)
+            await asyncio.sleep(wait)
 
 
 def _is_image_document(document) -> bool:
@@ -231,17 +253,23 @@ async def on_image(update, context) -> None:
     if message is None or clk is None:
         return
     if getattr(message, "photo", None):
-        data, name = await _download(message.photo[-1]), "photo.jpg"   # largest size
+        source, name = message.photo[-1], "photo.jpg"   # largest size
     elif getattr(message, "document", None) is not None and _is_image_document(message.document):
-        data, name = await _download(message.document), message.document.file_name or "image"
+        source, name = message.document, message.document.file_name or "image"
     else:
         return
     chat_id = getattr(getattr(message, "chat", None), "id", None) or getattr(update.effective_user, "id", None)
+    batcher = _batcher(context)
+    batcher.downloading(chat_id, +1)
+    try:
+        data = await _download(source)
+    finally:
+        batcher.downloading(chat_id, -1)
 
     async def process(batch: _Pending) -> None:
         await _process_screentime(context, batch)
 
-    await _batcher(context).add(chat_id, (data, name), received_at=_received_at(message, clk),
+    await batcher.add(chat_id, (data, name), received_at=_received_at(message, clk),
                                 media_group_id=getattr(message, "media_group_id", None),
                                 message=message, process=process)
 

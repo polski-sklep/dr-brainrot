@@ -473,3 +473,13 @@ def test_real_screenshots_local_only():
     assert len(r.app_rows) >= 35
     assert r.meta["unnamed_rows"] == 0 and "X" in r.meta["recovered_names"]
     assert len(r.categories) == 3 and r.total_minutes is not None
+
+
+def test_an_unreadable_app_below_a_tiny_one_is_not_put_to_the_user():
+    """DR5.30: Most Used is sorted by time, so an app with no readable duration under a
+    13-second app is smaller still: stored as unreadable, never warned about or asked."""
+    pages, _ = load("last_week.json")
+    r = parse(edit(pages[:4], "15s", "", page=3))
+    (grabber,) = [a for a in r.app_rows if a.name == "Grabber"]
+    assert (grabber.status, grabber.minutes, grabber.reason) == ("unreadable", None, "below_tail")
+    assert not any("Grabber" in w for w in r.warnings)
