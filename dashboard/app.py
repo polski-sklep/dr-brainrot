@@ -1250,7 +1250,7 @@ def _undecided_min(x: float) -> str:
 
 
 #: Chained steps printed beside the brain, newest first; older ones are counted.
-MAX_STEPS_SHOWN = 3
+MAX_STEPS_SHOWN = 2      # three made the figures taller than the brain beside them
 
 _BLANK = {
     "state": "not_measured", "week_sunday": None, "week_saturday": None, "next_sunday": None,

@@ -146,11 +146,6 @@
       <p class="rot-line">And {{ rot.earlier_steps }} earlier week{{ "" if rot.earlier_steps == 1 else "s" }}, back to your {% if rot.is_new_peak %}previous {% endif %}peak week.</p>
       {%- endif %}
       {%- endif %}
-      <p class="rot-key">The more mould, the closer the week came to your peak: your heaviest week so far, compared like for like.{% if rot.fruit_from %} From {{ rot.fruit_from }}% of it, mushrooms sprout too, growing a little with each point up to a new peak.{% endif %} A yardstick, not a target.</p>
-      <p class="rot-line">Only what {% if rot.single %}both weeks{% else %}this week and the week before{% endif %} measured: {{ rot.counted_min|min }}
-        {%- if rot.week_charged_min is not none %} of this week's {{ rot.week_charged_min|min }}{% endif %}
-        {%- if rot.set_aside %}, with <a href="#progress-set-aside">{{ rot.set_aside }} set aside</a>{% endif %}.
-        {%- if rot.undecided_min %} {{ rot.undecided_text }} of those {{ rot.counted_min|min }} is still undecided{% if rot.undecided_drawn %}, drawn as the dashed patches{% else %} — too little to draw{% endif %}.{% endif %}</p>
     {%- elif rot.state == "first_week" %}
       <p class="rot-share">This is the first finished week, so it sets the benchmark. Later weeks are drawn against it.</p>
     {%- elif rot.state == "nothing_before" and rot.clean_both %}
@@ -165,6 +160,18 @@
       <p class="rot-share"><span class="absent">Not measured yet</span>: no week has finished with its evidence in.</p>
     {%- endif %}
     </div>
+    {#- What the drawing means, and what it counted, under both the brain and
+        its figures: beside the figures they made a tall strip next to a
+        short brain. -#}
+    {%- if rot.state == "drawn" %}
+    <div class="rot-foot">
+      <p class="rot-key">The more mould, the closer the week came to your peak: your heaviest week so far, compared like for like.{% if rot.fruit_from %} From {{ rot.fruit_from }}% of it, mushrooms sprout too, growing a little with each point up to a new peak.{% endif %} A yardstick, not a target.</p>
+      <p class="rot-line">Only what {% if rot.single %}both weeks{% else %}this week and the week before{% endif %} measured: {{ rot.counted_min|min }}
+        {%- if rot.week_charged_min is not none %} of this week's {{ rot.week_charged_min|min }}{% endif %}
+        {%- if rot.set_aside %}, with <a href="#progress-set-aside">{{ rot.set_aside }} set aside</a>{% endif %}.
+        {%- if rot.undecided_min %} {{ rot.undecided_text }} of those {{ rot.counted_min|min }} is still undecided{% if rot.undecided_drawn %}, drawn as the dashed patches{% else %} — too little to draw{% endif %}.{% endif %}</p>
+    </div>
+    {%- endif %}
   </div>
   {%- if rot.peak_not_tallest or rot.settle_can_move or rot.since_sunday or rot.next_sunday %}
   <p class="note">

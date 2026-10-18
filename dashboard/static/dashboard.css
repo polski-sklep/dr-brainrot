@@ -1279,20 +1279,30 @@ ul.progress-aside { margin-bottom: 0; }
 /* -- The plate: the brain and the figures it draws, side by side, the figures
       dropping under the brain when the column is narrow. Framed, never lifted;
       it hugs its content. ---------------------------------------------------- */
+/* A grid: the brain, its figures beside it, and what it means underneath both;
+   from 1800px, where the figures leave room beside the brain, underneath the
+   figures instead, so the panel is only as tall as the brain. */
 .rot-plate {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "fig read" "foot foot";
+  align-items: start;
   gap: var(--s4) var(--s6);
   padding: var(--s4) var(--s5);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-panel);
 }
-.rot-figure { margin: 0; flex: none; }
+.rot-figure { grid-area: fig; margin: 0; }
+@media (min-width: 1800px) {
+  .rot-plate { grid-template-areas: "fig read" "fig foot"; grid-template-rows: auto 1fr; }
+}
+@media (max-width: 760px) {
+  .rot-plate { grid-template-columns: minmax(0, 1fr); grid-template-areas: "fig" "read" "foot"; }
+}
 /* The figures take the rest of the column: squeezed to 34ch they made the
    panel twice as tall as the summary beside it. */
-.rot-read { flex: 1 1 260px; max-width: 64ch; min-width: 0; font-size: var(--fs-table); }
+.rot-read { grid-area: read; max-width: 64ch; min-width: 0; font-size: var(--fs-table); }
 
 /* The share of your peak week leads, at the progress panel's amount size; the
    two like-for-like figures sit under it as a small specimen label. */
@@ -1329,9 +1339,9 @@ ul.progress-aside { margin-bottom: 0; }
    steps are all context, so every one of them is quiet, and stacked. */
 .rot-readings > div + div dd { font-weight: 600; color: var(--text-secondary); }
 /* Chained weeks side by side, newest first, not a tall column of them. */
-.rot-steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); column-gap: var(--s4); }
+.rot-steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); column-gap: var(--s4); }
 .rot-steps > div { display: block; }
-.rot-steps dd { white-space: normal; }
+.rot-steps dd { white-space: nowrap; font-size: var(--fs-body); }
 .rot-steps .rot-sub { display: block; }
 .rot-steps dd { margin-top: 2px; font-weight: 600; color: var(--text-secondary); }
 .rot-sub { font-size: var(--fs-meta); font-weight: 400; color: var(--text-muted); }
@@ -1339,6 +1349,14 @@ ul.progress-aside { margin-bottom: 0; }
 /* What the drawing means, said once, beside it. */
 .rot-key { margin: 0 0 var(--s2); color: var(--text); }
 .rot-read > :last-child { margin-bottom: 0; }
+.rot-foot {
+  grid-area: foot;
+  min-width: 0;
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hairline);
+  font-size: var(--fs-table);
+}
+.rot-foot > :last-child { margin-bottom: 0; }
 #rot > .note { margin-top: var(--s2); max-width: var(--measure); }
 
 /* -- The brain -------------------------------------------------------------- */
@@ -1399,7 +1417,7 @@ ul.progress-aside { margin-bottom: 0; }
    brain units, so the large brain keeps the mark's chunky outline
    (.58 ~ 13px at 400px, about half the mark's own ratio, which would be a rope
    at this size). */
-.rot-brain { display: block; width: clamp(260px, 21vw, 400px); height: auto; }
+.rot-brain { display: block; width: clamp(240px, 19vw, 400px); height: auto; }
 .rot-tissue { fill: var(--rot-tissue); }
 .rot-dome-0 { stop-color: var(--rot-dome-lit); }
 .rot-dome-1 { stop-color: var(--rot-tissue); }
