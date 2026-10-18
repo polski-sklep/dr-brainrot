@@ -111,6 +111,13 @@
       {% else %}
       <p class="absent">Nothing measured the same way in both weeks improved.</p>
       {% endif %}
+      {#- The caveat stays, but below the win rather than between the reader and
+          it; in this column, not under both, where the taller tips column left
+          a gap above it. -#}
+      {% if progress.set_aside %}
+      <p class="progress-aside" id="progress-set-aside">Left out, because the two weeks didn't measure them the same way:</p>
+      <ul class="tight progress-aside">{% for s in progress.set_aside %}<li>{{ s }}</li>{% endfor %}</ul>
+      {% endif %}
     </div>
     {% endif %}
     <div class="progress-col progress-col-tips">
@@ -123,12 +130,6 @@
     </div>
   </div>
 
-  {#- The caveat stays, but below the win rather than between the reader and
-      it: the honest footnote should not be the second thing read. -#}
-  {% if progress.set_aside %}
-  <p class="progress-aside" id="progress-set-aside">Left out, because the two weeks didn't measure them the same way:</p>
-  <ul class="tight progress-aside">{% for s in progress.set_aside %}<li>{{ s }}</li>{% endfor %}</ul>
-  {% endif %}
 </section>
 {% endif %}
 
@@ -223,14 +224,16 @@
     <tbody>{% for b in chart.bars %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num part-undecided">{{ b.split.unclassified_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ caveat(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
   </table>
   </div>
+  <p class="note chart-note"><strong>Each bar is a whole week.</strong> Wasteful and undecided are both charged against the allowance; undecided is drawn apart so you can see how much of the week is a decision you have not made. <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes were read by OCR from a Screen Time screenshot instead of measured directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; no claim is made about either.</p>
   </div>
-  <p class="note"><strong>Each bar is a whole week.</strong> Wasteful and undecided are both charged against the allowance; undecided is drawn apart so you can see how much of the week is a decision you have not made. <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes were read by OCR from a Screen Time screenshot instead of measured directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; no claim is made about either.</p>
   {% endif %}
 </section>
 
 {# ================================================================= 2 of 3
    What was it? Named sources, biggest first. "Desktop web 49 min" names the
    pipe the evidence came down; "Brave 163 min" names the thing you did.   #}
+<div class="tail">
+<div class="tail-main">
 <section id="top-sources">
   <h2>What it was</h2>
   {% if not top_sources %}
@@ -262,6 +265,8 @@
   {% endif %}
 </section>
 
+</div>
+<div class="tail-side">
 {# ================================================================= 3 of 3
    What isn't counted yet? Absence, stated compactly and without alarm.    #}
 <section id="coverage">
@@ -328,5 +333,7 @@
   <h2>Blind spots: what isn't measured</h2>
   <ul class="tight blind-list">{% for s in blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>
 </section>
+</div>
+</div>
 
 {% endblock %}
