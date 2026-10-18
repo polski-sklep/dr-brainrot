@@ -340,10 +340,12 @@ def find_unnamed_rows(pages: list[list[TextObservation]]) -> list[tuple[int, Tex
 
 
 #: Crops tried when re-reading an unnamed row's name area, relative to the
-#: duration's top y. Two crops that must agree: a single glyph read on one
-#: crop and not the other is not trusted.
-#: The third, taller one is the only crop that read X on the 18 Oct capture.
-RECOVERY_CROPS = ((0.17, -0.040, 0.28, 0.038), (0.17, -0.035, 0.28, 0.030), (0.17, -0.050, 0.20, 0.050))
+#: duration's top y. A name is taken only when every crop that reads a name
+#: reads the same one; an empty crop doesn't block, a disagreeing one does.
+#: Vision reads a lone "X" on some crop sizes and not others: the last three each
+#: read it on both real captures that lost it (13 Sep, 11 Oct).
+RECOVERY_CROPS = ((0.17, -0.040, 0.28, 0.038), (0.17, -0.035, 0.28, 0.030),
+                  (0.17, -0.050, 0.28, 0.060), (0.19, -0.045, 0.20, 0.050), (0.15, -0.040, 0.20, 0.040))
 
 
 def recover_unnamed_rows(pages: list[list[TextObservation]], images: list[bytes],
@@ -801,19 +803,32 @@ def _run(conn, clk, settings, raw_path, raw_sha, images, received_at, images_key
             status = evidence.finish_import(conn, clk, settings, rec, period_start=None, period_end=None,
                                             status=T.IMPORT_PARTIAL)
             return evidence.Outcome(rec.id, status, 0, tuple(rec.warnings))
+        # A figure a person settled by hand (DR5.6) outlives a re-read: OCR is what they overruled.
+        settled: dict[int, dict] = {}
         if replaces is not None:
+            for r in conn.execute("SELECT source_id, minutes, detail FROM measurements WHERE import_id = ?",
+                                  (replaces,)):
+                d = json.loads(r["detail"] or "{}")
+                if isinstance(d, dict) and d.get("corrected_by_person") and r["minutes"] is not None:
+                    settled[r["source_id"]] = {"minutes": r["minutes"], "corrections": d.get("corrections", [])}
             conn.execute("DELETE FROM measurements WHERE import_id = ?", (replaces,))
             conn.execute("DELETE FROM category_measurements WHERE import_id = ?", (replaces,))
         if parsed.is_full_past_week:
             for app in parsed.app_rows:
                 source = labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, app.name)
+                detail = {"raw": list(app.raw), "confidence": app.confidence, "screenshots": list(app.pages),
+                          "name_reread_from_crop": app.recovered, "readings": list(app.readings),
+                          "unreadable_reason": app.reason}
+                minutes, status = app.minutes, app.status
+                if source.id in settled:
+                    kept = settled[source.id]
+                    minutes, status = kept["minutes"], "ok"
+                    detail.update(corrections=kept["corrections"], corrected_by_person=True,
+                                  correction_kept_from_import=replaces)
                 evidence.upsert_measurement(
                     conn, rec, source_id=source.id, device=T.DEVICE_IPHONE, provenance=T.PROV_SCREENSHOT,
                     period_start=parsed.period_start, period_end=parsed.period_end,
-                    minutes=app.minutes, status=app.status, item_title=app.name,
-                    detail={"raw": list(app.raw), "confidence": app.confidence, "screenshots": list(app.pages),
-                            "name_reread_from_crop": app.recovered, "readings": list(app.readings),
-                            "unreadable_reason": app.reason},
+                    minutes=minutes, status=status, item_title=app.name, detail=detail,
                 )
                 written += 1
             for name, minutes in parsed.categories:

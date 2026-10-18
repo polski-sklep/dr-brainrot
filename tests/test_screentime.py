@@ -425,6 +425,20 @@ def test_reparse_with_different_ocr_writes_a_new_import_replacing_facts(conn, cl
     assert meta["reparse_of"] == first.import_id
 
 
+def test_a_reparse_keeps_a_figure_a_person_settled(conn, clk, settings):
+    """18 Oct: re-reading 13 Sep to recover X would have reset Facebook, settled by hand
+    at 157 min, to unreadable. A person's answer outlives a re-read."""
+    first = ingest(conn, clk, settings)
+    lionfish = next(r for r in measurement_rows(conn) if r["source_key"] == "lionfish")
+    st.correct_measurement(conn, clk, settings, lionfish["id"], 150)
+    pages, recovery = load("last_week.json")
+    out = st.reparse(conn, clk, settings, first.import_id, ocr=fake_ocr(pages), region_ocr=fake_region(recovery))
+    again = next(r for r in measurement_rows(conn) if r["source_key"] == "lionfish")
+    assert again["import_id"] == out.import_id and (again["minutes"], again["status"]) == (150, "ok")
+    detail = json.loads(again["detail"])
+    assert detail["corrected_by_person"] and detail["corrections"][0]["minutes"] == 150
+
+
 def test_ocr_failure_is_a_failed_import_with_raw_kept(conn, clk, settings):
     def broken(data):
         raise RuntimeError("Vision exploded")

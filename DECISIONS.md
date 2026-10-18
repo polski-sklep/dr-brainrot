@@ -2844,3 +2844,13 @@ crop and Vision without language correction — the only combination that read
 #180 recorded it. And a download that hits a network error is retried
 (2, 5, 10 s), with the batch held open until it lands, so a moment without DNS
 no longer drops a screenshot.
+
+**Re-reading the earlier weeks (18 October).** X was recorded on 20 Sep, 27 Sep
+and 4 Oct; on 13 – 19 Sep it was the one unnamed row (1h 21m), and the crop
+that read it on 11 Oct missed it there. Vision reads a lone letter on some crop
+sizes and not others, so the re-read now tries five crops, the last three each
+proven on both captures; an empty crop doesn't block, a disagreeing one still
+does. Re-parsing #24 as #181 added X's 81 minutes and changed nothing else.
+That re-read would have reset Facebook, settled by hand at 157 minutes, to
+unreadable: a re-parse now carries any figure a person settled into the new
+import (`correction_kept_from_import`), because OCR is what the person overruled.
