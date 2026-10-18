@@ -260,9 +260,9 @@ def test_a_week_not_yet_asked_for_names_the_sunday_it_is(client, clk):
 
 
 STALE_CHIPS = {
-    dashboard_app.STALE_NEWER_WEEK: "a newer week has finished since this was written",
-    dashboard_app.STALE_NEW_DATA: "new data has arrived since this was written",
-    dashboard_app.STALE_RELABELLED: "you have relabelled since — these figures no longer match",
+    dashboard_app.STALE_NEWER_WEEK: "out of date: a newer week has finished",
+    dashboard_app.STALE_NEW_DATA: "out of date: new data has arrived",
+    dashboard_app.STALE_RELABELLED: "out of date: you've relabelled since",
 }
 
 
@@ -282,7 +282,7 @@ def test_a_stale_summary_names_its_one_reason(client, conn, monkeypatch, reason)
     else:
         assert 'class="generated generated-stale"' in panel
         assert chips == [STALE_CHIPS[reason]]
-    assert "New data and new labels change those figures" in flat(panel)
+    assert "It doesn't update itself" in flat(panel)
 
 
 def test_screenshots_sent_after_the_summary_mark_it_out_of_date(client, conn, clk, settings):
@@ -295,8 +295,7 @@ def test_screenshots_sent_after_the_summary_mark_it_out_of_date(client, conn, cl
     rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="test-1")   # Wed 16 Sep
     evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-06", period_end="2026-09-12")
     panel = section(text(client.get("/")), "insight")
-    assert re.search(r'<span class="state state-unlabelled">new data has arrived since this was '
-                     r'written</span>', panel)
+    assert re.search(r'<span class="state state-unlabelled">out of date: new data has arrived</span>', panel)
 
 
 def test_covered_elsewhere_is_shown_as_excluded_with_its_reason(client, conn, clk, settings):
@@ -481,7 +480,7 @@ def test_label_toggle_via_plain_post_redirects_and_re_records_overage(overage_se
 
 def test_labels_page_says_a_relabel_re_records_overage(client):
     page = flat(text(client.get("/labels")))
-    assert "re-records each week's overage" in page
+    assert "updates every week straight away" in page
     assert "debt" not in page.lower()
 
 
@@ -675,7 +674,7 @@ def test_overview_states_scope_and_shows_tool_minutes_outside_the_bars(client, c
 
     keepers = row_for(body_rows(section(text(client.get("/records")), "cost-per-keeper")), "<td>Desktop web</td>")
     assert "30 min" in keepers and "200 min" not in keepers
-    assert "sources you mark as tool" in section(html, "blind-spots")
+    assert "anything you mark as a tool" in section(html, "blind-spots")
 
 
 def test_records_page_filters_tool(client, conn, clk, settings):
@@ -847,9 +846,9 @@ def test_pace_shows_on_the_current_week_only(client, conn, clk, settings, monkey
     assert '<div class="pace pace-down">' in current
     assert '<span class="pace-lead">So far this week (Sun–Wed)</span>' in current
     assert 'href="https://www.youtube.com/feed/history"' in current
-    assert "the same days so far are just below" in current
+    assert "same days so far just below" in current
     past = section(text(client.get(f"/?week={WEEK_SUNDAY}")), "week-summary")
     assert 'class="pace' not in past
     monkeypatch.setattr(dashboard_app.pace, "pace", lambda *a, **k: None)
     none = section(text(client.get("/")), "week-summary")
-    assert 'class="pace' not in none and "not a comparison yet" in none
+    assert 'class="pace' not in none and "this week isn't over yet" in none

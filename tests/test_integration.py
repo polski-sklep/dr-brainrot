@@ -296,7 +296,7 @@ def test_full_lifecycle(conn, settings, spotify):
     assert week.debt_min == 0                                # nothing carried
     assert week.effective_allowance_min == 180               # the full allowance again
     assert week.remaining_min == 180
-    assert "Last week went 55 min over (recorded, not carried)" in bot.texts[-1]
+    assert "Last week went 55 min over (it doesn't carry over)" in bot.texts[-1]
     assert "Debt" not in bot.texts[-1]
 
     # 6. The lapse: promoted-but-not-played returns to the queue. The played

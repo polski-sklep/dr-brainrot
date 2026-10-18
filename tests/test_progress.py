@@ -128,7 +128,7 @@ def test_a_list_cut_off_below_a_tiny_app_counts_as_complete(conn, clk, settings)
     p = progress.progress(conn, clk, settings)
     assert p.below_cut_sources == 0 and p.like_for_like
     assert [f.text for f in p.tips if f.kind == "riser"] == [
-        "Facebook rose from nothing to 56 min. A Screen Time app limit on the phone is the direct lever."]
+        "Facebook rose from nothing to 56 min. A Screen Time limit on the app would cap it."]
 
 
 def test_an_app_missing_from_a_complete_list_is_a_real_zero(conn, clk, settings):
@@ -140,7 +140,7 @@ def test_an_app_missing_from_a_complete_list_is_a_real_zero(conn, clk, settings)
     assert p.like_for_like
     (riser,) = [f for f in p.tips if f.kind == "riser"]
     assert riser.text == ("Facebook rose from nothing to 56 min. "
-                          "A Screen Time app limit on the phone is the direct lever.")
+                          "A Screen Time limit on the app would cap it.")
 
 
 def test_a_channel_only_one_week_had_is_set_aside_and_named(conn, clk, settings):
@@ -155,7 +155,7 @@ def test_a_channel_only_one_week_had_is_set_aside_and_named(conn, clk, settings)
     # reddit's 200 minutes are not a rise: nothing measured it the week before.
     assert (p.before_min, p.after_min) == (80, 60)
     assert p.direction == "down"
-    assert p.verdict == "Down 25% on the week before, like for like: 80 min to 60 min."
+    assert p.verdict == "Down 25% on the week before: 80 min to 60 min."
 
 
 # ==========================================================================
@@ -209,12 +209,12 @@ def _line(group, provenances=(), name="Thing"):
 
 @pytest.mark.parametrize("line,expected", [
     (_line(T.GROUP_X), "a Cold Turkey block on x.com"),
-    (_line(T.GROUP_YOUTUBE), "Capturing it to the queue"),
-    (_line(T.GROUP_PODCASTS), "Capturing it to the queue"),
-    (_line(T.GROUP_IPHONE, {T.PROV_BROWSER_SYNC}), "a Screen Time limit on Brave itself"),
-    (_line(T.GROUP_IPHONE, {T.PROV_SCREENSHOT}), "A Screen Time app limit on the phone"),
+    (_line(T.GROUP_YOUTUBE), "Queue it instead of opening it"),
+    (_line(T.GROUP_PODCASTS), "Queue it instead of opening it"),
+    (_line(T.GROUP_IPHONE, {T.PROV_BROWSER_SYNC}), "a Screen Time limit on Brave"),
+    (_line(T.GROUP_IPHONE, {T.PROV_SCREENSHOT}), "A Screen Time limit on the app"),
     (_line(T.GROUP_DESKTOP), "A Cold Turkey block on this Mac"),
-    (_line(T.GROUP_DESKTOP_APPS), "Blocking the app on this Mac"),
+    (_line(T.GROUP_DESKTOP_APPS), "Blocking the app for part of the day"),
 ])
 def test_each_tip_names_the_control_that_exists_for_where_it_happened(line, expected):
     assert expected in progress._lever(line)
@@ -231,8 +231,8 @@ def test_the_lever_tip_only_ever_addresses_something_labelled_wasteful(conn, clk
 
 
 @pytest.mark.parametrize("complete,effect", [
-    (True, "Halving just those would have brought the week inside the allowance."),
-    (False, "Halving just those would have taken 45 min off a week that was 30 min over."),
+    (True, "Halving them would have brought the week inside the allowance."),
+    (False, "Halving them would have saved 45 min (the week was 30 min over)."),
 ])
 def test_inside_the_allowance_is_only_promised_when_the_week_is_fully_known(
         conn, clk, tmp_path, complete, effect):
@@ -477,8 +477,8 @@ def test_the_overview_draws_the_brain_beside_the_summary_naming_both_weeks(conn,
     assert "Week of Sun 2026-09-20 – Sat 2026-09-26, against your peak week" in text
     assert "43% of your peak week" in text
     assert "This week 30 min" in text and "Peak week, Sun 2026-09-13 70 min" in text
-    assert "Only what both weeks measured: 30 min of this week's" in text
-    assert "10 min of those 30 min is still undecided" in text
+    assert "Counts only what both weeks measured: all 30 min of this week" in text
+    assert "Dashed patches: 10 min not labelled yet" in text
     label = re.search(r'<svg class="rot-brain[^"]*"[^>]*role="img" aria-label="([^"]+)"', part).group(1)
     assert "30 min" in label and "70 min" in label and "Sun 2026-09-13" in label
     # Drawn and lit; undecided time is drawn apart and never inside a moving group.

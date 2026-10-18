@@ -306,8 +306,8 @@ def send_end_notice(conn, clk: Clock, settings: Settings, bot, *, asked: bool = 
         return "end notice waits for the final week"
     send(bot, settings, (
         f"The diagnostic ended on {diag.end}, after {settings.diagnostic_weeks} weeks.\n\n"
-        "Open the dashboard, look at cost per keeper and the ungated share, and name the "
-        "one decision this should change. If there isn't one, switch the whole thing off. "
+        "Open the dashboard, look at what each kept note cost and how much you opened straight "
+        "away, and name the one decision this should change. If there isn't one, switch it off. "
         "Nothing more will be asked for."
     ))
     today = clock.iso(clk.now())

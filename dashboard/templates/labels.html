@@ -37,9 +37,7 @@ If you only go there to get something done — buy, pay, book, log in, check the
     <span class="metric-note">not content — never counted</span>
   </div>
 </div>
-<p class="note">{% if f_kind or f_label %}Counts cover the {{ sources|length }} source{{ "" if sources|length == 1 else "s" }} this filter shows, not the whole list. {% endif %}You decide what each source is; nothing here is guessed. Until you label one it counts as wasteful.
-Tool minutes stay out of every wasteful and worthwhile figure and are shown on their own.
-Changing a label re-records each week's overage straight away.</p>
+<p class="note">{% if f_kind or f_label %}Counts cover the {{ sources|length }} source{{ "" if sources|length == 1 else "s" }} this filter shows, not the whole list. {% endif %}Until you label a source it counts as wasteful. Changing a label updates every week straight away.</p>
 
 <form method="get" action="{{ url_for('labels_page') }}" class="filters">
   <label>Kind

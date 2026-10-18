@@ -251,11 +251,11 @@ def test_daily_job_reports_an_unreadable_database_and_still_asks(conn, tmp_path,
 def test_blind_spots_follow_how_cold_turkey_minutes_arrived(conn, clk, settings):
     ctl.sync(conn, clk, settings)
     text = "\n".join(report.blind_spots(conn, clk, settings))
-    assert "every visited domain is listed" in text and "top domains" not in text
+    assert "top sites" not in text
     manual = json.dumps([{"label": "a.example", "data": [[1789344000000, 1.0]]}]).encode()
     coldturkey.ingest(conn, clk, settings, manual, filename="manual.json")
     text = "\n".join(report.blind_spots(conn, clk, settings))
-    assert "top domains" in text
+    assert "top sites" in text
 
 
 def test_check_in_mentions_the_failing_read_only_when_configured(settings):

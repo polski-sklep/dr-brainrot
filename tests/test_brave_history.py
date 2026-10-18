@@ -304,14 +304,14 @@ def test_an_unattributed_block_is_named_in_blind_spots(conn, clk, settings, tmp_
     """Excluded minutes with nothing in their place must not leave the week silently."""
     _browser_block(conn, clk, settings, minutes=163.0)
     spots = report.blind_spots(conn, clk, settings)
-    assert any("163 min for 2026-09-13 to 2026-09-19" in s and "not attributed" in s for s in spots)
+    assert any("163 min of phone browsing (2026-09-13 to 2026-09-19)" in s and "couldn't be split" in s for s in spots)
 
     db = history_db(tmp_path / "History", [
         ("https://www.reddit.com/a", at("2026-09-15", 9, 0), PHONE),
         ("https://www.reddit.com/b", at("2026-09-15", 9, 5), PHONE),
     ])
     brave_history.sync(conn, clk, _configured(settings, db))
-    assert not any("not attributed" in s for s in report.blind_spots(conn, clk, settings))
+    assert not any("couldn't be split" in s for s in report.blind_spots(conn, clk, settings))
 
 
 def test_the_new_provenance_is_described_rather_than_shown_as_a_slug():

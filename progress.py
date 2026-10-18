@@ -179,20 +179,19 @@ def _lever(line: report.SourceLine) -> str:
     but not individual sites inside Brave.
     """
     if line.group == T.GROUP_X:
-        return ("It is the same source on the phone and the Mac, so it takes both: a Screen Time "
-                "limit on the app and a Cold Turkey block on x.com.")
+        return ("It's on both the phone and the Mac, so it needs a Screen Time limit on the app "
+                "and a Cold Turkey block on x.com.")
     if line.group in (T.GROUP_YOUTUBE, T.GROUP_PODCASTS):
-        return ("Capturing it to the queue instead of opening it is the lever — the lock is what "
-                "turns a reflex into a choice.")
+        return "Queue it instead of opening it; the wait turns a reflex into a choice."
     if T.PROV_BROWSER_SYNC in line.provenances:
-        return ("It was in the phone browser, where per-site limits don't reach, so a Screen Time "
-                "limit on Brave itself is the lever.")
+        return ("It was in the phone's browser, where per-site limits don't reach, so a Screen "
+                "Time limit on Brave is the way to cap it.")
     if line.group == T.GROUP_IPHONE:
-        return "A Screen Time app limit on the phone is the direct lever."
+        return "A Screen Time limit on the app would cap it."
     if line.group == T.GROUP_DESKTOP:
-        return "A Cold Turkey block on this Mac takes the reflex out of it."
+        return "A Cold Turkey block on this Mac would stop the reflex."
     if line.group == T.GROUP_DESKTOP_APPS:
-        return "Blocking the app on this Mac for part of the day takes the reflex out of it."
+        return "Blocking the app for part of the day would stop the reflex."
     return ""
 
 
@@ -300,7 +299,7 @@ def _compare(conn, now: _Week, prev: _Week) -> _Pair:
 
 
 def _verdict(before: float, after: float, caveated: bool) -> tuple[str, str]:
-    lfl = ", like for like" if caveated else ""
+    lfl = ""          # the page says what was left out right after the sentence
     diff = after - before
     if before <= 0:
         if after <= 0:
@@ -399,10 +398,10 @@ def _tips(conn, now: _Week, prev: _Week | None, pair: _Pair | None) -> list[Find
             if half >= over and now.fully_known:
                 effect = "brought the week inside the allowance"
             else:
-                effect = f"taken {_m(half)} off a week that was {over} min over"
+                effect = f"saved {_m(half)} (the week was {over} min over)"
             tips.append(Finding("concentration",
                                 f"{_names([line.display_name for line in top3])} were "
-                                f"{share * 100:.0f}% of your wasteful time. Halving just those "
+                                f"{share * 100:.0f}% of your wasteful time. Halving them "
                                 f"would have {effect}."))
 
     # 4. Undecided time blurs every figure above; deciding the big ones sharpens them.
@@ -415,9 +414,9 @@ def _tips(conn, now: _Week, prev: _Week | None, pair: _Pair | None) -> list[Find
         cover = sum(line.minutes for line in biggest) / now.pooled.unclassified_min * 100
         tips.append(Finding("undecided",
                             f"{_m(now.pooled.unclassified_min)} of the week's {_m(charged)} "
-                            f"counted is still undecided, and "
+                            f"isn't labelled yet, and "
                             f"{_names([line.display_name for line in biggest])} are {cover:.0f}% "
-                            "of it. Deciding those makes next week's comparison mean more."))
+                            "of that. Labelling them makes these figures sharper."))
     return tips[:MAX_TIPS]
 
 

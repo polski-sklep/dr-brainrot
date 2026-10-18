@@ -914,8 +914,8 @@ def funnels(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> Funnels
 
 
 #: Standing first line of `blind_spots` (DR5.5).
-TOOL_SCOPE_LINE = ("Content only; sources you mark as tool (shopping, email, utilities…) are "
-                   "excluded and shown separately.")
+TOOL_SCOPE_LINE = ("Only content counts: anything you mark as a tool (shopping, email, utilities…) "
+                   "is left out.")
 
 
 def _unattributed_phone_browsing(conn: sqlite3.Connection) -> list[str]:
@@ -941,9 +941,9 @@ def _unattributed_phone_browsing(conn: sqlite3.Connection) -> list[str]:
         (T.KIND_IPHONE_APP, "brave", T.PROV_BROWSER_SYNC),
     ).fetchall()
     return [
-        f"The phone browser's {round(float(r['minutes'])):,} min for {r['period_start']} to "
-        f"{r['period_end']} are not attributed to any site: no synced browser history covers that "
-        "week, so they are excluded from the week's totals rather than counted blind."
+        f"{round(float(r['minutes'])):,} min of phone browsing ({r['period_start']} to "
+        f"{r['period_end']}) couldn't be split into sites, because no synced history covers that "
+        "week, so it isn't counted."
         for r in rows
     ]
 
@@ -952,13 +952,13 @@ def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> lis
     """What this diagnostic cannot see, stated rather than silently absorbed."""
     out = [
         TOOL_SCOPE_LINE,
-        "Podcast listening outside the queue is invisible: only captured episodes are polled.",
+        "Podcasts you play outside the queue aren't seen.",
         *_coldturkey_blind_spots(conn),
-        "YouTube rewatches overwrite progress and undercount; history dates have no time of day or sittings.",
-        "Screen Time figures are parsed from screenshots (OCR) and carry lower confidence than API figures.",
-        "iPhone YouTube/Spotify app and youtube.com/open.spotify.com minutes are excluded as covered "
-        "elsewhere; Spotify music is not measured at all.",
-        "Vault captures are counts, never minutes: reading time is not measured.",
+        "Rewatching a YouTube video undercounts it, and YouTube history has no time of day.",
+        "Screen Time figures are read from screenshots, so they're a little less exact.",
+        "YouTube and Spotify are counted from their own histories, so their apps and websites aren't "
+        "counted again. Spotify music isn't measured.",
+        "Saved notes are counted, not timed.",
     ]
 
     out.extend(_unattributed_phone_browsing(conn))
@@ -981,7 +981,7 @@ def blind_spots(conn: sqlite3.Connection, clk: Clock, settings: Settings) -> lis
         week = T.measurement_week(sunday)
         for kind in ("screentime", "coldturkey", "youtube_history"):
             if _covering_import(conn, settings, kind, week) is None:
-                out.append(f"{names[kind]} for the week {week.start} to {week.end} has not been received.")
+                out.append(f"{names[kind]} for the week {week.start} to {week.end} hasn't arrived.")
         sunday += timedelta(days=7)
     out.extend(_qbserve_blind_spots(conn, clk, settings))
     out.extend(_audible_blind_spots(conn, clk, settings))
@@ -1229,14 +1229,9 @@ def _coldturkey_blind_spots(conn: sqlite3.Connection) -> list[str]:
         (json.loads(r["meta"] or "{}").get("origin") or "export")
         for r in conn.execute("SELECT meta FROM imports WHERE kind = 'coldturkey' AND status != 'failed'")
     }
-    spots = ["Cold Turkey measures this Mac only; Cold Turkey does not sync, so another computer would be "
-             "unmeasured."]
-    if origins == {"local_db"}:
-        spots.append("Cold Turkey minutes are read from this Mac's own statistics (hostnames only), so every "
-                     "visited domain is listed.")
-    else:
-        spots.append("Cold Turkey manual exports list only the chart's top domains; unlisted domains are "
-                     "unmeasured, not zero.")
+    spots = ["Websites are measured on this Mac only; another computer wouldn't be seen."]
+    if origins != {"local_db"}:
+        spots.append("A hand-made Cold Turkey export lists only its top sites; the rest aren't measured.")
     return spots
 
 

@@ -18,9 +18,9 @@ there to get something done, it is a <strong>tool</strong> and it isn't counted.
     <span class="metric-note">each counting as wasteful until you decide</span>
   </div>
   <div class="metric">
-    <span class="metric-label">Minutes riding on them</span>
+    <span class="metric-label">Minutes waiting on a label</span>
     <span class="metric-value">{{ unlabelled.minutes|min }}</span>
-    <span class="metric-note">measured so far in the diagnostic</span>
+    <span class="metric-note">so far in the diagnostic</span>
   </div>
   <div class="metric">
     <span class="metric-label">Mostly</span>
@@ -28,8 +28,7 @@ there to get something done, it is a <strong>tool</strong> and it isn't counted.
     <span class="metric-note">where most of the undecided time is</span>
   </div>
 </div>
-<p class="note">Biggest first: the rows at the top move your figures most. One decision up here beats
-ten at the bottom.</p>
+<p class="note">Biggest first: the top rows change your figures most.</p>
 
 <form method="post" action="{{ url_for('labels_bulk') }}" id="queue-form">
   <div class="bulkbar">

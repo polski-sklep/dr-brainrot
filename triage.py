@@ -318,15 +318,13 @@ def render_week_header(week: Week, *, spent_wasteful_min: float | None = None,
     lines.append(f"Remaining {week.remaining_min} min")
     if last_week_wasteful_min is not None:
         lines.append(
-            f"Last week spent {allowance.whole_minutes(last_week_wasteful_min)} "
-            "counted content minutes across sources"
+            f"Last week: {allowance.whole_minutes(last_week_wasteful_min)} min counted"
         )
     if last_week_overage_min:
-        lines.append(f"Last week went {last_week_overage_min} min over (recorded, not carried)")
+        lines.append(f"Last week went {last_week_overage_min} min over (it doesn't carry over)")
     if spent_wasteful_min is not None:
         lines.append(
-            f"Spent so far {allowance.whole_minutes(spent_wasteful_min)} "
-            "counted content minutes across sources"
+            f"So far this week: {allowance.whole_minutes(spent_wasteful_min)} min counted"
         )
     return "\n".join(lines)
 

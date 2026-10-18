@@ -127,7 +127,7 @@ def test_end_notice_is_sent_once_and_only_after_the_end(conn, clk, settings):
     clk.set("2026-11-10T10:00:00+00:00")        # the Tuesday after: regardless
     assert jobs.send_end_notice(conn, clk, settings, b) == "end notice sent"
     assert jobs.send_end_notice(conn, clk, settings, b) == "end notice already sent"
-    assert len(b.sent) == 1 and "switch the whole thing off" in b.sent[0]["text"]
+    assert len(b.sent) == 1 and "If there isn't one, switch it off" in b.sent[0]["text"]
     assert "Nothing more will be asked for." in b.sent[0]["text"]
 
 

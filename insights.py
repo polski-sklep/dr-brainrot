@@ -138,8 +138,8 @@ The payload's comparison block is the only trustworthy week-on-week figure. The 
 totals are not comparable when comparison.like_for_like is false: a channel only one week had, \
 a reading that could not be read, or apps below a cut-off Screen Time list make one week look \
 bigger or smaller for reasons that are not behaviour. When like_for_like is false, describe the \
-change only through comparison.before_min and comparison.after_min, say it is like for like, \
-and say briefly what was left out — by channel name, and by how many sources. Never present the \
+change only through comparison.before_min and comparison.after_min, say it counts only what \
+both weeks measured, and say briefly what was left out — by channel name, and by how many sources. Never present the \
 difference between the weeks' raw totals as a change in what the person did. The same holds for \
 every per-group figure: when like_for_like is false, the groups carry the same distortion as the \
 totals, so do not set one week's group figures beside the other's, and do not call any \
@@ -161,7 +161,14 @@ The payload names report groups only: podcasts, YouTube, X, iPhone apps, desktop
 apps, audiobooks. You are not told the name of any show, channel, app, site, video or note, and must not \
 guess at one or refer to one.
 
-Write 3 to 5 short sentences of plain English, as one paragraph. Name the trend across the weeks, \
+Write for the person, to them ("you"), the way a friend who read the figures would say it. Use \
+everyday words, never the payload's field names or its jargon: not "charged", "like for like", \
+"channel", "reflex time", "overage", "coverage", "provenance" or "labelled worthwhile". Say \
+"counted against your allowance", "only what both weeks measured", "YouTube history", "opened \
+straight away", "over your allowance", "worth your time". Round minutes to whole numbers and \
+percentages to whole percent, and write dates as "4–10 October".
+
+Write 2 to 4 short sentences of plain English, as one paragraph. Name the trend across the weeks, \
 then the single biggest pattern in the figures. No headings, no bullet points, no lists, no \
 markdown, no bold. Do not include internal or system XML tags in your response. Reply with the \
 summary itself and nothing else."""

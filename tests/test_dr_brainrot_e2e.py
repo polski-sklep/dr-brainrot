@@ -674,7 +674,7 @@ def test_dr_brainrot_end_to_end(tmp_path, monkeypatch, caplog):
     assert any("Quantum Gravity" in p and "Label: worthwhile (source label) · costs 0 min — worthwhile" in p
                for p in posts)
     assert any("API title 4" in p and "Label: worthwhile (your tag at capture)" in p for p in posts)
-    assert "Last week spent 169 counted content minutes across sources" in posts[-1]
+    assert "Last week: 169 min counted" in posts[-1]
     assert "Week of Sun 20 Sep 18:00" in posts[-1]            # displayed in Warsaw time, not Lisbon
     assert "went" not in posts[-1] and "Debt" not in posts[-1]
 
@@ -920,7 +920,7 @@ def test_dr_brainrot_end_to_end(tmp_path, monkeypatch, caplog):
 
     spots = report.blind_spots(conn, clk, settings)
     assert "1 YouTube video(s) with no readable progress are left out of minutes (not counted as zero)." in spots
-    assert not any("has not been received" in s for s in spots)
+    assert not any("hasn't arrived" in s for s in spots)
 
     ios_records = report.records(conn, clk, settings, group=T.GROUP_IPHONE)
     assert ios_records and {r.provenance for r in ios_records} == {T.PROV_SCREENSHOT}

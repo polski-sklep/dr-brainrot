@@ -293,8 +293,8 @@ def test_week_header_reports_pooled_wasteful_spend(conn, settings, spotify):
 
     header = bot.texts[-1]
     assert header.startswith("Week of")
-    assert "Last week spent 100 counted content minutes across sources" in header
-    assert "Spent so far 0 counted content minutes across sources" in header
+    assert "Last week: 100 min counted" in header
+    assert "So far this week: 0 min counted" in header
 
 
 def test_render_stats_points_to_the_dashboard(conn, settings):
@@ -585,7 +585,7 @@ def test_week_header_reports_last_weeks_overage_without_carrying_it(conn, settin
     triage.run_triage(conn, clk, settings, spotify, bot)
 
     header = bot.texts[-1]
-    assert "Last week went 60 min over (recorded, not carried)" in header
+    assert "Last week went 60 min over (it doesn't carry over)" in header
     assert "Debt" not in header
     assert "Allowance 180 min" in header
     assert "Remaining 180 min" in header
@@ -598,7 +598,7 @@ def test_render_week_header_overage_line_only_when_over():
                                          last_week_overage_min=none_or_zero)
         assert "went" not in text and "over" not in text
     text = triage.render_week_header(week, last_week_wasteful_min=240.0, last_week_overage_min=60)
-    assert "Last week went 60 min over (recorded, not carried)" in text
+    assert "Last week went 60 min over (it doesn't carry over)" in text
     assert "Debt" not in text
 
 

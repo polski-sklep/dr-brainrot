@@ -119,17 +119,15 @@
     {%- if rot.state == "drawn" %}
       {%- if rot.is_new_peak %}
       <p class="rot-share"><span class="rot-pct">New peak week</span>
-        {% if rot.single %}<strong>{{ rot.over_pct }}</strong> above your previous peak, Sun {{ rot.peak_sunday }}.
-        {%- else %}about <strong>{{ rot.over_pct }}</strong> above your previous peak, Sun {{ rot.peak_sunday }}, taking each week against the one before it.{% endif %}
-        Later weeks are drawn against this one.</p>
+        {% if not rot.single %}about {% endif %}<strong>{{ rot.over_pct }}</strong> above your previous peak (week of Sun {{ rot.peak_sunday }}). From now on, weeks are measured against this one.</p>
       {%- elif rot.ratio == 0 %}
-      <p class="rot-share"><span class="rot-pct">0%</span> of your peak week: no brain rot on what {% if rot.single %}both weeks{% else %}this week and the week before{% endif %} measured.</p>
+      <p class="rot-share"><span class="rot-pct">0%</span> of your peak week: no brain rot on what both weeks measured.</p>
       {%- elif rot.above_peak %}
-      <p class="rot-share"><span class="rot-pct">{{ rot.pct }}</span> of your peak week: a little above it, too little to call a new peak. Later weeks are drawn against this one.</p>
+      <p class="rot-share"><span class="rot-pct">{{ rot.pct }}</span> of your peak week: a touch above it, not enough to call a new peak.</p>
       {%- elif rot.single %}
       <p class="rot-share"><span class="rot-pct">{{ rot.pct }}</span> of your peak week</p>
       {%- else %}
-      <p class="rot-share"><span class="rot-pct">{{ rot.pct }}</span> of your peak week, Sun {{ rot.peak_sunday }}: an estimate, taking each week against the one before it</p>
+      <p class="rot-share"><span class="rot-pct">{{ rot.pct }}</span> of your peak week (Sun {{ rot.peak_sunday }}), estimated week by week</p>
       {%- endif %}
       {%- if rot.single %}
       <dl class="rot-readings">
@@ -139,23 +137,23 @@
       {%- else %}
       <dl class="rot-readings rot-steps">
         {%- for s in rot.steps %}
-        <div><dt>Sun {{ s.sunday }}, against {{ s.against }}</dt><dd>{{ s.before_min|min }} → {{ s.after_min|min }} <span class="rot-sub">{{ s.change }}</span></dd></div>
+        <div><dt>Sun {{ s.sunday }} vs {{ s.against }}</dt><dd>{{ s.before_min|min }} → {{ s.after_min|min }} <span class="rot-sub">{{ s.change }}</span></dd></div>
         {%- endfor %}
       </dl>
       {%- if rot.earlier_steps %}
-      <p class="rot-line">And {{ rot.earlier_steps }} earlier week{{ "" if rot.earlier_steps == 1 else "s" }}, back to your {% if rot.is_new_peak %}previous {% endif %}peak week.</p>
+      <p class="rot-line">Plus {{ rot.earlier_steps }} earlier week{{ "" if rot.earlier_steps == 1 else "s" }} back to your peak.</p>
       {%- endif %}
       {%- endif %}
     {%- elif rot.state == "first_week" %}
-      <p class="rot-share">This is the first finished week, so it sets the benchmark. Later weeks are drawn against it.</p>
+      <p class="rot-share">Your first full week, so it's the benchmark the next ones are drawn against.</p>
     {%- elif rot.state == "nothing_before" and rot.clean_both %}
       <p class="rot-share">No brain rot this week or the week before.</p>
     {%- elif rot.state == "nothing_before" and rot.counted_min == 0 %}
-      <p class="rot-share">Not drawn: no brain rot on what this week and the week before both measured, but <a href="#progress-set-aside">some of it was left out</a>, so it can't be called clean.</p>
+      <p class="rot-share">Not drawn: no brain rot in what both weeks measured, but <a href="#progress-set-aside">some of it was left out</a>, so it can't be called clean.</p>
     {%- elif rot.state == "nothing_before" %}
-      <p class="rot-share">Not drawn: the week before had no brain rot at all, so there's nothing to scale this week against. Later weeks are drawn against this one.</p>
+      <p class="rot-share">Not drawn: the week before had no brain rot, so there's nothing to compare against. Next week is drawn against this one.</p>
     {%- elif rot.state == "not_comparable" %}
-      <p class="rot-share">Not drawn: too little of this week and the week before was measured the same way to compare them.</p>
+      <p class="rot-share">Not drawn: this week and the week before measured too little in common to compare.</p>
     {%- else %}
       <p class="rot-share"><span class="absent">Not measured yet</span>: no week has finished with its evidence in.</p>
     {%- endif %}
@@ -165,20 +163,21 @@
         short brain. -#}
     {%- if rot.state == "drawn" %}
     <div class="rot-foot">
-      <p class="rot-key">The more mould, the closer the week came to your peak: your heaviest week so far, compared like for like.{% if rot.fruit_from %} From {{ rot.fruit_from }}% of it, mushrooms sprout too, growing a little with each point up to a new peak.{% endif %} A yardstick, not a target.</p>
-      <p class="rot-line">Only what {% if rot.single %}both weeks{% else %}this week and the week before{% endif %} measured: {{ rot.counted_min|min }}
-        {%- if rot.week_charged_min is not none %} of this week's {{ rot.week_charged_min|min }}{% endif %}
-        {%- if rot.set_aside %}, with <a href="#progress-set-aside">{{ rot.set_aside }} set aside</a>{% endif %}.
-        {%- if rot.undecided_min %} {{ rot.undecided_text }} of those {{ rot.counted_min|min }} is still undecided{% if rot.undecided_drawn %}, drawn as the dashed patches{% else %} — too little to draw{% endif %}.{% endif %}</p>
+      <p class="rot-key">More mould means a week closer to your worst so far.{% if rot.fruit_from %} Mushrooms start at {{ rot.fruit_from }}%.{% endif %}</p>
+      <p class="rot-line">Counts only what both weeks measured:
+        {%- if rot.week_charged_min is not none and rot.week_charged_min|min == rot.counted_min|min %} all {{ rot.counted_min|min }} of this week
+        {%- else %} {{ rot.counted_min|min }}{% if rot.week_charged_min is not none %} of this week's {{ rot.week_charged_min|min }}{% endif %}{% endif %}
+        {%- if rot.set_aside %} (<a href="#progress-set-aside">{{ rot.set_aside }} left out</a>){% endif %}.
+        {%- if rot.undecided_min %} {% if rot.undecided_drawn %}Dashed patches: {{ rot.undecided_text }} not labelled yet.{% else %}{{ rot.undecided_text }} not labelled yet, too little to draw.{% endif %}{% endif %}</p>
     </div>
     {%- endif %}
   </div>
   {%- if rot.peak_not_tallest or rot.settle_can_move or rot.since_sunday or rot.next_sunday %}
   <p class="note">
     {%- if rot.state == "drawn" %}
-    {%- if rot.peak_not_tallest %} Your peak isn't the tallest bar in “Where the week went”, below: that chart counts everything each week measured.{% endif %}
-    {%- if rot.settle_can_move %} Settling a reading under “Readings to settle” can change the drawing.{% endif %}
-    {%- if rot.since_sunday %} Weeks before Sun {{ rot.since_sunday }} are left out: {% if rot.cut == "thin" %}too little of that week and the one before it was measured the same way.{% else %}the week before it had no brain rot, so nothing earlier can be scaled through it.{% endif %}{% endif %}
+    {%- if rot.peak_not_tallest %} Your peak isn't the tallest bar in the chart below: the chart counts everything, not only what both weeks measured.{% endif %}
+    {%- if rot.settle_can_move %} Settling the readings below can change this.{% endif %}
+    {%- if rot.since_sunday %} Weeks before Sun {{ rot.since_sunday }} aren't included: they can't be compared fairly with the weeks after.{% endif %}
     {%- endif %}
     {%- if rot.next_sunday %} The week of Sun {{ rot.next_sunday }} is drawn the Sunday after it ends.{% endif %}</p>
   {%- endif %}

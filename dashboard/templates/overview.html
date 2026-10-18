@@ -6,8 +6,7 @@
 
 <h1>Overview</h1>
 <p class="scope" id="scope-line"><strong>Brain-rot content only: tools are excluded.</strong></p>
-<p class="note">You decide what counts as brain rot; this page only adds it up. There is nothing to hit here, just weeks to compare.
-{% if window_start %}Figures start at {{ window_start }}.{% endif %}</p>
+<p class="note">You label what counts as brain rot; this page adds it up.{% if window_start %} Figures start {{ window_start }}.{% endif %}</p>
 
 {#- The lead row: the summary and, beside it from 1440px, the brain against
     your peak week. Two sibling sections in a plain wrapper: never nested. -#}
@@ -27,9 +26,9 @@
       <span class="state state-computed">computed on this Mac</span>
       {% endif %}
       {# In the order insight_staleness checks them (DR5.26). #}
-      {% if insight_stale_reason == "newer_week" %}<span class="state state-unlabelled">a newer week has finished since this was written</span>
-      {% elif insight_stale_reason == "new_data" %}<span class="state state-unlabelled">new data has arrived since this was written</span>
-      {% elif insight_stale_reason == "relabelled" %}<span class="state state-unlabelled">you have relabelled since — these figures no longer match</span>{% endif %}
+      {% if insight_stale_reason == "newer_week" %}<span class="state state-unlabelled">out of date: a newer week has finished</span>
+      {% elif insight_stale_reason == "new_data" %}<span class="state state-unlabelled">out of date: new data has arrived</span>
+      {% elif insight_stale_reason == "relabelled" %}<span class="state state-unlabelled">out of date: you've relabelled since</span>{% endif %}
       <span class="spacer"></span>
       <form method="post" action="{{ url_for('refresh_insight') }}" class="generated-refresh">
         <button type="submit" title="Write a new summary from the figures as they stand now">Rewrite</button>
@@ -43,17 +42,11 @@
     {% endif %}
 
     <p class="generated-meta">
-      Written {{ insight.created_at|local_dt }}{% if insight.model %} by {{ insight.model }}{% endif %},
-      from the figures as they stood then, covering up to {{ insight.based_on_through }}.
-      New data and new labels change those figures; this paragraph does not change with them.
-      Use <strong>Rewrite</strong>, above, to bring it up to date.
-      {% if insight.model %}Only group-level totals were sent: minutes per group per week, and nothing else.
-      No show, channel, app, site, video or note name leaves this Mac.{% else %}
-      Nothing left this Mac.{% endif %}
+      Written {{ insight.created_at|local_dt }} from figures up to {{ insight.based_on_through }}. It doesn't
+      update itself; press <strong>Rewrite</strong> for a fresh one.
+      {% if insight.model %}Only weekly totals per group were sent; no names leave this Mac.{% else %}Nothing left this Mac.{% endif %}
     </p>
   </div>
-  <p class="note">The figures above are counted; this paragraph only describes them. It decides nothing, and the
-  labels behind it are yours.</p>
 </section>
 {% endif %}
 {{ rot_section(rot) }}
@@ -100,7 +93,7 @@
     </div>
   </div>
   {% endif %}
-  <p class="progress-verdict">{{ progress.verdict }}{% if progress.set_aside %} <a class="progress-setaside-count" href="#progress-set-aside">{{ progress_set_aside(progress) }} set aside</a> — the comparison leaves them out.{% endif %}</p>
+  <p class="progress-verdict">{{ progress.verdict }}{% if progress.set_aside %} <a class="progress-setaside-count" href="#progress-set-aside">{{ progress_set_aside(progress) }} left out</a>, so only what both weeks measured is compared.{% endif %}</p>
 
   <div class="progress-cols">
     {% if progress.previous_start %}
@@ -115,7 +108,7 @@
           it; in this column, not under both, where the taller tips column left
           a gap above it. -#}
       {% if progress.set_aside %}
-      <p class="progress-aside" id="progress-set-aside">Left out, because the two weeks didn't measure them the same way:</p>
+      <p class="progress-aside" id="progress-set-aside">Left out of the comparison:</p>
       <ul class="tight progress-aside">{% for s in progress.set_aside %}<li>{{ s }}</li>{% endfor %}</ul>
       {% endif %}
     </div>
@@ -153,8 +146,8 @@
       <span class="headline-value">{% if week_split %}{{ week_split.charged_min|min }}{% else %}<span class="absent">outside the window</span>{% endif %}</span>
       {% if week_split and prev %}
       <span class="headline-delta">
-        {%- if week.is_current and pace %}last week was {{ prev.charged_min|min }} in all <span class="muted">— the same days so far are just below</span>
-        {%- elif week.is_current %}last week was {{ prev.charged_min|min }} <span class="muted">— this week is still running, so it is not a comparison yet</span>
+        {%- if week.is_current and pace %}last week: {{ prev.charged_min|min }} <span class="muted">(same days so far just below)</span>
+        {%- elif week.is_current %}last week: {{ prev.charged_min|min }} <span class="muted">(this week isn't over yet)</span>
         {%- elif week_split.charged_min > prev.charged_min %}<span class="dir-up">up</span> {{ (week_split.charged_min - prev.charged_min)|min }} on last week <span class="muted">({{ prev.charged_min|min }})</span>
         {%- elif week_split.charged_min < prev.charged_min %}<span class="dir-down">down</span> {{ (prev.charged_min - week_split.charged_min)|min }} on last week <span class="muted">({{ prev.charged_min|min }})</span>
         {%- else %}the same as last week{% endif %}
@@ -169,8 +162,7 @@
           still undecided{% if unlabelled and unlabelled.count %} —
           <a href="{{ url_for('labels_queue') }}">decide {{ unlabelled.count }} source{{ "" if unlabelled.count == 1 else "s" }}</a>{% endif %}</li>
       <li><strong>{{ reflex_min|min }}</strong>
-          on {{ hint("reflex", "Content you opened straight away, without capturing it, waiting out the lock and promoting it first.") }} —
-          opened without queueing it first</li>
+          opened straight away, not queued first</li>
       <li class="part-quiet">{% if week_split %}{{ week_split.overage_min }} min over{% else %}—{% endif %} an allowance of
           {% if week_split %}{{ week_split.allowance_min }} min{% else %}—{% endif %}</li>
     </ul>
@@ -184,11 +176,10 @@
     <p class="pace-basis">
       {%- if pp.counted %}Counted on {{ pp.counted }}.{% endif %}
       {%- if pp.left_out %} Left out: {% for x in pp.left_out %}{{ x.text }}{% if x.sync %} — <a href="{{ YOUTUBE_HISTORY_URL }}" target="_blank" rel="noopener noreferrer">open your YouTube history</a> and press Sync in the extension to include it{% endif %}{{ "." if loop.last else "; " }}{% endfor %}{% endif %}
-      {%- if pp.joins_later %} {{ pp.joins_later[:1]|upper }}{{ pp.joins_later[1:] }} join once the week is in.{% endif %}</p>
+      {%- if pp.joins_later %} {{ pp.joins_later[:1]|upper }}{{ pp.joins_later[1:] }} are added once the week is in.{% endif %}</p>
   </div>
   {%- endif %}
-  <p class="note">Undecided time still counts against the allowance — it is charged as wasteful until you say
-  otherwise. It is shown separately so you can see how much of the week is a measurement you have not made yet.</p>
+  <p class="note">Undecided time counts as wasteful until you label it.</p>
 </section>
 
 {# ------------------------------------------------------------------ 2 #}
@@ -224,7 +215,7 @@
     <tbody>{% for b in chart.bars %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num part-undecided">{{ b.split.unclassified_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ caveat(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
   </table>
   </div>
-  <p class="note chart-note"><strong>Each bar is a whole week.</strong> Wasteful and undecided are both charged against the allowance; undecided is drawn apart so you can see how much of the week is a decision you have not made. <em>Of those, read from screenshots</em> is not a fourth total and is not added to anything: it says how many of those same minutes were read by OCR from a Screen Time screenshot instead of measured directly, so you can see how much of the week rests on a less reliable reading. Tool minutes are not content and are never in the bar. Each bar is built like its label: the same tint, edged in the same colour. They sit in a fixed order — wasteful below, worthwhile above — and the exact figures are beside the chart, so the split still reads without telling red from green. The colours name the label you chose; no claim is made about either.</p>
+  <p class="note chart-note">One bar per week. Undecided counts as wasteful until you label it. <em>Read from screenshots</em> is part of those minutes, not extra: they came from Screen Time screenshots, so they're a little less exact. Tool time isn't content and isn't in the bars.</p>
   </div>
   {% endif %}
 </section>
@@ -243,7 +234,7 @@
   <table class="compact">
     <thead><tr>
       <th class="col-flex">Source</th><th class="num">Minutes</th><th>Label</th>
-      <th>{{ hint("Reflex", "Opened straight away, without capturing it, waiting out the lock and promoting it first.") }}</th>
+      <th>{{ hint("Reflex", "Minutes opened straight away instead of queued first.") }}</th>
     </tr></thead>
     <tbody>
     {% for r in top_sources %}
@@ -260,8 +251,7 @@
     </tbody>
   </table>
   </div>
-  <p class="note">The {{ top_sources|length }} largest of {{ all_sources_count }} source{{ "" if all_sources_count == 1 else "s" }} this week.
-  Sources you marked tool are not content and never appear here. An undecided source is charged as wasteful until you say otherwise.</p>
+  <p class="note">Your {{ top_sources|length }} biggest of {{ all_sources_count }} source{{ "" if all_sources_count == 1 else "s" }} this week. Tools aren't listed.</p>
   {% endif %}
 </section>
 
@@ -294,8 +284,7 @@
     </tbody>
   </table>
   </div>
-  <p class="note">These minutes are not missing from your week — they have not been collected yet, and nothing here
-  is counted as zero.</p>
+  <p class="note">Still on the way: added when it arrives, and never counted as zero meanwhile.</p>
   {% endif %}
 </section>
 
@@ -307,7 +296,7 @@
 {% if needs_your_eye %}
 <section id="needs-your-eye">
   <h2>Readings to settle</h2>
-  <p class="note">These couldn't be read with certainty, so they count as not measured — never as zero — and every comparison leaves them out. You were there: say what it was.</p>
+  <p class="note">These screenshots couldn't be read for sure, so they're left out until you say what they showed.</p>
   <ul class="eye-list">
   {% for r in needs_your_eye %}
     <li class="eye-row">

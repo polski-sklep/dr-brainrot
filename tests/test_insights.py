@@ -492,7 +492,7 @@ def test_the_prompt_forbids_inventing_numbers_and_judging(two_weeks, conn, clk, 
     # Incomplete weeks are stated.
     assert "coverage_gaps" in system and "rather than treating the gap as zero" in system
     # Shape.
-    assert "3 to 5 short sentences" in system and "No headings" in system
+    assert "2 to 4 short sentences" in system and "No headings" in system
 
     (message,) = call["messages"]
     assert message["role"] == "user"

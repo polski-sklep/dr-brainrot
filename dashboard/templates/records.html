@@ -4,9 +4,9 @@
 {% set BASIS_SHORT = {"item_override": "item override", "source_label": "source label", "default_unlabelled": "unlabelled"} %}
 {% block title %}Records{% endblock %}
 {% block content %}
-<h1>Raw records</h1>
-<p class="lede">Every minute stored, newest first.</p>
-<p class="note">Rows that could not be measured say why, instead of showing zero. Vault captures are counts, so they appear in the funnels on Overview rather than here.{% if window_start %} Records start at {{ window_start }}.{% endif %}</p>
+<h1>Records</h1>
+<p class="lede">Every minute recorded, newest first{% if window_start %}, from {{ window_start }}{% endif %}.</p>
+<p class="note">Rows that couldn't be measured say why. Saved notes are counted in the funnels below, not here.</p>
 
 {% for e in errors %}<p class="error">{{ e }}</p>{% endfor %}
 
@@ -64,14 +64,12 @@
    diagnostic; the filters above apply to the record table only.
    ======================================================================== #}
 <h2 class="detail-rule">Diagnostic detail</h2>
-<p class="note">Weekly totals, the allowance, the funnels and the import history. The filters above do not
-apply to these — they cover the week named in each section, or the whole diagnostic.</p>
+<p class="note">The filters above don't apply here; each section names its own week.</p>
 
 {# ------------------------------------------------------------------ 0 #}
 <section id="reflex">
-  <h2>Reflex: what you opened without deciding first</h2>
-  <p class="note">Minutes of wasteful content that never went through capture, the lock and triage — you just opened it.
-  This is the honest measure of how much was reflex rather than choice. Measured minutes only.</p>
+  <h2>Reflex: what you opened without queueing it first</h2>
+  <p class="note">Wasteful minutes you opened straight away instead of queueing them.</p>
   <div class="table-wrap">
   <table class="compact">
     <thead><tr><th>Group</th><th class="num">Reflex minutes</th><th>{{ hint("Provenance", "Where the figure came from, and how directly. An API reported it; a screenshot was read by OCR and is less reliable.") }}</th></tr></thead>
@@ -144,7 +142,7 @@ apply to these — they cover the week named in each section, or the whole diagn
     </tbody>
   </table>
   </div>
-  <p class="note">Measured means content — wasteful plus worthwhile, with unlabelled counted as wasteful. Sources you called a tool are not content, so they sit in their own column and are counted nowhere else. Figures read from screenshots come from OCR, so they are less reliable than ones an API reported.</p>
+  <p class="note">Measured is wasteful plus worthwhile, with unlabelled counted as wasteful. Tool time has its own column and isn't counted anywhere else. Screenshot figures are a little less exact.</p>
   {% if week_imports %}
   <h3>Imports covering this week</h3>
   <div class="table-wrap">
@@ -187,7 +185,7 @@ apply to these — they cover the week named in each section, or the whole diagn
     </tbody>
   </table>
   </div>
-  <p class="note">Week opens {{ allowance.week_start|local_dt }}. Screen Time, Cold Turkey and YouTube data arrives late, so spent can still rise after the week ends. Going over is recorded against that week alone and never carried forward — every week starts with the full allowance.</p>
+  <p class="note">Week opens {{ allowance.week_start|local_dt }}. Some data arrives after the week ends, so this can still rise. Every week starts fresh: going over never carries forward.</p>
   </div>
   {% set over_weeks = chart.bars|selectattr("split.overage_min")|list %}
   <div>
@@ -207,7 +205,7 @@ apply to these — they cover the week named in each section, or the whole diagn
 </section>
 
 <section id="gated">
-  <h2>Gated vs ungated (week of {{ week.sunday }})</h2>
+  <h2>Queued first or opened straight away (week of {{ week.sunday }})</h2>
   <div class="table-wrap">
   <table>
     <thead><tr><th>Group</th><th class="th-wrap">{{ hint("Ungated (reflex) share", "You opened it without queueing it first.") }}</th><th class="num th-wrap">Wasteful, bypassed the queue</th><th class="num th-wrap">Bypassed the queue (all content)</th><th class="num th-wrap">{{ hint("Through the queue", "You captured it, waited out the lock and promoted it before opening it.") }}</th><th>Provenance</th></tr></thead>
@@ -225,11 +223,11 @@ apply to these — they cover the week named in each section, or the whole diagn
     </tbody>
   </table>
   </div>
-  <p class="note">Gated means you queued it, waited out the lock and promoted it before opening it. Screen Time and Cold Turkey minutes are always ungated — they cannot tell either way. Rows measured elsewhere, unmeasured rows and tool minutes add nothing here.</p>
+  <p class="note">Queued means you captured it, waited out the lock, then opened it. Screen Time and Cold Turkey can't tell, so their minutes always count as opened straight away.</p>
 </section>
 
 <section id="cost-per-keeper">
-  <h2>Cost per keeper: what each thing you kept cost you</h2>
+  <h2>Cost per keeper: minutes spent for each note you kept</h2>
   <div class="table-wrap">
   <table>
     <thead><tr><th class="num">#</th><th>Group</th><th class="num">{{ hint("Price", "Minutes spent in this group for each thing you kept. A high price means a lot of time for one keeper.") }}</th><th class="num">Minutes</th><th class="num">{{ hint("Keepers", "Something you captured and still kept after processing it in your vault.") }}</th><th>Provenance</th><th class="col-flex">Blind spots</th></tr></thead>
@@ -248,7 +246,7 @@ apply to these — they cover the week named in each section, or the whole diagn
     </tbody>
   </table>
   </div>
-  <p class="note">Content minutes of any label (tools excluded), divided by the notes you actually kept in the vault. Ranked across the whole diagnostic. Groups with nothing kept yet have no price and are listed last.</p>
+  <p class="note">Content minutes divided by the notes you kept, across the whole diagnostic. Groups with nothing kept yet come last.</p>
 </section>
 
 <section id="funnels">
@@ -270,7 +268,7 @@ apply to these — they cover the week named in each section, or the whole diagn
       </tbody>
     </table>
     </div>
-    <p class="note">Anything still inside its lock window is not counted here yet.</p>
+    <p class="note">Items still in their lock window aren't counted yet.</p>
   </div>
   {% set v = funnels.vault %}
   <div id="vault-funnel">

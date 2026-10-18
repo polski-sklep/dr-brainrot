@@ -156,7 +156,7 @@ def test_a_this_week_screen_time_capture_never_covers_a_week(conn, clk, settings
     evidence.finish_import(conn, clk, settings, rec, period_start=None, period_end=None)
     ios = next(r for r in report.weekly_totals(conn, clk, settings, WEEK) if r.group == T.GROUP_IPHONE)
     assert (ios.minutes, ios.import_status) == (None, report.IMPORT_MISSING)
-    assert "Screen Time for the week 2026-09-06 to 2026-09-12 has not been received." in \
+    assert "Screen Time for the week 2026-09-06 to 2026-09-12 hasn't arrived." in \
         report.blind_spots(conn, clk, settings)
 
 
@@ -526,8 +526,8 @@ def test_queue_funnel_counts_youtube_played_as_measured_watching(conn, clk, sett
 def test_blind_spots_list_the_standing_gaps(conn, clk, settings):
     clk.set(WED)
     text = "\n".join(report.blind_spots(conn, clk, settings))
-    for needle in ("outside the queue is invisible", "top domains", "this Mac only",
-                   "rewatches", "time of day"):
+    for needle in ("outside the queue aren't seen", "top sites", "this Mac only",
+                   "Rewatching", "time of day"):
         assert needle in text
 
 
@@ -535,13 +535,13 @@ def test_blind_spots_name_missing_evidence_for_the_last_complete_week(conn, clk,
     clk.set(WED)                                        # last complete week: 30 Aug .. 5 Sep
     spots = report.blind_spots(conn, clk, settings)
     for name in ("Screen Time", "Cold Turkey", "YouTube history"):
-        assert f"{name} for the week 2026-08-30 to 2026-09-05 has not been received." in spots
+        assert f"{name} for the week 2026-08-30 to 2026-09-05 hasn't arrived." in spots
 
     measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-08-30",
             period_end="2026-09-05", minutes=10.0)
     spots = report.blind_spots(conn, clk, settings)
     assert not any(s.startswith("Screen Time for the week 2026-08-30") for s in spots)
-    assert "Cold Turkey for the week 2026-08-30 to 2026-09-05 has not been received." in spots
+    assert "Cold Turkey for the week 2026-08-30 to 2026-09-05 hasn't arrived." in spots
 
 
 def test_blind_spots_count_youtube_progress_missing(conn, clk, settings):
@@ -712,5 +712,4 @@ def test_records_filter_accepts_tool(conn, clk, settings):
 def test_blind_spots_state_the_content_only_scope(conn, clk, settings):
     clk.set(WED)
     spots = report.blind_spots(conn, clk, settings)
-    assert spots[0] == ("Content only; sources you mark as tool (shopping, email, utilities…) "
-                        "are excluded and shown separately.")
+    assert spots[0] == report.TOOL_SCOPE_LINE
