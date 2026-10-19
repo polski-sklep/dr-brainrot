@@ -306,6 +306,40 @@ def _short_entry(sv: dict, *, watch_date: str, order: int, where: str,
     return WatchEntry(video_id, title, None, None, watch_date, True, None, order)
 
 
+def _video_renderer_entry(vr: dict, *, watch_date: str, order: int, where: str,
+                          warnings: list[str]) -> WatchEntry | None:
+    """The older `videoRenderer` item, which YouTube still serves for some history rows.
+
+    Seen in October 2026 for Shorts (their endpoint is a reelWatchEndpoint).
+    Same fields as a lockup: a Short has no progress, a video's progress is the
+    resume overlay's percentDurationWatched.
+    """
+    video_id = vr.get("videoId")
+    if not isinstance(video_id, str) or not video_id:
+        warnings.append(f"{where}: a video item has no videoId; it could not be measured")
+        return None
+    title = _text(vr.get("title")) or ""
+    owner = vr.get("ownerText") or vr.get("shortBylineText")
+    ids = {b.get("browseId") for b in _find(owner, "browseEndpoint") if isinstance(b, dict)}
+    ids.discard(None)
+    channel_id = next(iter(ids)) if len(ids) == 1 else None
+    channel_name = _text(owner)
+    nav = vr.get("navigationEndpoint") or {}
+    if "reelWatchEndpoint" in nav:
+        return WatchEntry(video_id, title, channel_id, channel_name, watch_date, True, None, order)
+    percent = None
+    for r in _find(vr.get("thumbnailOverlays"), "thumbnailOverlayResumePlaybackRenderer"):
+        if isinstance(r, dict):
+            percent = _percent(r.get("percentDurationWatched"))
+            break
+    live = any(isinstance(r, dict) and r.get("style") == "LIVE"
+               for r in _find(vr.get("thumbnailOverlays"), "thumbnailOverlayTimeStatusRenderer"))
+    st = _dig(nav, "watchEndpoint", "startTimeSeconds")
+    resume = st if isinstance(st, int) and not isinstance(st, bool) else None
+    return WatchEntry(video_id, title, channel_id, channel_name, watch_date, False, percent, order,
+                      resume, live)
+
+
 def parse_pages(pages: list[dict], *, captured_at: str, tz: str) -> ParsedHistory:
     """Every video appearance in the captured pages, newest first.
 
@@ -314,8 +348,8 @@ def parse_pages(pages: list[dict], *, captured_at: str, tz: str) -> ParsedHistor
     that is `ingest`'s job, so this function stays a pure reading of the page.
 
     Raises `YouTubeParseError` for: no pages; a page that is not an object; a
-    page with zero history sections; a section without a resolvable header.
-    Individual unreadable items become warnings, never silent drops.
+    page with zero history sections. A malformed section or an unreadable item
+    becomes a warning, never a silent drop, and never fails the whole capture.
     """
     if not isinstance(pages, list) or not pages:
         raise YouTubeParseError(
@@ -342,13 +376,19 @@ def parse_pages(pages: list[dict], *, captured_at: str, tz: str) -> ParsedHistor
         for sn, section in enumerate(sections, start=1):
             where = f"page {pn} section {sn}"
             header = _text(_dig(section, "header", "itemSectionHeaderRenderer", "title"))
+            items = section.get("contents")
+            # One odd section must not sink the whole sync (19 Oct: a bare "Sep 10" header
+            # at the page's end, its videos due in the next page, failed import #189).
+            if not isinstance(items, list):
+                if sn < len(sections):
+                    warnings.append(f"{where} ({header or 'no date'}) has no videos listed; skipped")
+                continue
             if header is None:
-                raise YouTubeParseError(f"{where} has no date header; its videos cannot be dated")
+                warnings.append(f"{where} has no date header, so its {len(items)} item(s) cannot be dated "
+                                "and are not measured")
+                continue
             watch_date = T.iso_date(resolve_date_header(header, captured_local))
             where = f"{where} ({header})"
-            items = section.get("contents")
-            if not isinstance(items, list):
-                raise YouTubeParseError(f"{where} has no contents list")
             for item in items:
                 if not isinstance(item, dict):
                     warnings.append(f"{where}: skipped a non-object item")
@@ -374,6 +414,12 @@ def parse_pages(pages: list[dict], *, captured_at: str, tz: str) -> ParsedHistor
                         if e is not None:
                             entries.append(e)
                             order += 1
+                elif "videoRenderer" in item:
+                    e = _video_renderer_entry(item["videoRenderer"], watch_date=watch_date, order=order,
+                                              where=where, warnings=warnings)
+                    if e is not None:
+                        entries.append(e)
+                        order += 1
                 elif "continuationItemRenderer" in item:
                     continue
                 else:

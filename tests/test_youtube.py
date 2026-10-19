@@ -248,10 +248,29 @@ def test_unknown_header_fails_the_whole_parse(initial):
         youtube.parse_pages([initial], captured_at=CAPTURED_AT, tz=TZ)
 
 
-def test_missing_header_fails(initial):
+def test_a_section_without_a_date_is_a_warning_not_a_failed_sync(initial):
+    n = len(sections_of(initial)[1]["contents"])
     del sections_of(initial)[1]["header"]
-    with pytest.raises(YouTubeParseError, match="no date header"):
-        youtube.parse_pages([initial], captured_at=CAPTURED_AT, tz=TZ)
+    parsed = youtube.parse_pages([initial], captured_at=CAPTURED_AT, tz=TZ)
+    assert any("no date header" in w and f"{n} item(s)" in w for w in parsed.warnings)
+    assert parsed.entries                                         # every other section still counts
+
+
+def test_a_bare_date_header_at_the_end_of_a_page_is_not_an_error(initial):
+    """19 Oct, import #189: the page ended on a "Sep 10" header whose videos were due in the
+    next page. That failed the whole sync; it is just the edge of what was captured."""
+    before = len(youtube.parse_pages([copy.deepcopy(initial)], captured_at=CAPTURED_AT, tz=TZ).entries)
+    last = sections_of(initial)[-1]
+    dropped = len(last.pop("contents"))                          # just the header, as captured
+    parsed = youtube.parse_pages([initial], captured_at=CAPTURED_AT, tz=TZ)
+    assert len(parsed.entries) == before - dropped > 0
+    assert not any("no videos listed" in w for w in parsed.warnings)
+
+
+def test_a_bare_header_mid_page_is_a_warning(initial):
+    del sections_of(initial)[1]["contents"]
+    parsed = youtube.parse_pages([initial], captured_at=CAPTURED_AT, tz=TZ)
+    assert any("has no videos listed" in w for w in parsed.warnings)
 
 
 def test_explicit_year_header(initial):
@@ -262,13 +281,13 @@ def test_explicit_year_header(initial):
 
 def test_unrecognised_items_are_warnings_not_silent_drops(initial):
     sec = sections_of(initial)[1]
-    sec["contents"].append({"videoRenderer": {"videoId": "legacy00001"}})
+    sec["contents"].append({"mysteryRenderer": {"videoId": "legacy00001"}})
     playlist = copy.deepcopy(sec["contents"][1])
     playlist["lockupViewModel"]["contentType"] = "LOCKUP_CONTENT_TYPE_PLAYLIST"
     sec["contents"].append(playlist)
     parsed = youtube.parse_pages([initial], captured_at=CAPTURED_AT, tz=TZ)
     assert len(parsed.entries) == 13
-    assert any("videoRenderer" in w for w in parsed.warnings)
+    assert any("mysteryRenderer" in w for w in parsed.warnings)
     assert any("LOCKUP_CONTENT_TYPE_PLAYLIST" in w for w in parsed.warnings)
 
 
@@ -817,3 +836,30 @@ def test_unstorable_page_value_fails_the_import_instead_of_crashing(conn, clk, s
     row = conn.execute("SELECT status, error FROM imports WHERE id = ?", (out.import_id,)).fetchone()
     assert row["status"] == "failed" and "negative minutes" in row["error"]
     assert youtube.current_cursor(conn) is None
+
+
+def _video_renderer(video_id, *, short, percent=None):
+    """The older item shape, as captured on 19 Oct (import #189), trimmed to what is read."""
+    owner = {"runs": [{"text": "What's The Buzz?", "navigationEndpoint": {
+        "browseEndpoint": {"browseId": "UCdKg0ZRF91WAh0rfuOGctUw"}}}]}
+    vr = {"videoId": video_id, "title": {"runs": [{"text": "A title"}]}, "ownerText": owner,
+          "lengthText": {"simpleText": "0:47"},
+          "navigationEndpoint": {"reelWatchEndpoint": {"videoId": video_id}} if short
+          else {"watchEndpoint": {"videoId": video_id}},
+          "thumbnailOverlays": [] if percent is None
+          else [{"thumbnailOverlayResumePlaybackRenderer": {"percentDurationWatched": percent}}]}
+    return {"videoRenderer": vr}
+
+
+def test_the_older_video_renderer_is_read_not_skipped(initial):
+    """Every sync since 5 Oct skipped these with a warning; they are Shorts and videos."""
+    sec = sections_of(initial)[1]
+    sec["contents"] += [_video_renderer("xaZwaF3pVN4", short=True), _video_renderer("regular0001", short=False,
+                                                                                      percent=40)]
+    parsed = youtube.parse_pages([initial], captured_at=CAPTURED_AT, tz=TZ)
+    got = {e.video_id: e for e in parsed.entries}
+    short, video = got["xaZwaF3pVN4"], got["regular0001"]
+    assert (short.is_short, short.percent, short.channel_id, short.channel_name) == (
+        True, None, "UCdKg0ZRF91WAh0rfuOGctUw", "What's The Buzz?")
+    assert (video.is_short, video.percent) == (False, 40.0)
+    assert not any("videoRenderer" in w for w in parsed.warnings)
