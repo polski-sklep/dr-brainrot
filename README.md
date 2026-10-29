@@ -1,59 +1,53 @@
-# POP
+# Dr. Brainrot
 
-A deliberate-consumption queue for podcasts. Capture an episode instead of
-playing it, wait out a 48-hour lock, triage weekly against a time allowance,
-and measure what actually gets listened to.
-
-Personal tool. Single user. Telegram is the entire interface.
-
-The output is the decay curve — three funnel rates:
-
-1. captured → survived the lock (how much of the impulse was momentary)
-2. survived → promoted at triage (how much survives a calm reading)
-3. promoted → actually played (how much was wanted versus imagined)
-
----
+Dr. Brainrot is a single-user Telegram bot that saves Spotify podcast episodes after you explain why you want to hear them. It holds episodes for a configurable lock period, lets you choose what to hear against a weekly time allowance and expires items you leave in the queue. It checks Spotify playback positions to estimate listening and reports how many saved episodes survive the lock, get selected and get played.
 
 ## Setup
 
 ### 1. Dependencies
 
-Python 3.12.
+Use Python 3.12. Run these commands from the repository directory:
 
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install "python-telegram-bot>=21,<23" httpx pytest pytest-asyncio
 ```
 
-### 2. Credentials
+### 2. Credentials and settings
 
-Copy `.env.example` to `.env` and fill it in. `.env` is gitignored and should be
-`chmod 600`.
+Copy `.env.example` to `.env`, then fill in the existing keys. Keep their names
+unchanged. The example includes the credentials, timezone and database path.
+The default lock is 48 hours, the weekly allowance is 180 minutes and queued
+items have a lifespan of two triage cycles.
 
-**Spotify** — create an app at https://developer.spotify.com/dashboard.
-Register the redirect URI exactly as `http://127.0.0.1:8888/callback`; it must
-be the loopback IP literal, not `localhost`, which Spotify rejects on new apps.
+```bash
+cp .env.example .env
+chmod 600 .env
+```
+
+`.env` is gitignored.
+
+**Spotify:** create an app at https://developer.spotify.com/dashboard. Register
+`http://127.0.0.1:8888/callback` as its redirect URI to match `.env.example`.
 Copy the client ID and secret into `.env`.
 
-**Telegram** — `/newbot` to @BotFather, copy the token into `.env`. Put your own
-numeric user ID in `TELEGRAM_USER_ID`; every other sender is ignored silently.
-Press **Start** in the bot chat once: a Telegram bot cannot open a conversation
-on its own, so without this it can never send the Sunday triage post or an
-allowance alert.
+**Telegram:** send `/newbot` to @BotFather and copy the token into `.env`.
+Set `TELEGRAM_USER_ID` to your numeric user ID. The bot silently ignores other
+users. Press **Start** in the bot chat so it can send you scheduled messages.
 
 ### 3. One-time Spotify consent
 
-Run this on a machine with a browser, then copy `.env` to the server. The
-refresh token is portable.
+Run this on a machine with a browser. If you run the bot elsewhere, transfer
+`.env` securely to that machine after consent:
 
 ```bash
 .venv/bin/python auth_spotify.py
 ```
 
-Grant **"View your listening position in podcasts"** — that is the
-`user-read-playback-position` scope, and it is the entire measurement strategy.
-Without it every `resume_point` reads null and the system silently reports that
-you listen to nothing. The script refuses to store a token that lacks it.
+Grant **View your listening position in podcasts**, the
+`user-read-playback-position` scope. The consent script refuses to save a token
+without it. The Spotify client also rejects missing playback-position data
+rather than reporting it as zero listening.
 
 ### 4. Verify
 
@@ -61,101 +55,113 @@ you listen to nothing. The script refuses to store a token that lacks it.
 .venv/bin/python check_env.py
 ```
 
-Checks every variable is present and correctly shaped, that `.env` is `0600`,
-that `.gitignore` covers the secrets, and that both credentials authenticate
-live. Exit 0 means good. `--ping` additionally sends a test message to your
-Telegram user, which also confirms you pressed Start.
-
----
+This checks configuration values, `.env` permissions, secret-file exclusions
+and live Spotify and Telegram authentication. Exit code 0 means the checks
+passed. Add `--ping` to send yourself a test message.
 
 ## Running it
 
-Start the bot (long polling — no inbound port, no webhook, nothing to expose):
+Start the bot with long polling. It does not need an inbound port or webhook:
 
 ```bash
 .venv/bin/python bot.py
 ```
 
-Entry points:
+Send a Spotify episode link, then reply with your reason. Nothing is saved
+until that reply arrives. A trailing deadline such as `by friday` or
+`before 3 oct` is optional. A deadline inside the lock period waives the lock.
 
-| command | when | what it does |
+Use `/queue` to see unlocked items and `/stats` to see the capture, lock,
+selection and listening figures. Weekly triage offers **Promote**, **Drop**
+and **Still holds?** buttons. Promoting an episode reserves its remaining
+minutes against the weekly allowance.
+
+| Command | When | What it does |
 |---|---|---|
-| `.venv/bin/python bot.py` | always on | capture, triage buttons, alerts, `/stats` |
-| `.venv/bin/python poll.py` | daily cron | reads `resume_point`, writes clamped deltas, lifts expired locks, posts items whose deadline falls before the next triage, fires allowance alerts |
-| `.venv/bin/python triage.py` | Sunday 18:00 cron | week rollover, lock lifts, expiry, posts the queue |
-
----
+| `.venv/bin/python bot.py` | Always running | Handles capture, triage buttons, `/start`, `/queue` and `/stats` |
+| `.venv/bin/python poll.py` | Daily | Reads playback positions, records positive changes, lifts expired locks, surfaces upcoming deadlines and sends allowance alerts |
+| `.venv/bin/python triage.py` | Sunday at 18:00 | Closes the previous week, carries listening overage into the next allowance, lifts locks, expires old items and posts the queue |
 
 ## Scheduling
 
-Two entry points need scheduling: `poll.py` daily and `triage.py` on Sunday.
+Schedule `poll.py` daily and `triage.py` on Sunday at 18:00 in the configured
+application timezone. Keep the bot running separately.
 
-**Timezone, and it matters.** Both cron and launchd fire in *system local
-time*, which is not necessarily `POP_TZ`. POP computes its week boundary in
-`POP_TZ`. If the two diverge, the schedule must be offset to match, or
-`roll_over_week()` closes the wrong week every Sunday — and firing *early* is
-the dangerous direction. Here they agree: system timezone and `POP_TZ` are both
-`Europe/Warsaw`, so triage is scheduled at a plain `18:00`.
+The scheduler and Dr. Brainrot must agree on the timezone. The timezone key in
+`.env.example` is set to `Europe/Warsaw`. The application ignores the POSIX
+`TZ` variable. Running triage before its configured week boundary can close
+the wrong week.
 
-### On macOS — launchd (used here)
+### macOS with launchd
 
-**Do not use cron on a laptop.** macOS cron does not catch up on missed runs:
-if the Mac is asleep on Sunday evening, triage never happens that week, the
-week never rolls over, and the cycle stalls silently. launchd runs a missed
-`StartCalendarInterval` job at the next wake.
+Use launchd on a Mac that sleeps. Calendar jobs can run after a missed time
+when the Mac wakes; macOS cron does not catch up in the same way.
 
-Three agents live in `launchd/`:
+The three agent definitions in `launchd/` have these schedules:
 
-| job | schedule | what |
-|---|---|---|
-| `com.jacob.pop.bot` | always on, `KeepAlive` | the bot; restarts on crash and reboot |
-| `com.jacob.pop.poll` | 09:17 daily | daily poll |
-| `com.jacob.pop.triage` | Sun 18:00 | weekly triage, on the week boundary |
+| Entry point | Schedule |
+|---|---|
+| `bot.py` | Always running with `KeepAlive` |
+| `poll.py` | Daily at 09:17 |
+| `triage.py` | Sunday at 18:00 |
+
+The supplied definitions contain machine-specific paths. Copy them first,
+then check the interpreter, working directory and log paths in the installed
+copies before loading them. Create the log directory if needed. Keep the
+existing filenames and labels.
 
 ```bash
-cp launchd/*.plist ~/Library/LaunchAgents/
-for j in bot poll triage; do
-  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.pop.$j.plist
+mkdir -p "$HOME/Library/LaunchAgents" logs
+cp launchd/*.plist "$HOME/Library/LaunchAgents/"
+```
+
+After checking those paths, load the copied agents and inspect their status:
+
+```bash
+for plist in launchd/*.plist; do
+  installed="$HOME/Library/LaunchAgents/$(basename "$plist")"
+  launchctl bootstrap "gui/$(id -u)" "$installed"
+  label=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$installed")
+  launchctl print "gui/$(id -u)/$label"
 done
-launchctl list | grep jacob.pop
 ```
 
-Run one immediately, without waiting for its hour:
+Run the daily poll immediately using its existing label:
 
 ```bash
-launchctl kickstart -p gui/$(id -u)/com.jacob.pop.poll
+label=$(/usr/libexec/PlistBuddy -c 'Print :Label' launchd/*poll.plist)
+launchctl kickstart -p "gui/$(id -u)/$label"
 ```
 
-Stop one: `launchctl bootout gui/$(id -u)/com.jacob.pop.triage`.
+Stop the weekly agent using its existing label:
 
-Stop any manually started bot first — Telegram permits exactly one
-`getUpdates` poller per token, and two instances make *both* fail.
+```bash
+label=$(/usr/libexec/PlistBuddy -c 'Print :Label' launchd/*triage.plist)
+launchctl bootout "gui/$(id -u)/$label"
+```
 
-### On the VPS — cron
+Stop any manually started bot before loading its agent. Two bot processes
+using the same token conflict over Telegram updates.
 
-Cron is correct on an always-on host. `crontab -e`:
+### An always-on Linux host with cron
+
+Use a cron implementation that supports `CRON_TZ`. Replace
+`/path/to/checkout` with your actual repository directory and create its
+`logs/` directory before installing these entries with `crontab -e`:
 
 ```cron
-CRON_TZ=Europe/Warsaw   # must match POP_TZ in .env
+# Match the application timezone configured in .env.
+CRON_TZ=Europe/Warsaw
 
-# Daily poll: resume_point deltas, deadline surfacing, allowance alerts
-17 8 * * * cd /opt/pop && .venv/bin/python poll.py >> logs/poll.log 2>&1
+# Daily playback check and alerts.
+17 9 * * * cd /path/to/checkout && .venv/bin/python poll.py >> logs/poll.log 2>&1
 
-# Weekly triage: Sunday 18:00
-0 18 * * 0 cd /opt/pop && .venv/bin/python triage.py >> logs/triage.log 2>&1
+# Weekly triage at the Sunday boundary.
+0 18 * * 0 cd /path/to/checkout && .venv/bin/python triage.py >> logs/triage.log 2>&1
 ```
 
-Set `CRON_TZ` explicitly rather than trusting the daemon to inherit your login
-shell's timezone — it does not. Note `CRON_TZ` is a Linux cron extension and is
-**not** reliably honoured by macOS cron, which is another reason launchd is
-used above.
-
-`CRON_TZ` and `POP_TZ` are different settings. `CRON_TZ` decides when the
-daemon fires; `POP_TZ` is what POP believes its own timezone to be. POP
-deliberately does not read the POSIX `TZ` variable, so a unit exporting
-`TZ=UTC` cannot move the triage boundary.
-
----
+`CRON_TZ` controls the scheduler. It does not set the application's timezone.
+Configure both explicitly rather than relying on the login shell.
 
 ## Tests
 
@@ -163,45 +169,43 @@ deliberately does not read the POSIX `TZ` variable, so a unit exporting
 .venv/bin/pytest -q
 ```
 
-No test touches the network. Spotify and Telegram are both faked; the only live
-calls this project ever makes are `auth_spotify.py` and `check_env.py`, and
-neither runs in the suite.
-
----
+The suite uses fake Spotify and Telegram clients. `conftest.py` blocks network
+access and reads of the real `.env`. The consent and credential-check scripts
+make live calls when run separately, as do the bot and scheduled jobs during
+normal use.
 
 ## Files
 
-```
-bot.py           capture, triage buttons, /stats
-spotify.py       auth, episode fetch, resume_point polling, the clamp
-poll.py          daily cron entry — deltas, deadline surfacing, alerts
-triage.py        Sunday 18:00 cron entry — rollover, expiry, the queue post
-db.py            state machine, soft delete, week/debt accounting, funnel stats
-config.py        .env loading
-clock.py         UTC storage, week boundaries, DST-correct
-schema.sql
-auth_spotify.py  one-time OAuth consent (run once, then never again)
-check_env.py     credential validator
-conftest.py      blocks network and real-.env reads across the whole suite
-tests/           472 tests
-data/            gitignored
-```
+| File or directory | Purpose |
+|---|---|
+| `bot.py` | Telegram capture, queue view, triage buttons and statistics |
+| `spotify.py` | Token refresh, episode lookup and playback-position changes |
+| `poll.py` | Daily listening checks, deadline messages and allowance alerts |
+| `triage.py` | Weekly rollover, expiry, queue messages and statistics formatting |
+| `db.py` | Queue state, listening records, weekly accounting and funnel statistics |
+| `config.py` | Loads `.env` and configuration values |
+| `clock.py` | UTC storage, local week boundaries and daylight-saving handling |
+| `schema.sql` | SQLite schema |
+| `auth_spotify.py` | Browser consent for Spotify |
+| `check_env.py` | Configuration and credential checks |
+| `launchd/` | macOS agent definitions |
+| `conftest.py` | Test guards against network access and real credentials |
+| `tests/` | Automated tests |
+| `data/` | Gitignored local data |
 
-`CONTRACTS.md` is the interface contract between these modules.
-`DECISIONS.md` records every choice made where the brief was silent.
-`REVIEW.md` is the independent audit of the implementation against the brief.
-
----
+`CONTRACTS.md` describes the module interfaces. `DECISIONS.md` records design
+choices. `REVIEW.md` records the implementation audit.
 
 ## Known distortions
 
-Accepted deliberately, not bugs:
-
-- Scrubbing forward reads as listening, since the position moved.
-- Playback above 1x undercounts real minutes against elapsed time.
-- Completion uses Spotify's `fully_played` flag, not `position >= duration` —
-  trailing credits mean episodes rarely reach 100%.
-- Anything played spontaneously outside the queue is invisible. That is the
-  behaviour POP exists to catch, so it matters. If the numbers look
-  implausibly low, that is the signal the system is being bypassed, and the
-  deferred v2 sweep over followed shows is the fix.
+- Moving forward in an episode counts as listening even if you skipped it.
+- Playback positions measure progress through the episode, not elapsed
+  listening time. At speeds above 1x, recorded progress can exceed time spent
+  listening.
+- Moving backwards does not subtract recorded minutes. Listening between
+  polls can be missed if the position moves backwards before the next check.
+- Completion uses Spotify's `fully_played` flag rather than comparing the
+  position with the episode's duration.
+- Only captured episodes in locked, queued or promoted states are polled.
+  Listening to other episodes is invisible. Dr. Brainrot does not scan your
+  full listening history or block playback in Spotify.
