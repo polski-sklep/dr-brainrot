@@ -114,6 +114,23 @@ def listened_min(conn, week_start: str = WEEK_START) -> int:
     return int(row["listened_min"]) if row else 0
 
 
+def use_minutes(conn, clk, total_min: int) -> None:
+    """Bring this week's wasteful consumption to `total_min` with real evidence.
+
+    dr-brainrot: alerts read pooled wasteful minutes computed from `listening` (and
+    `measurements`), not the stored `weeks.listened_min`, so the queue tests that
+    hand-set that column now record the equivalent listening instead. The
+    filler episode's show is unlabelled, so it resolves to wasteful.
+    """
+    filler = "F1ll3rF1ll3rF1ll3rF1ll"
+    db.upsert_episode(conn, filler, "Filler", "Unlabelled Filler Show", None, None, 10_000 * MIN)
+    row = conn.execute(
+        "SELECT COALESCE(SUM(delta_ms), 0) AS ms FROM listening WHERE spotify_id = ?", (filler,)
+    ).fetchone()
+    delta = total_min * MIN - int(row["ms"])
+    db.record_listening(conn, clk, filler, total_min * MIN, delta, False)
+
+
 def alerts(conn) -> set[tuple[str, str]]:
     return {
         (r["week_start"], r["kind"])
@@ -466,6 +483,21 @@ def test_exceeded_fires_once_and_never_repeats(conn, settings):
     assert quiet.sent == []
 
 
+def test_exceeded_text_records_the_overage_and_takes_nothing_from_next_week(conn, settings):
+    """DR5.2: going over is recorded for this week; nothing comes off next week."""
+    clk = clock.FrozenClock(MONDAY)
+    db.current_week(conn, clk, settings)
+    use_minutes(conn, clk, 200)
+    bot = FakeBot()
+    poll.check_alerts(conn, clk, settings, bot)
+    exceeded = [t for t in bot.texts if t.startswith("Over the allowance")]
+    assert exceeded == [
+        "Over the allowance: 200 counted content minutes used across sources against 180 min. 20 min over. "
+        "That is recorded for this week; next week still starts with the full allowance."
+    ]
+    assert "comes off" not in exceeded[0] and "debt" not in exceeded[0].lower()
+
+
 def test_a_new_week_alerts_again(conn, settings):
     clk = clock.FrozenClock(CAPTURED)
     seed(conn, clk, settings, LONG)
@@ -490,8 +522,7 @@ def test_a_new_week_alerts_again(conn, settings):
 def test_check_alerts_is_safe_to_call_directly_and_repeatedly(conn, settings):
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET listened_min = 175 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 175)
 
     bot = FakeBot()
     poll.check_alerts(conn, clk, settings, bot)
@@ -502,18 +533,17 @@ def test_check_alerts_is_safe_to_call_directly_and_repeatedly(conn, settings):
 
 
 def test_a_zero_effective_allowance_reports_the_crossing_not_the_approach(conn, settings):
-    """Debt can eat the whole allowance. "80% of nothing" is not a warning."""
+    """A zero allowance (debt can no longer cause one, DR5.2). "80% of nothing" is not a warning."""
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET debt_min = 180 WHERE week_start = ?", (WEEK_START,))
+    conn.execute("UPDATE weeks SET allowance_min = 0 WHERE week_start = ?", (WEEK_START,))
     conn.commit()
 
     silent = FakeBot()
     poll.check_alerts(conn, clk, settings, silent)
     assert silent.sent == []                       # nothing listened yet
 
-    conn.execute("UPDATE weeks SET listened_min = 5 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 5)
     loud = FakeBot()
     poll.check_alerts(conn, clk, settings, loud)
 
@@ -527,15 +557,13 @@ def test_exactly_eighty_percent_counts_as_approaching(conn, settings):
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
 
-    conn.execute("UPDATE weeks SET listened_min = 143 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 143)
     quiet = FakeBot()
     poll.check_alerts(conn, clk, settings, quiet)
     assert quiet.sent == []
     assert alerts(conn) == set()
 
-    conn.execute("UPDATE weeks SET listened_min = 144 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 144)
     loud = FakeBot()
     poll.check_alerts(conn, clk, settings, loud)
     assert len(loud.sent) == 1
@@ -544,8 +572,7 @@ def test_exactly_eighty_percent_counts_as_approaching(conn, settings):
 def test_alerts_go_to_the_authorised_user(conn, settings):
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET listened_min = 200 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 200)
 
     bot = FakeBot()
     poll.check_alerts(conn, clk, settings, bot)
@@ -561,8 +588,7 @@ def test_a_failed_send_leaves_the_alert_unrecorded_for_tomorrow(conn, settings):
 
     clk = clock.FrozenClock(MONDAY)
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET listened_min = 200 WHERE week_start = ?", (WEEK_START,))
-    conn.commit()
+    use_minutes(conn, clk, 200)
 
     with pytest.raises(RuntimeError):
         poll.check_alerts(conn, clk, settings, BrokenBot())
@@ -907,16 +933,82 @@ def test_a_failed_send_leaves_the_deadline_notice_for_tomorrow(conn, settings):
     item = seed_deadline(conn, clk, settings, MEDIUM, TUESDAY_EVENT)
 
     clk.set(TUESDAY)
-    with pytest.raises(RuntimeError):
-        poll.run_poll(conn, clk, settings, fake_spotify(), BrokenBot())
+    failed = poll.run_poll(conn, clk, settings, fake_spotify(), BrokenBot())
+    assert "deadlines" in failed
     assert notices(conn) == set()
 
     retry = FakeBot()
     clk.set(WEDNESDAY)
-    poll.run_poll(conn, clk, settings, fake_spotify(), retry)
+    assert poll.run_poll(conn, clk, settings, fake_spotify(), retry) == []
 
     assert len(deadline_posts(retry)) == 1
     assert notices(conn) == {item.id}
+
+
+def test_listening_is_recorded_although_every_send_fails(conn, settings):
+    """27–28 Sep: no internet. The data step must not wait on Telegram (DR5.25)."""
+    class BrokenBot:
+        def send_message(self, **kwargs):
+            raise RuntimeError("telegram is down")
+
+    clk = clock.FrozenClock(MONDAY)
+    seed(conn, clk, settings, LONG)
+    item = seed_deadline(conn, clk, settings, MEDIUM, TUESDAY_EVENT)   # a deadline post that can't go
+    use_minutes(conn, clk, 200)                                        # and two alerts that can't go
+    spot = fake_spotify()
+    spot.set_position(LONG.spotify_id, 20 * MIN)
+
+    clk.set(TUESDAY)
+    assert poll.run_poll(conn, clk, settings, spot, BrokenBot()) == ["deadlines", "alerts"]
+    assert rows(conn, LONG.spotify_id) == [(20 * MIN, 20 * MIN)]       # the listening is in
+    assert notices(conn) == set() and alerts(conn) == set()           # nothing recorded as sent
+
+    retry = FakeBot()                                                  # online again the next morning
+    clk.set(WEDNESDAY)
+    assert poll.run_poll(conn, clk, settings, spot, retry) == []
+    assert len(deadline_posts(retry)) == 1 and notices(conn) == {item.id}
+    assert alerts(conn) == {(WEEK_START, "approaching"), (WEEK_START, "exceeded")}
+
+
+def test_a_rejected_token_never_reaches_the_poll_log(conn, settings):
+    """The deadline step logs its failure with a traceback; InvalidToken's message holds the token."""
+    import io
+    import logging
+
+    import telegram.error
+
+    class Rejected:
+        def send_message(self, **kwargs):
+            raise telegram.error.InvalidToken(
+                f"The token `{settings.telegram_bot_token}` was rejected by the server.")
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    bot_module.scrub_token_from_logs(settings.telegram_bot_token, [handler])
+    logging.getLogger().addHandler(handler)
+    try:
+        clk = clock.FrozenClock(MONDAY)
+        seed_deadline(conn, clk, settings, MEDIUM, TUESDAY_EVENT)
+        clk.set(TUESDAY)
+        assert "deadlines" in poll.run_poll(conn, clk, settings, fake_spotify(), Rejected())
+    finally:
+        logging.getLogger().removeHandler(handler)
+    assert "deadlines failed" in stream.getvalue() and "InvalidToken" in stream.getvalue()
+    assert settings.telegram_bot_token not in stream.getvalue()
+
+
+def test_a_spotify_outage_no_longer_costs_the_deadline_post(conn, settings):
+    class DownSpotify:
+        def get_episodes(self, ids):
+            raise spotify_module.SpotifyError("Spotify is unreachable")
+
+    clk = clock.FrozenClock(MONDAY)
+    item = seed_deadline(conn, clk, settings, MEDIUM, TUESDAY_EVENT)
+
+    clk.set(TUESDAY)
+    bot = FakeBot()
+    assert poll.run_poll(conn, clk, settings, DownSpotify(), bot) == ["positions"]
+    assert len(deadline_posts(bot)) == 1 and notices(conn) == {item.id}
 
 
 def test_the_deadline_post_goes_to_the_authorised_user(conn, settings):
@@ -956,3 +1048,98 @@ def test_no_deadline_items_means_no_deadline_traffic(conn, settings):
     poll.run_poll(conn, clk, settings, fake_spotify(), bot)
 
     assert bot.sent == []
+
+
+# ==========================================================================
+# dr-brainrot — YouTube rows, pooled alerts, labels on deadline posts
+# ==========================================================================
+
+import dr_brainrot_types as T  # noqa: E402
+import labels  # noqa: E402
+
+
+def seed_youtube(conn, clk, settings, video_id="ytVideo0001", *, minutes=30, state="queued",
+                 deadline=None, channel="UCpoll"):
+    key = T.queue_key_for_youtube(video_id)
+    db.upsert_episode(conn, key, "A Video", "Poll Channel", None, None, minutes * MIN,
+                      platform="youtube", source_key=channel)
+    item = db.capture(conn, clk, settings, spotify_id=key, why_note="watch it", deadline=deadline)
+    if state != item.state:
+        conn.execute("UPDATE queue SET state = ? WHERE id = ?", (state, item.id))
+        conn.commit()
+    return db.get_item(conn, item.id)
+
+
+def test_youtube_items_are_never_polled_and_never_played(conn, settings):
+    clk = clock.FrozenClock(CAPTURED)
+    video = seed_youtube(conn, clk, settings, state="promoted")
+    seed(conn, clk, settings, SHORT)
+    spot = fake_spotify()
+
+    clk.set(MONDAY)
+    poll.run_poll(conn, clk, settings, spot, FakeBot())
+
+    asked = [ids for name, ids in spot.calls if name == "get_episodes"]
+    assert asked == [[SHORT.spotify_id]]
+    assert db.get_item(conn, video.id).state == "promoted"
+    assert rows(conn, video.spotify_id) == []
+
+    # Even a Spotify result that somehow carried the YouTube key flips nothing.
+    poll._mark_played(conn, clk, video.spotify_id)
+    assert db.get_item(conn, video.id).state == "promoted"
+
+
+def test_poll_backfills_sources_for_active_items_without_labelling_them(conn, settings):
+    clk = clock.FrozenClock(CAPTURED)
+    seed(conn, clk, settings, SHORT)
+    seed_youtube(conn, clk, settings)
+
+    clk.set(MONDAY)
+    poll.run_poll(conn, clk, settings, fake_spotify(), FakeBot())
+
+    found = {(r["kind"], r["source_key"], r["label"])
+             for r in conn.execute("SELECT kind, source_key, label FROM sources WHERE kind != 'x'")}
+    assert found == {
+        (T.KIND_PODCAST_SHOW, labels.normalise_key(T.KIND_PODCAST_SHOW, SHORT.show)[1], None),
+        (T.KIND_YOUTUBE_CHANNEL, "UCpoll", None),
+    }
+
+
+def test_worthwhile_listening_never_trips_an_alert(conn, settings):
+    clk = clock.FrozenClock(CAPTURED)
+    seed(conn, clk, settings, LONG)
+    source = labels.ensure_source(conn, clk, T.KIND_PODCAST_SHOW, LONG.show)
+    labels.set_source_label(conn, clk, source.id, T.WORTHWHILE)
+    spot = fake_spotify()
+    spot.set_position(LONG.spotify_id, 170 * MIN)
+
+    clk.set(MONDAY)
+    bot = FakeBot()
+    poll.run_poll(conn, clk, settings, spot, bot)
+
+    assert bot.sent == []
+    assert listened_min(conn) == 170          # the queue's raw Spotify figure is unchanged
+    assert alerts(conn) == set()
+
+
+def test_alert_text_names_pooled_minutes_used_across_sources(conn, settings):
+    clk = clock.FrozenClock(MONDAY)
+    db.current_week(conn, clk, settings)
+    use_minutes(conn, clk, 150)
+    bot = FakeBot()
+    poll.check_alerts(conn, clk, settings, bot)
+    assert bot.texts == ["150 of 180 counted content minutes used this week across sources. 30 min left."]
+
+
+def test_a_deadline_post_shows_the_items_label(conn, settings):
+    clk = clock.FrozenClock(MONDAY)
+    item = seed_youtube(conn, clk, settings, deadline=TUESDAY_EVENT)
+    labels.set_item_override(conn, clk, item.spotify_id, T.WORTHWHILE)
+    conn.commit()
+
+    bot = FakeBot()
+    clk.set(TUESDAY)
+    poll.run_poll(conn, clk, settings, fake_spotify(), bot)
+
+    text = deadline_posts(bot)[0]["text"]
+    assert "Label: worthwhile (your tag at capture) · costs 0 min — worthwhile" in text

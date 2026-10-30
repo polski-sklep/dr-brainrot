@@ -1,167 +1,387 @@
 # Dr. Brainrot
 
-Dr. Brainrot is a single-user Telegram bot that saves Spotify podcast episodes after you explain why you want to hear them. It holds episodes for a configurable lock period, lets you choose what to hear against a weekly time allowance and expires items you leave in the queue. It checks Spotify playback positions to estimate listening and reports how many saved episodes survive the lock, get selected and get played.
+An eight-week diagnostic of **brain-rot content**. It measures how much content
+you take in across podcasts, YouTube, iPhone apps, the phone browser, desktop
+websites, desktop apps, X and audiobooks, and how much of that is brain rot.
+It shows the result on a local dashboard.
+
+It is not a screen-time or productivity tracker. Shopping, email, banking,
+booking and other errands are out of scope. You label every source:
+
+- **wasteful**: content, and brain rot;
+- **worthwhile**: content, and not brain rot;
+- **tool**: not content at all. It is shown, never counted.
+
+> You label. The system counts.
+
+It started as a **deliberate podcast queue**, which it still contains. You
+capture an episode instead of playing it, write why you want it, wait out a
+48-hour lock, then choose what to hear at a weekly triage against a time
+allowance.
+
+It is a personal tool with a single user, running on one Mac, and it will
+never be a product. **It has an end date.** After eight weeks it stops, and
+you either name the decision it should change or shut it down.
+
+---
+
+## What it measures
+
+| Source | How it is read | Cadence | Your effort |
+|---|---|---|---|
+| Spotify podcasts | Spotify Web API playback positions for captured episodes | daily 09:17 | capture in Telegram |
+| YouTube (all devices) | The watch-history page's own data via a browser extension, with durations from the YouTube Data API | weekly | one click |
+| iPhone apps | Screen Time "Last Week" screenshots, read on the Mac with Apple Vision OCR | weekly | send screenshots |
+| Phone browser, by site | Brave Sync's phone visits in this Mac's Brave history. The minutes come from Screen Time and are split across sites | weekly, with Screen Time | none |
+| Desktop websites | Cold Turkey's local statistics database, reduced to hostnames | daily | none |
+| Desktop apps | Qbserve's local database, per app per day (browsers skipped) | daily | none |
+| X | Desktop x.com through Cold Turkey and the iPhone app through Screen Time, combined into one source that is always wasteful | as above | none |
+| Audiobooks (optional) | Audible's own daily listening totals (unofficial client). Always worthwhile unless you relabel a book | daily | sign in once |
+| Obsidian vault | Whether captured notes were ever processed out of the inbox. These are counts, never minutes | daily | none |
+
+Every figure keeps its **provenance**: API, page data, parsed screenshot,
+browser sync, or manual export. A value that couldn't be read is stored as
+**unmeasured**, never as zero. All raw evidence is kept, so any import can be
+re-parsed after a parser fix without resending anything.
+
+## What you see
+
+**Dashboard**: `http://127.0.0.1:8750/`. It is served on this Mac only and
+shows the countdown to the end date on every page.
+
+- **Overview**:
+  - **Summary.** Three to five plain sentences reading the last complete week.
+    Claude writes them once a week from aggregates only (see
+    [Weekly summary](#weekly-summary)).
+  - **The brain.** A drawing beside the summary that grows mould as the week's
+    brain rot nears your own peak week. Past 85% of the peak, mushrooms appear.
+    The peak is compared like for like, so a week where a sensor was added
+    doesn't become the worst week forever.
+  - **Against the week before**: *Better than the week before* and *Try next
+    week*. These are computed only from what both weeks measured the same way,
+    and anything set aside is named.
+  - **This week so far.** A part-week pace against the same weekdays last week,
+    using only the sources that report every day.
+  - **Where the week went**, week by week, as wasteful / worthwhile /
+    undecided. Tool minutes get their own column.
+  - **Readings to settle** (OCR values it couldn't read for sure), what isn't
+    counted yet, and blind spots.
+  - **Sync now**: runs every automatic read immediately instead of waiting for
+    09:30.
+- **Labels**: every source with wasteful / worthwhile / tool buttons. The
+  biggest undecided source comes first, and bulk labelling is supported.
+  Changing a label re-records each week's figures immediately.
+- **Records**: the detail. Weekly totals by source with provenance, imports per
+  week, allowance and weeks over it, **reflex** (wasteful minutes you opened
+  without queueing first), queued vs opened straight away, **cost per
+  keeper** (minutes spent for each vault note you kept), and the queue and
+  vault funnels.
+
+There are no scores or streaks.
+
+**Telegram** (one bot, which answers only your user ID):
+
+- **Capture**: send a Spotify episode or YouTube link. The bot shows the
+  duration and asks why, and nothing is stored until you reply. End the note
+  with `by friday` or `before 3 oct` to set a deadline. Put `#worthwhile` /
+  `#wasteful` anywhere in the note to override the label for that one item.
+- **Triage**, Sunday 18:00: each unlocked item comes with **Promote / Drop /
+  Still holds?** buttons. A wasteful promotion costs its remaining minutes
+  against the allowance. A worthwhile one costs nothing but still waits out
+  the lock. An empty queue posts nothing.
+- **Imports**: send the Screen Time screenshots, or a Cold Turkey JSON export
+  if its automatic read ever fails. The reply says what was stored and what
+  couldn't be read.
+- **Sunday check-in**, 09:30: one numbered message listing what the finished
+  week still needs (screenshots, YouTube sync, readings to settle, labels).
+  One reminder follows on Monday if anything is missing. When everything is
+  in, nothing is sent.
+- **Label nudge**: Monday only, and only when enough minutes are undecided to
+  matter. Labelling itself happens on the dashboard, never in the chat.
+- **Allowance alerts**: at most one of each kind per week.
+- Commands: `/start`, `/queue`, `/stats`, `/labels`.
+
+## How it counts
+
+- **Labels decide everything.** The question for each source: is this content
+  I consume? If yes, is it brain rot? If you only go there to get something
+  done (buy, pay, book, organise, check the weather), it's a tool.
+- **Tool is scope, not a middle score.** Tool minutes never count, never
+  charge the allowance and never trigger alerts. They are still printed beside
+  the content figures, so a label can't hide consumption. Relabel when the use
+  changes: a shop is a tool for errands and wasteful for browsing.
+- **Unlabelled is undecided.** The headline wasteful figure counts only what
+  you've called wasteful. Undecided minutes are shown beside it. The allowance
+  and the queue gate still treat undecided as wasteful until you decide.
+- **Allowance**: a pooled 360 minutes per week of wasteful plus undecided
+  content, across every source. The week runs Sunday 18:00 to Sunday 18:00.
+  Going over is recorded, not carried into the next week.
+- **Double counts are excluded, not deleted.** YouTube's own history covers
+  every device, so Screen Time's YouTube app is dropped. Spotify polling
+  covers the Spotify app. X is measured twice and counted once.
+- **Comparisons are like for like.** Week-on-week figures, the brain and the
+  part-week pace use only channels both spans measured. A week with a new
+  sensor can't look like a relapse.
+
+## Weekly routine
+
+| When | Do |
+|---|---|
+| Any time | Capture instead of play: send links to the bot with a why |
+| Any time | Capture reading material via obsidian-ingest as usual; move notes out of `01-Inbox` when they earn it |
+| Sunday morning | The check-in: Screen Time screenshots, the YouTube sync, readings to settle, then label new sources on the dashboard |
+| Sunday 18:00 | Triage the queue post, when there is one |
+| Week 8 | Name the decision, or shut it down (`./dr-brainrot stop`) |
+
+Everything else is automatic.
+
+---
 
 ## Setup
 
-### 1. Dependencies
+### Prerequisites
 
-Use Python 3.12. Run these commands from the repository directory:
+- macOS. Apple Vision reads the screenshots on-device, and launchd runs
+  everything. There is no server: the vault, the browsers and the database
+  all live on this Mac.
+- Python 3.12 (`brew install python@3.12`).
+- Chrome or Brave, signed in to YouTube, for the history extension.
+- Brave on the phone and the Mac with **History** sync on (for the phone
+  browser split).
+- Cold Turkey Blocker and Qbserve on the Mac.
+- The Obsidian vault and the `obsidian-ingest` bot (`~/Projects/obsidian-ingest`).
+- A Telegram bot token, a Spotify app and a YouTube Data API key.
+
+### Install
 
 ```bash
+cd ~/Projects/dr-brainrot
 python3.12 -m venv .venv
-.venv/bin/pip install "python-telegram-bot>=21,<23" httpx pytest pytest-asyncio
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env && chmod 600 .env     # then fill it in
 ```
 
-### 2. Credentials and settings
+### Environment
 
-Copy `.env.example` to `.env`, then fill in the existing keys. Keep their names
-unchanged. The example includes the credentials, timezone and database path.
-The default lock is 48 hours, the weekly allowance is 180 minutes and queued
-items have a lifespan of two triage cycles.
+All configuration is in `.env`, which is gitignored.
 
-```bash
-cp .env.example .env
-chmod 600 .env
-```
-
-`.env` is gitignored.
-
-**Spotify:** create an app at https://developer.spotify.com/dashboard. Register
-`http://127.0.0.1:8888/callback` as its redirect URI to match `.env.example`.
-Copy the client ID and secret into `.env`.
-
-**Telegram:** send `/newbot` to @BotFather and copy the token into `.env`.
-Set `TELEGRAM_USER_ID` to your numeric user ID. The bot silently ignores other
-users. Press **Start** in the bot chat so it can send you scheduled messages.
-
-### 3. One-time Spotify consent
-
-Run this on a machine with a browser. If you run the bot elsewhere, transfer
-`.env` securely to that machine after consent:
-
-```bash
-.venv/bin/python auth_spotify.py
-```
-
-Grant **View your listening position in podcasts**, the
-`user-read-playback-position` scope. The consent script refuses to save a token
-without it. The Spotify client also rejects missing playback-position data
-rather than reporting it as zero listening.
-
-### 4. Verify
-
-```bash
-.venv/bin/python check_env.py
-```
-
-This checks configuration values, `.env` permissions, secret-file exclusions
-and live Spotify and Telegram authentication. Exit code 0 means the checks
-passed. Add `--ping` to send yourself a test message.
-
-## Running it
-
-Start the bot with long polling. It does not need an inbound port or webhook:
-
-```bash
-.venv/bin/python bot.py
-```
-
-Send a Spotify episode link, then reply with your reason. Nothing is saved
-until that reply arrives. A trailing deadline such as `by friday` or
-`before 3 oct` is optional. A deadline inside the lock period waives the lock.
-
-Use `/queue` to see unlocked items and `/stats` to see the capture, lock,
-selection and listening figures. Weekly triage offers **Promote**, **Drop**
-and **Still holds?** buttons. Promoting an episode reserves its remaining
-minutes against the weekly allowance.
-
-| Command | When | What it does |
-|---|---|---|
-| `.venv/bin/python bot.py` | Always running | Handles capture, triage buttons, `/start`, `/queue` and `/stats` |
-| `.venv/bin/python poll.py` | Daily | Reads playback positions, records positive changes, lifts expired locks, surfaces upcoming deadlines and sends allowance alerts |
-| `.venv/bin/python triage.py` | Sunday at 18:00 | Closes the previous week, carries listening overage into the next allowance, lifts locks, expires old items and posts the queue |
-
-## Scheduling
-
-Schedule `poll.py` daily and `triage.py` on Sunday at 18:00 in the configured
-application timezone. Keep the bot running separately.
-
-The scheduler and Dr. Brainrot must agree on the timezone. The timezone key in
-`.env.example` is set to `Europe/Warsaw`. The application ignores the POSIX
-`TZ` variable. Running triage before its configured week boundary can close
-the wrong week.
-
-### macOS with launchd
-
-Use launchd on a Mac that sleeps. Calendar jobs can run after a missed time
-when the Mac wakes; macOS cron does not catch up in the same way.
-
-The three agent definitions in `launchd/` have these schedules:
-
-| Entry point | Schedule |
+| Key | Meaning |
 |---|---|
-| `bot.py` | Always running with `KeepAlive` |
-| `poll.py` | Daily at 09:17 |
-| `triage.py` | Sunday at 18:00 |
+| `SPOTIFY_*`, `TELEGRAM_*` | Credentials (see below). Only `TELEGRAM_USER_ID` is ever answered |
+| `WEEKLY_ALLOWANCE_MIN` | Pooled wasteful-content minutes per week (360) |
+| `DR_BRAINROT_TZ` | App timezone (`Europe/Warsaw`). Must match the system timezone, or triage closes the wrong week |
+| `LOCK_HOURS`, `LIFESPAN_CYCLES` | Queue lock (48) and how many triage cycles an item survives |
+| `DR_BRAINROT_DB_PATH` | SQLite database (`data/dr-brainrot.db`) |
+| `YOUTUBE_API_KEY` | YouTube Data API v3, used only for durations and channels |
+| `DR_BRAINROT_VAULT_PATH`, `DR_BRAINROT_VAULT_INBOX` | The vault, and the folder whose notes count as unprocessed (`01-Inbox`) |
+| `DR_BRAINROT_CAPTURE_OUTBOX` | JSONL file obsidian-ingest appends captures to |
+| `DR_BRAINROT_RAW_DIR` | Raw evidence kept for re-parsing (`data/raw`) |
+| `DR_BRAINROT_COLDTURKEY_DB` | Cold Turkey's statistics database. Empty means manual exports |
+| `DR_BRAINROT_QBSERVE_DB` | Qbserve's `UserDatabase.sqlite`. Empty means desktop apps aren't measured |
+| `DR_BRAINROT_BRAVE_HISTORY_DB` | This Mac's Brave `History` file. Empty means the phone browser stays one unsplit block. *Not yet in `.env.example`* |
+| `DR_BRAINROT_AUDIBLE_AUTH` | Optional. The sign-in `audible_login.py` saves (`data/audible_auth.json`). Empty or missing means audiobooks aren't measured |
+| `DR_BRAINROT_GO_LIVE` | First counted date, a Sunday (`2026-09-13`). Earlier history is evidence only |
+| `DR_BRAINROT_DIAGNOSTIC_WEEKS` | Length of the diagnostic (8) |
+| `DR_BRAINROT_DASHBOARD_PORT` | Dashboard and extension ingest port on 127.0.0.1 (8750) |
+| `DR_BRAINROT_INGEST_TOKEN` | Shared secret for the extension: `python -c "import secrets;print(secrets.token_urlsafe(32))"` |
+| `ANTHROPIC_API_KEY` | Optional. Used only for the weekly summary. Empty means dr-brainrot's own computed sentences |
 
-The supplied definitions contain machine-specific paths. Copy them first,
-then check the interpreter, working directory and log paths in the installed
-copies before loading them. Create the log directory if needed. Keep the
-existing filenames and labels.
+### Credentials
+
+- **Spotify**: create an app at developer.spotify.com with the redirect URI
+  `http://127.0.0.1:8888/callback`. Then run `.venv/bin/python auth_spotify.py`
+  once and grant *View your listening position in podcasts*.
+- **Telegram**: `/newbot` with @BotFather, then press **Start** in the bot's
+  chat once so it can message you first.
+- **YouTube**: in console.cloud.google.com, enable **YouTube Data API v3**,
+  create an API key, and restrict the key to that API. A sync costs a few
+  quota units out of 10,000 a day.
+- **Audible** (optional): run `.venv/bin/python audible_login.py` yourself in
+  Terminal. Your password and two-step code go only to Amazon. Use `--again`
+  if Audible ever refuses the saved sign-in. To sign out, remove the device
+  from your Amazon account and delete `data/audible_auth.json` and
+  `data/audible_store.json`.
+
+Then check everything:
 
 ```bash
-mkdir -p "$HOME/Library/LaunchAgents" logs
-cp launchd/*.plist "$HOME/Library/LaunchAgents/"
+.venv/bin/python check_env.py          # add --ping for a Telegram test message
 ```
 
-After checking those paths, load the copied agents and inspect their status:
+It checks key shapes, `.env` permissions, `.gitignore` coverage, live
+Telegram, Spotify and YouTube auth, the vault paths, writable data locations,
+Apple Vision, and the Cold Turkey and Qbserve databases. Exit codes: 0 passed,
+1 failed, 3 unproven (a provider was unreachable).
+
+### Browser extension (YouTube)
+
+Load `extension/` unpacked (`chrome://extensions` or `brave://extensions`,
+then **Developer mode**, then **Load unpacked**). In **Backend settings**, set
+`http://127.0.0.1:8750` and the ingest token. Each week, click **Run weekly
+sync**. It scrolls your watch history back to the last sync and posts the
+page's data to the backend. If YouTube changes its page structure, the sync
+fails loudly instead of recording zeros. Details are in
+[`extension/README.md`](extension/README.md).
+
+### Screen Time screenshots
+
+Sunday morning, as part of the check-in:
+
+1. **Settings → Screen Time → See All App & Website Activity.** Choose this
+   **iPhone**, not all devices.
+2. Choose **Week** and go **back one week**. The header must read **Last Week**.
+3. Screenshot the summary and the whole **Most Used** list, tapping **Show
+   More** until it ends. Overlapping screenshots are fine.
+4. Send them all to the bot in one go.
+
+The OCR runs on this Mac, and nothing is uploaded. A "This Week" or
+all-devices capture is kept but writes no minutes, and the bot tells you what
+to resend. Screen Time keeps about four weeks, so a late capture loses nothing.
+
+## Start everything
 
 ```bash
-for plist in launchd/*.plist; do
-  installed="$HOME/Library/LaunchAgents/$(basename "$plist")"
-  launchctl bootstrap "gui/$(id -u)" "$installed"
-  label=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$installed")
-  launchctl print "gui/$(id -u)/$label"
-done
+./dr-brainrot start      # validate .env, migrate, install and load every agent, wait for the dashboard
+./dr-brainrot status
+./dr-brainrot restart
+./dr-brainrot stop       # obsidian-ingest is left alone
 ```
 
-Run the daily poll immediately using its existing label:
+| launchd agent | When | What |
+|---|---|---|
+| `com.jacob.dr-brainrot.bot` | always on | Telegram: capture, triage, imports |
+| `com.jacob.dr-brainrot.dashboard` | always on | Dashboard and extension ingest API |
+| `com.jacob.dr-brainrot.poll` | daily 09:17 | Spotify positions, lock lifts, deadlines, allowance alerts |
+| `com.jacob.dr-brainrot.jobs` | daily 09:30 | All automatic reads, then the weekly summary, Sunday check-in, Monday reminder, Qbserve warning and end notice |
+| `com.jacob.dr-brainrot.nightly` | daily 00:15 | Automatic reads only (outbox, vault, Cold Turkey, Qbserve, phone browser, Audible), so each finished day appears just after midnight. Sends nothing |
+| `com.jacob.dr-brainrot.triage` | Sunday 18:00 | Week rollover, expiry, the triage post |
+| `com.jacob.dr-brainrot.qbserve` | every 10 min | Reopens Qbserve in the background if it isn't running |
+
+launchd is used instead of cron because launchd catches up on runs missed
+while the Mac slept. Every scheduled run reads and records data first and
+sends Telegram messages after. A Telegram outage never stops a read. The bot
+token is scrubbed from every log line.
+
+**After pulling or merging new code, run `./dr-brainrot restart`.** The bot and
+dashboard keep the code they started with, but the scheduled jobs run whatever
+is in the working tree. Old code meeting new kinds of rows fails. Every
+process also applies pending migrations at start, so the 09:30 job will
+migrate the live database on its own. To restart just the two always-on
+agents and confirm they started after the merge:
 
 ```bash
-label=$(/usr/libexec/PlistBuddy -c 'Print :Label' launchd/*poll.plist)
-launchctl kickstart -p "gui/$(id -u)/$label"
+launchctl kickstart -k gui/$(id -u)/com.jacob.dr-brainrot.dashboard
+launchctl kickstart -k gui/$(id -u)/com.jacob.dr-brainrot.bot
+ps -o lstart= -p "$(pgrep -f Projects/dr-brainrot/bot.py)"
+ps -o lstart= -p "$(pgrep -f 'dashboard.app')"
 ```
 
-Stop the weekly agent using its existing label:
+To quit Qbserve on purpose, stop its keeper first
+(`launchctl bootout gui/$(id -u)/com.jacob.dr-brainrot.qbserve`), or it is
+reopened within ten minutes.
+
+## Weekly summary
+
+Once per finished week, the 09:30 job asks Claude (`claude-opus-5`) for three
+to five sentences describing that week's measured patterns. It gives no
+advice and no praise, and every number in it must come from the figures it was
+given. Those figures are stored beside it so any sentence can be checked. The
+wins and tips on the Overview come from dr-brainrot's own computation, not the
+model.
+
+- **What is sent**: aggregates only. Group names, minutes by label per group
+  per week, changes, allowance, reflex share, cost per keeper, funnel counts
+  and missing-evidence weeks. **No show, channel, app, domain, video, note
+  title or path leaves the Mac.** A test fails if anything in the payload is
+  not a date, a number or one of dr-brainrot's own constants.
+- **When it is out of date**: the paragraph never changes on its own. A chip
+  says why it no longer matches the page: a newer week has finished, data
+  arrived after it was written, or you relabelled. **Rewrite** regenerates it.
+- **Cost**: one call a week, a few cents a month.
+- **Off**: empty `ANTHROPIC_API_KEY`. Nothing is sent, and the panel shows
+  computed sentences with the reason beside them.
+
+## Privacy
+
+- Everything runs and is stored on this Mac. The dashboard binds 127.0.0.1 and
+  rejects cross-site posts.
+- Cold Turkey and Brave history store full URLs. Both are reduced to hostnames
+  in memory while reading, and nothing finer is stored, logged or kept as
+  evidence.
+- Qbserve: apps and minutes only. Window titles, and Qbserve's own ratings,
+  are never read.
+- Every source database (Cold Turkey, Qbserve, Brave) is opened read-only.
+  Brave's is read through a copy.
+- Vault: notes are tracked by a capture ID that obsidian-ingest writes into
+  their frontmatter, never by path or title. Notes from before go-live aren't
+  tracked.
+- The only things that leave the Mac are the provider API calls themselves
+  (Spotify, YouTube, Telegram, Audible) and the optional aggregate-only
+  summary call.
+
+## Data, backup and recovery
+
+The database is `data/dr-brainrot.db` (SQLite). `schema.sql` is the original
+queue baseline, and the numbered files in `migrations/` bring it forward, one
+transaction per step. Back up the following:
+
+- `data/dr-brainrot.db`, using `sqlite3 data/dr-brainrot.db ".backup data/backup-$(date +%Y%m%d).db"`
+  (not `cp`) while agents run;
+- `data/raw/` (all original evidence);
+- `data/vault_captures.jsonl`;
+- `.env`.
+
+To restore: `./dr-brainrot stop`, copy the database back, `./dr-brainrot start`.
+
+## Troubleshooting
+
+Every import, failed or not, is recorded with its warnings and original bytes.
 
 ```bash
-label=$(/usr/libexec/PlistBuddy -c 'Print :Label' launchd/*triage.plist)
-launchctl bootout "gui/$(id -u)/$label"
+.venv/bin/python reparse.py list              # recent imports, status, warnings
+.venv/bin/python reparse.py list screentime   # or coldturkey / youtube_history
+.venv/bin/python reparse.py 42                # re-parse import #42 from its stored evidence
 ```
 
-Stop any manually started bot before loading its agent. Two bot processes
-using the same token conflict over Telegram updates.
+- **YouTube "SYNC FAILED"**: YouTube changed its page data. Fix
+  `sources/youtube.py` against a freshly saved history page, then re-parse.
+  The cursor didn't move, so nothing is lost.
+- **Screen Time "no minutes written"**: the header wasn't *Last Week*, or the
+  view was all devices.
+- **Cold Turkey export rejected**: you exported the blocked-count chart. Export
+  the Websites usage view.
+- **Vault scan failed**: the vault or inbox path is wrong, including letter
+  case. The scan refuses rather than count every capture as kept.
+- **obsidian-ingest says "dr-brainrot capture log failed"**:
+  `DR_BRAINROT_CAPTURE_OUTBOX` isn't set in obsidian-ingest's `.env`, or
+  `data/` doesn't exist.
+- **Anything else**: check `logs/` (`bot.log`, `jobs.log`, `dashboard.log`,
+  `poll.log`, `triage.log`, `qbserve.log`) and run `./dr-brainrot status`.
 
-### An always-on Linux host with cron
+## Known distortions and blind spots
 
-Use a cron implementation that supports `CRON_TZ`. Replace
-`/path/to/checkout` with your actual repository directory and create its
-`logs/` directory before installing these entries with `crontab -e`:
+These are accepted deliberately and stated on the dashboard.
 
-```cron
-# Match the application timezone configured in .env.
-CRON_TZ=Europe/Warsaw
-
-# Daily playback check and alerts.
-17 9 * * * cd /path/to/checkout && .venv/bin/python poll.py >> logs/poll.log 2>&1
-
-# Weekly triage at the Sunday boundary.
-0 18 * * 0 cd /path/to/checkout && .venv/bin/python triage.py >> logs/triage.log 2>&1
-```
-
-`CRON_TZ` controls the scheduler. It does not set the application's timezone.
-Configure both explicitly rather than relying on the login shell.
+- **Podcasts**: only captured episodes are polled, so listening that bypassed
+  the queue is invisible. Scrubbing forward reads as listening, and playback
+  above 1x undercounts.
+- **YouTube**: a rewatch overwrites the saved position and undercounts. Dates
+  come from day headings, with no time of day. Shorts are assumed fully
+  watched.
+- **Screen Time**: OCR is lower confidence than the APIs, and only full past
+  weeks count.
+- **Phone browser**: synced visits carry no duration, so the split across
+  sites is an estimate from gaps between visits.
+- **Cold Turkey and Qbserve**: this Mac only. Qbserve records only while it
+  runs, and days it missed show as not received. It warns only when Cold
+  Turkey shows the Mac was in use.
+- **Audible**: the day's total is Audible's own, and the split across books is
+  estimated. The client is unofficial and can break, in which case it fails
+  loudly.
+- **X**: one source, wasteful, with no sub-categories. Value from X shows up
+  as vault keepers, not minutes.
+- **Scope**: a source mislabelled as a tool would hide content, which is why
+  tool minutes are always on the page.
 
 ## Tests
 
@@ -169,43 +389,37 @@ Configure both explicitly rather than relying on the login shell.
 .venv/bin/pytest -q
 ```
 
-The suite uses fake Spotify and Telegram clients. `conftest.py` blocks network
-access and reads of the real `.env`. The consent and credential-check scripts
-make live calls when run separately, as do the bot and scheduled jobs during
-normal use.
+No test touches the network or runs Apple Vision. `conftest.py` blocks both,
+and blocks reading the real `.env`. An optional check against real screenshots
+runs only with `DR_BRAINROT_REAL_OCR=1`.
 
-## Files
+## Layout
 
-| File or directory | Purpose |
+```
+bot.py poll.py triage.py spotify.py      the podcast queue, label-aware
+db.py clock.py config.py schema.sql      storage, week boundaries, settings
+migrations/                              numbered schema migrations
+dr_brainrot_types.py evidence.py         shared types, raw-evidence store
+labels.py allowance.py report.py         labels, the pooled allowance, reporting
+progress.py pace.py insights.py          week-on-week, part-week pace, weekly summary
+checklist.py                             Sunday check-in and Monday reminder
+handlers_imports.py handlers_labels.py   Telegram imports and label nudge
+sources/                                 youtube, screentime + ocr_vision, brave_history,
+                                         coldturkey(_local), qbserve, audible, vault
+ingest_api.py dashboard/ extension/      local API, Flask + HTMX dashboard, MV3 extension
+jobs.py reparse.py check_env.py          daily and nightly reads, re-parse CLI, env check
+auth_spotify.py audible_login.py         one-time sign-ins
+dr-brainrot launchd/                     launcher and agent definitions
+tests/                                   unit, migration, integration, end-to-end
+```
+
+## Further reading
+
+| Document | What it is |
 |---|---|
-| `bot.py` | Telegram capture, queue view, triage buttons and statistics |
-| `spotify.py` | Token refresh, episode lookup and playback-position changes |
-| `poll.py` | Daily listening checks, deadline messages and allowance alerts |
-| `triage.py` | Weekly rollover, expiry, queue messages and statistics formatting |
-| `db.py` | Queue state, listening records, weekly accounting and funnel statistics |
-| `config.py` | Loads `.env` and configuration values |
-| `clock.py` | UTC storage, local week boundaries and daylight-saving handling |
-| `schema.sql` | SQLite schema |
-| `auth_spotify.py` | Browser consent for Spotify |
-| `check_env.py` | Configuration and credential checks |
-| `launchd/` | macOS agent definitions |
-| `conftest.py` | Test guards against network access and real credentials |
-| `tests/` | Automated tests |
-| `data/` | Gitignored local data |
-
-`CONTRACTS.md` describes the module interfaces. `DECISIONS.md` records design
-choices. `REVIEW.md` records the implementation audit.
-
-## Known distortions
-
-- Moving forward in an episode counts as listening even if you skipped it.
-- Playback positions measure progress through the episode, not elapsed
-  listening time. At speeds above 1x, recorded progress can exceed time spent
-  listening.
-- Moving backwards does not subtract recorded minutes. Listening between
-  polls can be missed if the position moves backwards before the next check.
-- Completion uses Spotify's `fully_played` flag rather than comparing the
-  position with the episode's duration.
-- Only captured episodes in locked, queued or promoted states are polled.
-  Listening to other episodes is invisible. Dr. Brainrot does not scan your
-  full listening history or block playback in Spotify.
+| [`dr-brainrot-build-brief.md`](dr-brainrot-build-brief.md) | The original product brief |
+| [`DECISIONS.md`](DECISIONS.md) | Every design choice and the reasoning behind it (the queue's `D*`, dr-brainrot's `DR*`) |
+| [`CONTRACTS.md`](CONTRACTS.md) | Module interfaces |
+| [`REVIEW.md`](REVIEW.md) | Independent audits |
+| [`EXISTING.md`](EXISTING.md) | The podcast queue as it was before dr-brainrot |
+| [`docs/`](docs/) | Dashboard design notes and build notes |

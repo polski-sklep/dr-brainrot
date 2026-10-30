@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  POP bot — long polling, always on.
+  Bot — long polling, always on.
 
   KeepAlive restarts it on crash and after a reboot. Without this the bot only
   lives as long as whatever shell started it.
@@ -11,23 +11,23 @@
 
       ps -eo pid,command | grep "[b]ot.py"
 
-  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.pop.bot.plist
-  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.pop.bot
-  Status:   launchctl print     gui/$(id -u)/com.jacob.pop.bot | head -20
+  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.dr-brainrot.bot.plist
+  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.dr-brainrot.bot
+  Status:   launchctl print     gui/$(id -u)/com.jacob.dr-brainrot.bot | head -20
 -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.jacob.pop.bot</string>
+    <string>com.jacob.dr-brainrot.bot</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Jacob/Projects/POP/.venv/bin/python</string>
-        <string>/Users/Jacob/Projects/POP/bot.py</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/.venv/bin/python</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/bot.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Jacob/Projects/POP</string>
+    <string>/Users/Jacob/Projects/dr-brainrot</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -40,8 +40,8 @@
     <integer>30</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/bot.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/bot.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Jacob/Projects/POP/logs/bot.log</string>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/bot.log</string>
 </dict>
 </plist>

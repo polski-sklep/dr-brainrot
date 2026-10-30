@@ -1,7 +1,7 @@
 # REVIEW — Phase 4
 
 Verification pass over `db.py`, `spotify.py`, `bot.py`, `triage.py`, `poll.py`,
-`clock.py`, `config.py` and `schema.sql` against `pop-build-brief.md` (the
+`clock.py`, `config.py` and `schema.sql` against `podcast-queue-build-brief.md` (the
 authority), `CONTRACTS.md` and `DECISIONS.md`.
 
 **Result: 6 defects found, 6 fixed. 436 tests → 445 (9 added, 0 removed, 0
@@ -413,7 +413,7 @@ for half the year, which is precisely the failure D1.3 was written to prevent,
 arriving through the config layer instead of the arithmetic.
 
 No test is affected (tests use `config.test_settings()`, which never reads the
-environment). The fix is to rename the key to `POP_TZ` in `config.py` and
+environment). The fix is to rename the key to `DR_BRAINROT_TZ` in `config.py` and
 `.env` / `.env.example`, which touches deployment and belongs to whoever owns
 the VPS.
 
@@ -538,7 +538,7 @@ was adjusted — see "One existing test moved" below.
 
 **Was: reported, not fixed. Now: fixed.**
 
-The brief, `pop-build-brief.md:79-81`: "An item with a deadline surfaces before
+The brief, `podcast-queue-build-brief.md:79-81`: "An item with a deadline surfaces before
 it expires regardless of where the weekly cycle sits. It still requires a note
 and still counts against the allowance." That is a requirement, not a
 suggestion, and the only mechanism that existed for it was the lock exemption
@@ -557,7 +557,7 @@ Sunday for having passed its deadline (`triage.py:242`).
   an existing production database picks it up on the next run of any of the
   three entry points (`poll.py:334`, `triage.py:402`, `bot.py:517`). It is
   dedup bookkeeping in exactly the sense `alerts_sent` is — no per-item user
-  input, so the brief's friction constraint (`pop-build-brief.md:313-316`) is
+  input, so the brief's friction constraint (`podcast-queue-build-brief.md:313-316`) is
   untouched.
 
 - `poll.py:112` — `run_poll()` calls `db.lift_expired_locks()` before
@@ -614,7 +614,7 @@ by the allocation gate at 167 minutes against 180 with 100 already spent; and a
 
 ---
 
-## R1 — `TZ` renamed to `POP_TZ` and removed from the override set
+## R1 — `TZ` renamed to `DR_BRAINROT_TZ` and removed from the override set
 
 **Was: reported, not fixed. Now: fixed.**
 
@@ -626,26 +626,26 @@ build already hit this class of bug once from the other direction: a launchd
 job stamped CEST instead of WEST and fired an hour early
 (`README.md:105-109`).
 
-- `config.py:70-75` — reads `POP_TZ`, default `"Europe/Lisbon"`.
+- `config.py:70-75` — reads `DR_BRAINROT_TZ`, default `"Europe/Lisbon"`.
 - `config.py:82-89` — `TZ` removed from `_KEYS` entirely, so no ambient value
   under that name can reach `Settings` at all. This is the part that matters:
   renaming the read alone would still have left `TZ` in the overlay.
-- `.env` — the `TZ=` line replaced in place with `POP_TZ=`. No other line was
+- `.env` — the `TZ=` line replaced in place with `DR_BRAINROT_TZ=`. No other line was
   touched, no value was printed, and the file is still `0600` (verified before
   and after).
 - `.env.example:19-21`, `check_env.py:32` — same rename. An old `.env` still
   carrying `TZ` now fails the Phase 0 gate loudly instead of silently working
   under the POSIX name.
-- `README.md:111-120` — `CRON_TZ` and `POP_TZ` are now explicitly distinguished.
+- `README.md:111-120` — `CRON_TZ` and `DR_BRAINROT_TZ` are now explicitly distinguished.
   `CRON_TZ=Europe/Lisbon` in the crontab block is untouched: it controls when
-  the daemon fires, which is a separate concern from what POP believes its
+  the daemon fires, which is a separate concern from what the queue believes its
   timezone is.
 
 **Tests** — `tests/test_config.py`, 11 of them, new module (`config.py` had no
 test module of its own, which is how this reached production). The two named
-in the escalation: `POP_TZ` is honoured from the env file, from the
+in the escalation: `DR_BRAINROT_TZ` is honoured from the env file, from the
 environment, and from an explicit override; and `monkeypatch.setenv("TZ", "UTC")`
-leaves `Settings.tz == "Europe/Lisbon"` both when `POP_TZ` is set and when
+leaves `Settings.tz == "Europe/Lisbon"` both when `DR_BRAINROT_TZ` is set and when
 nothing is. There is also a structural assertion that `"TZ" not in config._KEYS`,
 so a future edit to that set cannot quietly re-add it.
 
@@ -685,3 +685,207 @@ No other existing test was modified, deleted or weakened.
 - **`bot.py` has no knowledge of `deadline_notices`.** If a future feature
   ever re-posts an item deliberately, it will need to clear that row, and
   nothing enforces or documents that beyond the docstring.
+
+---
+
+# Part II — dr-brainrot
+
+Independent verification of the dr-brainrot extension (`dr-brainrot-claude-code-prompt.md`,
+Phase 4), done by an agent that wrote none of it. Read against
+`dr-brainrot-build-brief.md` (the authority), `CONTRACTS.md` Part II with §13,
+`DECISIONS.md` Part II, `EXISTING.md` and `NOTES-A..D.md`, then the code.
+Part I above is the queue's review and is unchanged.
+
+**Result: 14 defects found and fixed (1 high, 5 medium, 8 low). 4 findings
+accepted, with reasons. Tests: 1120 passed / 2 skipped → 1138 passed / 1
+skipped.** The remaining skip is the local-only real-OCR check. The
+cross-repo body-hash check that used to skip now runs. No assertion was
+weakened. Two existing tests gained one setup line; see P4-05.
+
+Every regression test below was run against the pre-fix code and failed
+there, apart from P4-12 (it skipped before) and P4-13 (no offline test is
+possible).
+
+## End-to-end integration test — `tests/test_dr_brainrot_e2e.py`
+
+One scenario on a frozen clock, Europe/Warsaw, go-live Sunday 13 Sep 2026.
+It starts from a queue version-1 database (`schema.sql` plus queue rows:
+episodes, a played and a dropped queue item, listening, two weeks, an alert,
+a deadline notice, `last_triage_week`), then runs `db.migrate`. Every source
+enters through its real public entry point:
+
+| Source | Entry point driven | Faked boundary |
+|---|---|---|
+| Spotify | `bot.on_message`/`on_callback`, `poll.run_poll`, `triage.run_triage` | `FakeSpotify`; `SpotifyClient` on `httpx.MockTransport` for the scope failure |
+| YouTube | `POST /api/youtube/history` through `dashboard.app.create_app` (the real blueprint) and bot capture | `FakeYouTubeApi`, sanitised `history_initial.json` |
+| Screen Time | `handlers_imports.on_image` with the real `ImageBatcher` | recorded Vision observations (`last_week.json`) |
+| Cold Turkey | `handlers_imports.on_json_document` | sanitised export, plus twitter.com and youtube.com series |
+| Vault | obsidian-ingest's real `vault_write.write_note` into a temp vault, then `jobs.run_daily` | frozen `datetime` in that module only |
+
+Checklist coverage: [1] capture creation, including nothing written before
+the note. [2] inheritance from a label set with the Telegram button and from
+the dashboard toggle. [3] a `#worthwhile` override beats an unlabelled
+channel. [4] the unlabelled default. [5] worthwhile is refused while locked,
+then promotes at cost 0 even for 1500 min, beyond the allowance. [6] a
+wasteful promotion is refused with the exact overage and nothing is written;
+never-promoted and pre-promotion listening is ungated but charged. [7] pooled
+wasteful per group and in total. [8] rollover: promotions lapse, `promoted_at`
+survives, a fresh week opens. [9] debt at rollover, then recomputed by a late
+Screen Time import (81), a Telegram relabel (43) and a Cold Turkey import
+(135). [10]–[13] unprocessed, kept and edited after a rename into another
+folder (same capture id, observation history `unprocessed → kept`),
+moved-untouched, deleted and trashed excluded. [14] every `report.*`
+function. [15] provenance in `weekly_totals`, `gated_vs_ungated`,
+`cost_per_keeper` and `records`, and in the overview, records and labels
+HTML (screenshot rows marked "lower confidence"). [16] duplicates for every
+source: an unchanged Spotify poll, identical YouTube bytes, resent
+screenshots, a resent export, and re-reading the outbox and re-scanning the
+vault. [17] failures for every source: Spotify missing `resume_point` raises
+and writes nothing; YouTube with zero sections gets a 422 and the cursor does
+not move; non-Screen-Time images, the "Websites Blocked" export and an
+unmounted vault each leave a failed import and a loud reply or job failure,
+never zeros. It also checks identifier agreement: one X source across the
+iPhone app, x.com, twitter.com and vault X captures; the vault article and
+Cold Turkey `example.org` are one source; capture and history agree on the
+YouTube channel key. The queue's pre-dr-brainrot rows are identical at the end.
+
+The scenario was mutation-checked. Charging worthwhile promotions, removing
+the late-import recompute, or disabling the covered-elsewhere exclusion each
+makes it fail.
+
+## Findings discovered and fixed
+
+### P4-01 — The "reflex" figure never reached the dashboard (medium)
+- **Files:** `report.py`, `dashboard/app.py`, `dashboard/templates/overview.html`, `dashboard/static/dashboard.css`.
+- **Problem:** `allowance.gated_split` computed `wasteful_ungated_min`, but `report.GatedRow` dropped it. The dashboard could only show the ungated share across all labels, not the brief's "most revealing number".
+- **Fix:** `GatedRow.wasteful_ungated_min` and `provenances`. The overview now opens with a Reflex section: the week's total, per-group figures with provenance badges, and a lower-confidence marker. The gated table gains a bold wasteful-ungated column.
+- **Tests:** `test_dr_brainrot_phase4_regressions.py::test_reflex_figure_is_exposed_and_shown_prominently`; e2e checks reflex = pooled wasteful − gated wasteful, and the HTML.
+
+### P4-02 — Evidence from before go-live charged the first week's debt (high)
+- **Files:** `allowance.py`.
+- **Problem:** YouTube skipped pre-go-live days at ingest (DR2.2), but Cold Turkey and Screen Time wrote them, and `pooled_minutes` charged them. A first export covering 6–15 Sep with go-live on 13 Sep put 6–12 Sep minutes into the pre-go-live week, and `on_measurements_changed` turned them into week 1's debt. The live DB has no imports yet, so nothing was affected.
+- **Repro:** 400 wasteful Cold Turkey minutes on 10 Sep, go-live 13 Sep, produced debt in the go-live week.
+- **Fix:** `pooled_minutes` and `gated_split` skip rows with `period_end < go_live`. Weekly totals still show them. DR4.1.
+- **Test:** `test_pre_go_live_evidence_is_shown_but_never_charged`.
+
+### P4-03 — A week's "partial" linked to the wrong import (low; gap c)
+- **Files:** `report.py`, `dashboard/app.py`, `overview.html`.
+- **Problem:** `SourceTotal` had no import id, so the page linked to "latest import per kind". That is often a later week's import, with other warnings.
+- **Fix:** `SourceTotal.import_id` is the covering import. The overview lists "Imports covering this week" with anchors, through the new `report.import_detail`.
+- **Test:** `test_weekly_total_reports_the_covering_import_not_the_latest`.
+
+### P4-04 — The covered-elsewhere reason vanished for weeks straddling the start (low; gap d)
+- **Files:** `report.py`, `dashboard/app.py`, `overview.html`.
+- **Problem:** the reasons came from `report.records`, whose start is clamped to the diagnostic window. `weekly_totals` is not clamped, so excluded minutes from days before the start showed without a reason.
+- **Fix:** `SourceTotal.covered_reasons` is computed from the same rows as `covered_excluded_min`. `dashboard.covered_reasons` was removed.
+- **Test:** `test_covered_reason_survives_a_week_straddling_the_diagnostic_start`; e2e desktop row.
+
+### P4-05 — A missing or wrong-case inbox made every capture "kept" (medium)
+- **Files:** `sources/vault.py`.
+- **Problem:** a missing inbox was only a warning, and the outcome logic then found every note outside the inbox. On macOS (case-insensitive disk) `DR_BRAINROT_VAULT_INBOX=01-inbox` passed `is_dir()` but matched no path, with the same result. Either way cost per keeper was inflated silently.
+- **Fix:** the inbox is resolved segment by segment to its on-disk spelling. If it is missing while captures exist, the scan fails (DR4.2). With no captures it stays a warning, so `test_missing_inbox_folder_is_a_warning` is unchanged.
+- **Tests:** `test_vault.py::test_missing_inbox_with_captures_fails_rather_than_marking_everything_kept` and `::test_inbox_setting_in_the_wrong_case_still_finds_the_inbox`.
+- **Existing tests touched:** `test_deletion_after_keeping_becomes_excluded` and `test_edited_is_body_only` built vaults with captures but no inbox folder, which is not a real vault. Each gained one `mkdir` of `01-Inbox`. Their assertions are unchanged.
+
+### P4-06 — Apple Vision was reachable from the automated suite (medium)
+- **Files:** `conftest.py`.
+- **Problem:** only `test_screentime.py` and `test_handlers_imports.py` blocked `ocr_vision.recognize`. Any other module calling Screen Time ingest without `ocr=` reached the real framework.
+- **Repro:** before the fix, the new test's import failed with `OcrError: the image could not be decoded`, raised by real Vision.
+- **Fix:** the autouse guard in `conftest.py` blocks `recognize` and `recognize_region` for every test. The local-only real-OCR check keeps the originals it captured at import.
+- **Test:** `test_vision_is_blocked_suite_wide`.
+
+### P4-07 — A Screen Time capture with no readable app list counted as a received 0-minute week (medium)
+- **Files:** `sources/screentime.py`.
+- **Problem:** a "Last Week" capture whose Most Used list was missing, in category mode, or unnamed still recorded the week's period with zero rows. The week counted as covered, prompts stopped, and the dashboard showed iPhone apps "0 min — received". A structure failure became a zero.
+- **Fix:** such a capture is evidence only: NULL period, `partial`, and a warning saying so. The check runs before a reparse deletes anything, so a worse re-read never wipes the facts from a better one (second pass).
+- **Tests:** `test_screentime.py::test_full_week_with_no_readable_most_used_is_evidence_only_not_a_zero_week` and `::test_reparse_that_reads_no_app_rows_does_not_wipe_the_earlier_facts`.
+
+### P4-08 — YouTube storage errors escaped ingest (low)
+- **Files:** `sources/youtube.py`.
+- **Problem:** `EvidenceError` or `LabelError` from `_write_fact` escaped (e.g. a negative `startTimeSeconds` gave negative minutes). The import stayed "did not finish" with uncommitted facts on the connection, and the extension got HTTP 500 with no reason.
+- **Fix:** these errors fail the import like a `ParseError`.
+- **Test:** `test_youtube.py::test_unstorable_page_value_fails_the_import_instead_of_crashing`.
+
+### P4-09 — Aggregates stacked OCR minutes on API minutes without saying so (low)
+- **Files:** `allowance.py`, `report.py`, `overview.html`.
+- **Problem:** the wasteful/worthwhile bars, "Spent" and the gated table summed parsed-screenshot minutes with API minutes, with no marker. Only per-row tables carried provenance.
+- **Fix:** `PooledMinutes.screenshot_ocr_min` and `screenshot_ocr_wasteful_min`, `WeekSplit.screenshot_ocr_min`, `AllowanceStatus.spent_screenshot_ocr_min`, and `GatedSplit`/`GatedRow.provenances` collected in the same pass as the minutes. The page shows "of which parsed screenshots" with a lower-confidence marker, and badges on gated rows.
+- **Test:** `test_split_and_allowance_carry_their_screenshot_share`; e2e `screenshot_ocr_min` and gated provenances.
+
+### P4-10 — Triage posts and deadline notices showed Lisbon time (medium)
+- **Files:** `triage.py`, `poll.py`.
+- **Problem:** `render_item` and `render_week_header` called `clock.fmt_local` without a zone, so its Lisbon default applied while `DR_BRAINROT_TZ` is Warsaw. The week header read "Sun 13 Sep 17:00" and every deadline showed an hour early. This predates dr-brainrot but is a week-boundary timezone inconsistency in scope.
+- **Fix:** keyword `tz`; `run_triage` and `surface_deadlines` pass `settings.tz`.
+- **Test:** `test_triage.py::test_deadline_and_week_header_render_in_the_configured_zone_not_lisbon`; e2e checks "Week of Sun 13 Sep 18:00".
+
+### P4-11 — The capture confirmation misattributed an earlier override (low)
+- **Files:** `bot.py`.
+- **Problem:** overrides are per item. Re-capturing an item without a tag resolves to the old override, but the reply said "your tag in this note".
+- **Fix:** such a reply now says "your tag from an earlier capture of this item".
+- **Test:** `test_bot.py::test_recapture_without_a_tag_says_the_override_came_from_an_earlier_capture`.
+
+### P4-12 — The cross-repo body-hash check always skipped (low; gap e)
+- **Files:** `tests/test_vault.py`.
+- **Problem:** the check pointed at the removed worktree `obsidian-ingest-drbr`.
+- **Fix:** it now points at `/Users/Jacob/Projects/obsidian-ingest/tests/body_hash_vectors.json` and skips only when that file is absent. It runs and passes. obsidian-ingest's mirror test already points at the dr-brainrot checkout and passes (23 passed there; that repo is unchanged).
+- **Test:** the check itself, no longer skipped.
+
+### P4-13 — `check_env.py` put the YouTube key in the URL (low)
+- **Files:** `check_env.py`.
+- **Problem:** the key sat in the query string, where any echoed URL or proxy log would carry it.
+- **Fix:** the key goes in `X-Goog-Api-Key`, matching `sources/youtube.py`.
+- **Test:** none offline. `check_env.py` exists to make live calls and is never run by the suite. Verified by reading.
+
+### P4-14 — The vault path was committed in docs (low)
+- **Files:** `EXISTING.md`, `DECISIONS.md`, `NOTES-C.md`.
+- **Problem:** the brief says never commit the vault path.
+- **Fix:** replaced with `<vault path>` in the current tree. History: see A3.
+- **Test:** none; this is documentation.
+
+## Findings deliberately accepted
+
+- **A1 — Screen Time OCR blocks the bot's event loop for 2–3 s (low; gap f).** It happens once a week, in a one-user bot. Moving Vision to a worker thread puts pyobjc off the main thread on a path the suite cannot run (Vision is blocked). DR4.3.
+- **A2 — A relabel does not refund `promoted_min` already charged (low; gap g).** A promotion priced wasteful and later relabelled worthwhile keeps its charge until the weekly rollover. It only limits further promotions that week. Debt, alerts and reports read consumption through current labels and change immediately. A refund would need per-promotion cost records the queue never kept. DR4.4. The related wording defect (P4-11) was fixed.
+- **A3 — The vault path remains in git history (low).** It is in `f0c456e` and `9b6311d`, which live only on the local, unpushed `dr-brainrot` branch and the four agent worktree branches; `origin/main` does not contain them. Removing it means rewriting those branches, which is destructive and outside a verifier's remit (commit, don't rewrite or push). The path is also obsidian-ingest's hard-coded default in that repo. The current tree is clean. **Before `dr-brainrot` is ever pushed**, squash or filter those two commits.
+- **A4 — The diagnostic start can be the Monday after go-live (low).** The first import with a period fixes the start (DR0.6), e.g. a YouTube sync whose earliest in-window day is 14 Sep. A Cold Turkey export received later with Sunday 13 Sep data does not move it, so that Sunday counts toward the week's allowance but not toward cost per keeper. This follows the Phase 0 user decision that the start never moves; changing it would shift the end date.
+
+## Checks performed with no defect found
+
+Each audit item in the build prompt, and what was done. The second pass re-ran these after the fixes.
+
+1. **Value inferred instead of read from labels.** Grepped for thresholds, percent comparisons, dwell/engagement terms and minute cut-offs outside tests. The only comparisons are data validation (`0 ≤ percent ≤ 100`, Cold Turkey `0..1440`, the OCR header zone) and choosing `resume_s` for minutes (DR2.1). Every label read goes through `labels.resolve` (`allowance.item_label`, `measurement_label`, `spotify_label`). Nothing caches a label. None found.
+2. **Vault tracking by path.** `scan` matches only `drbr_capture_id`. Paths are recorded, and compared only to decide inbox vs elsewhere. The e2e renames a note into another folder and keeps its identity. None.
+3. **Shorts dropped without a progress element.** `_short_entry` never reads progress. Shorts are `assumed_full` at API duration, and `duration_missing` when the API gives none. A Short with no video id is a warning, not a silent drop. The e2e counts 5 Shorts written ok. None.
+4. **Selector/structure failures turned into zeros.** YouTube: no pages, no sections, a missing header or no readable videos raise, and the extension posts even a missing `ytInitialData` so the backend records the failure. Cold Turkey: strict shape. Vault: missing root fails. Spotify: missing `resume_point` raises. One defect found in Screen Time (P4-07) and one in the vault inbox (P4-05).
+5. **Deletions/exclusions counted as failures.** `excluded` sits outside `VaultFunnel.captured` and out of cost per keeper. Trash counts as deleted. None.
+6. **Obsidian captures converted into minutes.** No code path multiplies or converts a capture. The vault funnel HTML is asserted free of "N min". None.
+7. **Worthwhile spending the wasteful allowance.** `db.promote` skips the refusal and adds 0. `pooled_minutes`, `debt_for` and `check_alerts` read wasteful only. The e2e has a 1500-min worthwhile promotion leave `promoted_min` unchanged. None.
+8. **Worthwhile bypassing the lock.** `db.promote` checks the lock before pricing, and `triage_items` is label-blind. The e2e refuses a worthwhile promotion at 47 h. None.
+9. **Screenshot figures shown with API confidence.** Per-row tables, records and cost per keeper already carried badges and markers. Aggregates did not (P4-09, fixed).
+10. **Live external calls reachable from tests.** `conftest.py` blocks `getaddrinfo`, `create_connection`, socket connects and both httpx transports; that also covers `urllib` in `check_env.py`. `bot.main`, `jobs.main`, `dashboard.main` and `check_env` never run in tests. The dashboard builds `DataApiClient` only per authorised POST. Vision was the gap (P4-06, fixed).
+11. **Secrets committed or logged.** `git log -p --all` scanned for Google keys, Telegram tokens, Anthropic keys and filled `SECRET=`/`TOKEN=` lines: no matches. `.env.example` values are empty. `.env`, `data/` and `inputs/` are ignored and never appear in history. `logs/*.log` and obsidian-ingest's `bot.log` were counted (not printed) for token/key patterns: zero. httpx logging is WARNING in the bot, jobs and dashboard. The YouTube client sends its key in a header and redacts error text. `bot.on_error` scrubs the token. One defect: `check_env` put the key in a URL (P4-13).
+12. **Incompatible duplicate source identifiers.** Podcast show: one normalisation (`casefold`, whitespace) for capture, poll backfill and label resolution. YouTube channel: the API `channel_id` verbatim in both paths (e2e shows one row). X folds the iPhone app "X"/"Twitter", `x.com`, `twitter.com` and vault X captures into one source, and Cold Turkey keeps the domains apart in `item_key` (e2e). Web domains: the vault article host and Cold Turkey's domain resolve to one source (e2e). None.
+13. **Timezones at week boundaries.** A new test checks every local day across both Warsaw DST changes: each maps to the queue's week opening on its Sunday at 18:00, and that week's measurement week contains it. Sunday-before-18:00 goes to the evening's week as DR1.7 decides (existing test). Cold Turkey days are exactly UTC midnight or the import is rejected. YouTube Today/Yesterday resolves in `settings.tz` from `captured_at` (existing test across Warsaw midnight); the extension's browser-local reading affects only when scrolling stops, and the server is the authority (NOTES-A). Import prompts and report coverage both treat a YouTube sync received on or after the Sunday after the week as coverage. One defect: triage display (P4-10).
+14. **Migration paths losing queue data.** The e2e migrates a queue v1 file with rows in every queue table, re-runs `init_db`/`migrate`, and at the end compares every pre-existing row column for column, including legacy weeks after many debt recomputes. `db.migrate` runs each step with its version bump in one transaction (existing test). None.
+
+Also re-verified with no defect: `on_measurements_changed` walks weeks oldest first and never rewrites `allowance_min`; the ingest token uses a constant-time compare and refuses when unset; the label toggle refuses `Sec-Fetch-Site: cross-site`/`same-site`; Jinja autoescape covers titles from YouTube and OCR; `evidence.store_raw` paths are built from a validated kind, a sha and a sanitised extension.
+
+## Second audit pass
+
+After the fixes, the changed areas were re-read in full and the grep set re-run (thresholds, `fmt_local(` without a zone, `vault_inbox`, the new report fields, network and Vision imports, secrets in history and logs). It found two further problems, both fixed in commit `b4fee07`:
+
+- The P4-07 check first ran after a reparse's `DELETE`, so an empty re-read could still wipe an earlier import's facts while that import still covered the week. It now runs before the delete, with a regression test.
+- The gated table's provenances were derived by re-filtering rows in `report.py` and could drift from `allowance.gated_split`. They are now collected in the same pass (`GatedSplit.provenances`, excluded from dataclass equality so existing assertions still hold).
+
+No new heuristic, path match, network path or zero-for-absence was introduced. Full suite: 1138 passed, 1 skipped. obsidian-ingest: 23 passed (unchanged).
+
+## Needs a live restart to take effect
+
+- **`com.jacob.dr-brainrot.bot`**: `bot.py` (confirmation wording); `handlers_imports` → `sources/screentime.py` (evidence-only captures); label callbacks → `allowance.py` (go-live rule in debt recompute).
+- **`com.jacob.dr-brainrot.dashboard`**: `report.py`, `allowance.py`, `dashboard/app.py`, templates and CSS, and `sources/youtube.py` behind the ingest API.
+- **No restart**: `com.jacob.dr-brainrot.poll`, `com.jacob.dr-brainrot.triage` and `com.jacob.dr-brainrot.jobs` start a fresh process per run and pick up `poll.py`, `triage.py`, `sources/vault.py` and `allowance.py` next time. obsidian-ingest was not changed.
+
+## Could not verify
+
+- Real Apple Vision on the real screenshots (local-only test; not run, to keep personal inputs untouched), and the extension in a real browser (NOTES-A's list stands).
+- The live database's reaction to DR4.1. It has no imports yet, so there is nothing to diff. The first Cold Turkey export after restart should show pre-go-live days in weekly totals and not in debt.

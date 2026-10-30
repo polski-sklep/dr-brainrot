@@ -1,0 +1,38 @@
+{#- Provenance badge. Metadata tier: quiet by design, so it can never out-shout
+    a warning. The tier is carried by the dot's fill and the text weight, never
+    by colour alone; the long text is in the title. -#}
+{% macro badge(prov) -%}
+{%- set b = PROVENANCE_BADGES.get(prov, (prov, "unknown")) -%}
+<span class="prov prov-{{ b[1] }}" title="{{ PROVENANCE_TEXT.get(prov, prov) }}">{{ b[0] }}</span>
+{%- endmacro %}
+
+{#- A caveat about a figure. Two kinds, and they are not the same doubt:
+    a parsed screenshot may have misread the number; a phone-sync or audiobook
+    figure is measured but its division across sites or books is inferred.
+    Amber for the first, neutral for the second — the weaker claim gets the
+    quieter chip. `split` is false for a figure that was never divided (an
+    audiobook day given whole to "book not known"): no chip then. -#}
+{% macro caveat(prov, split=true) -%}
+{%- if prov == PROV_SCREENSHOT %} <span class="lowconf" title="{{ PROVENANCE_TEXT.get(prov, prov) }}">lower confidence</span>
+{%- elif prov == PROV_BROWSER_SYNC %} <span class="estimated" title="The total is Screen Time's measured figure for the browser. Only its division across sites is estimated, from the gap between one visit and the next.">split estimated</span>
+{%- elif prov == PROV_AUDIBLE_STATS and split %} <span class="estimated" title="The day's total is Audible's own listening figure. Only its division across books is estimated, from how far each book's place moved.">split estimated</span>
+{%- endif -%}
+{% endmacro %}
+
+{#- The label a row resolved to, as a state chip. -#}
+{% macro label_chip(label) -%}
+<span class="state state-{{ label }}">{{ label }}</span>
+{%- endmacro %}
+
+{#- A jargon term with its plain-English meaning on hover. Marked with a
+    dotted underline so it is visibly explainable rather than silently so. -#}
+{#- A source's name, linked to its own page when it has one (app.source_url):
+    a new tab, and no referrer, so the site never learns about this dashboard. -#}
+{% macro source_link(name, url) -%}
+{%- if url %}<a class="source-link" href="{{ url }}" target="_blank" rel="noopener noreferrer" title="Open {{ name }} in a new tab">{{ name }}</a>
+{%- else %}{{ name }}{% endif %}
+{%- endmacro %}
+
+{% macro hint(text, tip) -%}
+<span class="hint" title="{{ tip }}">{{ text }}</span>
+{%- endmacro %}

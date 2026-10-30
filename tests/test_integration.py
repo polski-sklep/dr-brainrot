@@ -279,7 +279,8 @@ def test_full_lifecycle(conn, settings, spotify):
     assert s.played_rate == 1.0 and s.fully_played_rate == 0.5
 
     # ------------------------------------------------------------------
-    # 5. Week rollover WITH debt, and 6. the promotion lapse. Same triage.
+    # 5. Week rollover OVER the allowance: recorded, never carried (DR5.2),
+    #    and 6. the promotion lapse. Same triage.
     # ------------------------------------------------------------------
     clk.set(TRIAGE_2)
     bot = FakeBot()
@@ -288,13 +289,15 @@ def test_full_lifecycle(conn, settings, spotify):
     closed = db._to_week(conn.execute(                      # noqa: SLF001 — assertion only
         "SELECT * FROM weeks WHERE week_start = ?", (WEEK_1,)).fetchone())
     assert closed.listened_min == 235
+    assert closed.overage_min == 55                          # 235 listened - 180, recorded
 
     week = db.current_week(conn, clk, settings)
     assert week.week_start == WEEK_2
-    assert week.debt_min == 55                               # 235 listened - 180 effective
-    assert week.effective_allowance_min == 125               # debt bites next week
-    assert week.remaining_min == 125
-    assert "Debt carried 55 min" in bot.texts[-1]
+    assert week.debt_min == 0                                # nothing carried
+    assert week.effective_allowance_min == 180               # the full allowance again
+    assert week.remaining_min == 180
+    assert "Last week went 55 min over (it doesn't carry over)" in bot.texts[-1]
+    assert "Debt" not in bot.texts[-1]
 
     # 6. The lapse: promoted-but-not-played returns to the queue. The played
     #    item is terminal and is not touched. promoted_at survives both.
@@ -328,7 +331,7 @@ def test_full_lifecycle(conn, settings, spotify):
     assert _states(conn) == {a.id: "expired", b.id: "dropped",
                              c.id: "played", d.id: "expired"}
     assert not bot.posted(A.title) and not bot.posted(D.title)
-    assert triage.NOTHING_LINE in bot.texts
+    assert bot.texts == []                                   # an empty queue posts nothing (DR5.24)
 
     visible = {i.id for i in db.all_items(conn)}
     assert visible == {c.id}                                 # played is not soft deleted
@@ -383,22 +386,27 @@ def test_the_gate_accepts_the_exact_remainder_and_refuses_one_minute_more(
     assert week.promoted_min == 180 and week.remaining_min == 0
 
 
-def test_debt_shrinks_the_gate_not_just_the_report(conn, settings, spotify):
-    """Debt has to reduce what the gate will actually let through."""
+def test_last_weeks_overage_never_shrinks_the_gate(conn, settings, spotify):
+    """Going over is recorded on the week it happened; the next week's gate lets the full allowance through (DR5.2)."""
     clk = clock.FrozenClock(TRIAGE_1)
     item = _capture(conn, clk, settings, A, "why")
-    week = db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET listened_min = 260 WHERE week_start = ?", (week.week_start,))
-    conn.commit()
+    db.current_week(conn, clk, settings)
+    # dr-brainrot: overage is driven by pooled wasteful minutes computed from evidence,
+    # so the overage is real listening on another (unlabelled) episode rather
+    # than a hand-set `listened_min`.
+    db.upsert_episode(conn, B.spotify_id, B.title, B.show, B.description,
+                      B.release_date, B.duration_ms)
+    db.record_listening(conn, clk, B.spotify_id, 260 * MIN, 260 * MIN, False)
 
     clk.set(TRIAGE_2)
-    _closed, opened = db.roll_over_week(conn, clk, settings)
-    assert opened.debt_min == 80 and opened.effective_allowance_min == 100
+    closed, opened = db.roll_over_week(conn, clk, settings)
+    assert closed.overage_min == 80
+    assert opened.debt_min == 0 and opened.effective_allowance_min == 180
 
     db.lift_expired_locks(conn, clk, settings)
-    with pytest.raises(db.AllowanceExceeded) as excinfo:
-        db.promote(conn, clk, settings, item.id)      # 120 min against 100
-    assert excinfo.value.overage_min == 20
+    promoted = db.promote(conn, clk, settings, item.id)      # 120 min against the full 180
+    assert promoted.state == "promoted"
+    assert db.current_week(conn, clk, settings).remaining_min == 60
 
 
 def test_a_locked_item_cannot_be_promoted_but_a_deadline_exempt_one_can(
@@ -576,3 +584,154 @@ def test_a_part_heard_episode_does_not_arrive_with_phantom_listening_time(
     spotify.set_position(A_ID, 41 * MIN)
     poll.run_poll(conn, clk, settings, spotify, FakeBot())
     assert db.current_week(conn, clk, settings).listened_min == 20
+
+
+# ==========================================================================
+# dr-brainrot — one pooled, label-aware week across sources, end to end
+#
+# Bot capture (Spotify and YouTube, with an override) -> triage posts labels
+# -> promotion prices by label -> poll listens -> YouTube history arrives ->
+# rollover records overage -> a late Screen Time import re-records it -> the report
+# reads it all back. One database, one clock, fakes for every client.
+# ==========================================================================
+
+import asyncio  # noqa: E402
+
+import bot as bot_module  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
+import evidence  # noqa: E402
+import labels  # noqa: E402
+import report  # noqa: E402
+
+
+class _Msg:
+    def __init__(self, text):
+        self.text = text
+        self.replies: list[str] = []
+
+    async def reply_text(self, text, **kwargs):
+        self.replies.append(text)
+
+
+class _User:
+    id = 1
+
+
+class _Update:
+    def __init__(self, text):
+        self.effective_user = _User()
+        self.message = self.effective_message = _Msg(text)
+        self.callback_query = None
+
+
+class _Ctx:
+    def __init__(self, bot_data):
+        self.bot_data = bot_data
+        self.user_data: dict = {}
+
+
+class _YouTube:
+    def __init__(self, videos):
+        self.videos = videos
+
+    def video_info(self, video_id):
+        return self.videos.get(video_id)
+
+
+def _say(ctx, text):
+    update = _Update(text)
+    asyncio.run(bot_module.on_message(update, ctx))
+    return update.message.replies
+
+
+def _measure(conn, clk, settings, *, kind, key, day, end=None, minutes, item_key=""):
+    source = labels.ensure_source(conn, clk, kind, key)
+    conn.commit()
+    prov, device, imp = {
+        T.KIND_YOUTUBE_CHANNEL: (T.PROV_PAGE, T.DEVICE_ACCOUNT, "youtube_history"),
+        T.KIND_IPHONE_APP: (T.PROV_SCREENSHOT, T.DEVICE_IPHONE, "screentime"),
+    }[kind]
+    rec = evidence.begin_import(conn, clk, kind=imp, parser_version="test")
+    evidence.upsert_measurement(conn, rec, source_id=source.id, device=device, provenance=prov,
+                                period_start=day, period_end=end or day, minutes=minutes,
+                                item_key=item_key)
+    evidence.finish_import(conn, clk, settings, rec, period_start=day, period_end=end or day)
+
+
+def test_dr_brainrot_pooled_label_aware_week_end_to_end(tmp_path):
+    settings = config.test_settings(tz="Europe/Warsaw", raw_dir=tmp_path / "raw",
+                                    db_path=tmp_path / "dr-brainrot.db")
+    conn = db.connect(settings)
+    db.init_db(conn)
+    db.migrate(conn)
+    week = "2026-09-06T16:00:00+00:00"            # Sunday 18:00 Warsaw
+    next_week = "2026-09-13T16:00:00+00:00"
+    evidence.ensure_diagnostic_start(conn, "2026-08-31")   # go-live, before the captures
+
+    spotify = FakeSpotify({A_ID: A})
+    video = T.VideoInfo("TalkVideo01", "The Talk", "UCtalks", "Talks", 40 * 60)
+    ctx = _Ctx({"settings": settings, "conn": conn, "clk": clock.FrozenClock("2026-09-01T10:00:00+00:00"),
+                "spotify": spotify, "youtube": _YouTube({"TalkVideo01": video})})
+    clk = ctx.bot_data["clk"]
+
+    # --- capture: one wasteful-by-default podcast, one worthwhile-by-tag video
+    _say(ctx, f"https://open.spotify.com/episode/{A_ID}")
+    assert "Label: wasteful" in _say(ctx, "sounded sharp")[0]
+    _say(ctx, "https://www.youtube.com/watch?v=TalkVideo01")
+    assert "Label: worthwhile (your tag in this note)" in _say(ctx, "#worthwhile for the work talk")[0]
+    pod, talk = db.all_items(conn)
+    assert (pod.platform, talk.platform) == ("spotify", "youtube")
+    assert db.polling_targets(conn) == [A_ID]
+
+    # --- triage: both posted with their labels, lock intact until now
+    clk.set(week)
+    bot = FakeBot()
+    triage.run_triage(conn, clk, settings, spotify, bot)
+    assert "Label: wasteful" in bot.post_for("The Long Haul")
+    assert "costs 0 min — worthwhile" in bot.post_for("The Talk")
+
+    # --- promotion prices by label
+    db.promote(conn, clk, settings, pod.id)
+    db.promote(conn, clk, settings, talk.id)
+    assert db.current_week(conn, clk, settings).promoted_min == 120        # the talk cost 0
+
+    # --- the week happens
+    clk.set("2026-09-07T07:17:00+00:00")
+    spotify.set_position(A_ID, 50 * MIN)
+    poll.run_poll(conn, clk, settings, spotify, FakeBot())
+    clk.set("2026-09-12T09:00:00+00:00")
+    _measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCtalks", day="2026-09-08",
+             minutes=25.0, item_key="TalkVideo01")                         # gated, worthwhile
+    _measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCimpulse", day="2026-09-09",
+             minutes=30.0, item_key="Impulse0001")                         # ungated, wasteful
+    pooled = report.label_split(conn, clk, settings, weeks=1)[0]
+    assert (pooled.charged_min, pooled.worthwhile_min) == (80, 25)
+
+    # --- rollover: 80 wasteful against 180, not over
+    clk.set(next_week)
+    triage.run_triage(conn, clk, settings, spotify, FakeBot())
+    assert db.current_week(conn, clk, settings).debt_min == 0
+
+    def overage(week_start):
+        return conn.execute("SELECT overage_min FROM weeks WHERE week_start = ?", (week_start,)).fetchone()[0]
+
+    assert overage(week) == 0
+    assert db.get_item(conn, talk.id).state == "queued"                    # lapsed, never "played"
+
+    # --- Monday: last week's Screen Time arrives and the recorded overage follows it
+    clk.set("2026-09-14T08:00:00+00:00")
+    _measure(conn, clk, settings, kind=T.KIND_IPHONE_APP, key="Instagram", day="2026-09-06",
+             end="2026-09-12", minutes=150.0)
+    assert overage(week) == 50                                             # 230 - 180, on that week
+    status = report.allowance_status(conn, clk, settings)
+    assert (status.overage_min, status.effective_min) == (0, 180)          # this week: nothing carried
+    assert db.current_week(conn, clk, settings).debt_min == 0
+
+    gated = {r.group: r for r in report.gated_vs_ungated(conn, clk, settings, week)}
+    assert gated[T.GROUP_PODCASTS].gated_min == pytest.approx(50)
+    assert (gated[T.GROUP_YOUTUBE].gated_min, gated[T.GROUP_YOUTUBE].ungated_min) == (25, 30)
+    assert gated[T.GROUP_IPHONE].share_ungated == 1.0
+
+    stats = report.funnels(conn, clk, settings).queue
+    assert (stats.promoted, stats.played) == (2, 2)                         # the talk: measured watching
+    conn.close()

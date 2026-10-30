@@ -31,6 +31,19 @@ Four things in this module are load-bearing.
    which is most deadlines. `deadline_notices` is the same bookkeeping idea as
    `alerts_sent`: once per item, ever. See `surface_deadlines` and D5.1.
 
+dr-brainrot (CONTRACTS.md Part II §7, Agent D) changes three things and nothing else:
+
+* **Alerts read pooled wasteful minutes** across every source
+  (`allowance.pooled_minutes`), not Spotify's `listened_min`. Worthwhile
+  consumption never trips an alert. Still one alert of each kind per week.
+* **YouTube queue items are never polled and never auto-`played`**: Spotify
+  has no opinion about them and YouTube has no `fully_played` flag (DR1.14).
+* **Sources are backfilled** for active queue items, so a show captured before
+  dr-brainrot existed can still be offered for labelling. Identity only, never a label.
+
+Positions, deadline posts and alerts run as three isolated steps (DR5.25), so
+neither a Spotify nor a Telegram outage stops the others or the bookkeeping.
+
 No live call is made from anywhere in this file except `main()`, which is the
 production cron path and is never executed by the test suite.
 """
@@ -38,6 +51,7 @@ from __future__ import annotations
 
 import logging
 
+import allowance
 import clock
 import db
 from clock import Clock
@@ -45,7 +59,7 @@ from config import Settings
 from spotify import clamped_delta
 from triage import SyncBot, render_deadline_notice, send
 
-log = logging.getLogger("pop.poll")
+log = logging.getLogger("dr-brainrot.poll")
 
 APPROACHING = "approaching"
 EXCEEDED = "exceeded"
@@ -91,8 +105,17 @@ def _clamped_delta(spotify, previous_position_ms: int, current_position_ms: int)
 # The run
 # --------------------------------------------------------------------------
 
-def run_poll(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
+def run_poll(conn, clk: Clock, settings: Settings, spotify, bot) -> list[str]:
     """The daily cron entry. Read positions, write clamped deltas, then alert.
+
+    -> the names of the steps that failed (`positions`, `deadlines`,
+    `alerts`); empty when everything ran.
+
+    The local bookkeeping runs first and always. The three steps after it each
+    run on their own (DR5.25): a Spotify outage no longer costs the deadline
+    post its turn, and a Telegram outage never stops the listening rows being
+    written. A failed step is rolled back, logged, and returned; the sends
+    inside it record nothing, so tomorrow's poll retries them (D3.5).
 
     Idempotent: a second run in the same minute sees the same positions,
     computes a zero delta against its own previous observation, records
@@ -111,31 +134,51 @@ def run_poll(conn, clk: Clock, settings: Settings, spotify, bot) -> None:
     # so `run_triage` making it again on Sunday changes nothing.
     db.lift_expired_locks(conn, clk, settings)
 
+    # Identity rows for every active item's show/channel, so the label batch
+    # can offer it. Idempotent; writes no label.
+    for item in db.active_items(conn):
+        allowance.ensure_item_source(conn, clk, item)
+
+    failed: list[str] = []
+    for name, step in (
+        ("positions", lambda: _read_positions(conn, clk, spotify)),
+        # Before the alerts: a deadline is time-critical and an allowance
+        # alert is not.
+        ("deadlines", lambda: surface_deadlines(conn, clk, settings, bot)),
+        ("alerts", lambda: check_alerts(conn, clk, settings, bot)),
+    ):
+        try:
+            step()
+        except Exception:  # noqa: BLE001 — isolate steps; returned to the caller, never swallowed
+            conn.rollback()
+            log.exception("%s failed", name)
+            failed.append(name)
+    return failed
+
+
+def _read_positions(conn, clk: Clock, spotify) -> None:
+    """Spotify's positions for every polling target, recorded as clamped deltas."""
+    # YouTube rows are already excluded by `polling_targets`.
     targets = db.polling_targets(conn)
-    if targets:
-        episodes = spotify.get_episodes(targets)
+    if not targets:
+        return
+    episodes = spotify.get_episodes(targets)
 
-        # KEYED BY spotify_id. `get_episodes` skips nulls for unavailable or
-        # unknown ids, so this list can be shorter than `targets` and in a
-        # different order. Zipping by index would credit one episode's
-        # listening time to another episode, silently and permanently.
-        by_id = {ep.spotify_id: ep for ep in episodes}
+    # KEYED BY spotify_id. `get_episodes` skips nulls for unavailable or
+    # unknown ids, so this list can be shorter than `targets` and in a
+    # different order. Zipping by index would credit one episode's
+    # listening time to another episode, silently and permanently.
+    by_id = {ep.spotify_id: ep for ep in episodes}
 
-        missing = [sid for sid in targets if sid not in by_id]
-        if missing:
-            log.warning("no episode returned for %d target(s): %s", len(missing), missing)
+    missing = [sid for sid in targets if sid not in by_id]
+    if missing:
+        log.warning("no episode returned for %d target(s): %s", len(missing), missing)
 
-        for spotify_id in targets:
-            episode = by_id.get(spotify_id)
-            if episode is None:
-                continue
-            _record(conn, clk, spotify, spotify_id, episode)
-
-    # Before the alerts: a deadline is time-critical and an allowance alert is
-    # not, so a Telegram failure must not cost the deadline post its turn.
-    surface_deadlines(conn, clk, settings, bot)
-
-    check_alerts(conn, clk, settings, bot)
+    for spotify_id in targets:
+        episode = by_id.get(spotify_id)
+        if episode is None:
+            continue
+        _record(conn, clk, spotify, spotify_id, episode)
 
 
 def _record(conn, clk: Clock, spotify, spotify_id: str, episode) -> None:
@@ -168,8 +211,13 @@ def _mark_played(conn, clk: Clock, spotify_id: str) -> None:
     is already terminal — played, dropped or expired — is never touched. A
     second flip would be an illegal transition, and re-resolving a dropped
     item would rewrite the outcome the funnel is measuring.
+
+    A YouTube row is skipped even if its key somehow matched: `played` is
+    Spotify's own flag and YouTube has none (DR1.14).
     """
     for item in db.active_items(conn):
+        if item.platform == "youtube":
+            continue
         if item.spotify_id == spotify_id:
             db.set_state(conn, clk, item.id, "played")
 
@@ -244,7 +292,8 @@ def surface_deadlines(conn, clk: Clock, settings: Settings, bot) -> None:
 
     week = db.current_week(conn, clk, settings)
     for item in due:
-        text, markup = render_deadline_notice(item, week)
+        text, markup = render_deadline_notice(item, week, label=allowance.item_label(conn, item),
+                                              tz=settings.tz)
         send(bot, settings, text, markup)
         _mark_notice_sent(conn, clk, item.id)
 
@@ -280,40 +329,47 @@ def check_alerts(conn, clk: Clock, settings: Settings, bot) -> None:
     the alert unrecorded and tomorrow's poll retries it rather than swallowing
     it. `INSERT OR IGNORE` on the composite key makes the write itself safe to
     repeat.
+
+    dr-brainrot: the figure compared is pooled **wasteful** minutes across every
+    source, rounded to whole minutes the same way the recorded overage is
+    (`allowance.whole_minutes`), so an alert and the overage it reports never
+    disagree. Worthwhile minutes are never counted here. Nothing carries into
+    next week (DR5.2).
     """
     week = db.current_week(conn, clk, settings)
     effective = week.effective_allowance_min
-    listened = week.listened_min
+    used = allowance.whole_minutes(
+        allowance.pooled_minutes(conn, settings, week.week_start).charged_min
+    )
 
-    # With the whole allowance eaten by debt, "80% of nothing" is not a
-    # meaningful warning — every poll would trip it at zero minutes listened.
+    # A zero allowance would make "80% of nothing" trip at zero minutes used.
     # Only the crossing is reported in that case.
-    approaching = effective > 0 and listened >= APPROACHING_FRACTION * effective
-    exceeded = listened > effective
+    approaching = effective > 0 and used >= APPROACHING_FRACTION * effective
+    exceeded = used > effective
 
     if approaching and not _already_sent(conn, week.week_start, APPROACHING):
-        send(bot, settings, _approaching_text(week))
+        send(bot, settings, _approaching_text(week, used))
         _mark_sent(conn, clk, week.week_start, APPROACHING)
 
     if exceeded and not _already_sent(conn, week.week_start, EXCEEDED):
-        send(bot, settings, _exceeded_text(week))
+        send(bot, settings, _exceeded_text(week, used))
         _mark_sent(conn, clk, week.week_start, EXCEEDED)
 
 
-def _approaching_text(week) -> str:
-    left = max(0, week.effective_allowance_min - week.listened_min)
+def _approaching_text(week, used: int) -> str:
+    left = max(0, week.effective_allowance_min - used)
     return (
-        f"{week.listened_min} of {week.effective_allowance_min} min listened "
-        f"this week. {left} min left."
+        f"{used} of {week.effective_allowance_min} counted content minutes used this week "
+        f"across sources. {left} min left."
     )
 
 
-def _exceeded_text(week) -> str:
-    over = week.listened_min - week.effective_allowance_min
+def _exceeded_text(week, used: int) -> str:
+    over = used - week.effective_allowance_min
     return (
-        f"Over the allowance: {week.listened_min} min listened against "
-        f"{week.effective_allowance_min} min. {over} min over — that comes off "
-        "next week."
+        f"Over the allowance: {used} counted content minutes used across sources "
+        f"against {week.effective_allowance_min} min. {over} min over. That is "
+        "recorded for this week; next week still starts with the full allowance."
     )
 
 
@@ -321,8 +377,11 @@ def _exceeded_text(week) -> str:
 # Cron entry point
 # --------------------------------------------------------------------------
 
-def main() -> None:  # pragma: no cover — production only, never run by tests
-    """Daily cron. The only place real credentials are touched."""
+def main() -> int:  # pragma: no cover — production only, never run by tests
+    """Daily cron. The only place real credentials are touched.
+
+    Exits 1 when a step failed, so launchd's log shows it (DR5.25).
+    """
     import config
     from spotify import SpotifyClient
 
@@ -331,21 +390,25 @@ def main() -> None:  # pragma: no cover — production only, never run by tests
     )
     from bot import _silence_token_logging
 
-    _silence_token_logging()
     settings = config.load()
+    _silence_token_logging(settings.telegram_bot_token)    # also scrubbed from tracebacks
     conn = db.connect(settings)
     db.init_db(conn)
     db.migrate(conn)
 
     spotify = SpotifyClient(settings)
-    telegram_bot = SyncBot(settings.telegram_bot_token)
+    telegram_bot = SyncBot(settings.telegram_bot_token)    # opens nothing until it sends
     try:
-        run_poll(conn, clock.RealClock(), settings, spotify, telegram_bot)
+        failed = run_poll(conn, clock.RealClock(), settings, spotify, telegram_bot)
     finally:
         telegram_bot.close()
         spotify.close()
         conn.close()
+    if failed:
+        log.error("poll finished with failures: %s", ", ".join(failed))
+        return 1
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    main()
+    raise SystemExit(main())

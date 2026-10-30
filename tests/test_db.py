@@ -31,7 +31,7 @@ MIN_MS = 60_000
 
 @pytest.fixture
 def settings(tmp_path):
-    return config.test_settings(db_path=tmp_path / "pop.db")
+    return config.test_settings(db_path=tmp_path / "dr-brainrot.db")
 
 
 @pytest.fixture
@@ -94,13 +94,13 @@ def test_ms_to_min_matches_the_contract_formula():
 def test_init_db_is_idempotent(conn):
     db.init_db(conn)
     db.init_db(conn)
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "1"
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
 
 
-def test_migrate_noops_at_version_1(conn):
+def test_migrate_is_idempotent_at_current_version(conn):
     db.migrate(conn)
     db.migrate(conn)
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "1"
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
 
 
 def test_foreign_keys_are_on(conn):
@@ -372,12 +372,14 @@ def test_current_week_creates_the_row(conn, clk, settings):
 
 
 def test_week_properties():
-    w = db.Week(WEEK_1, allowance_min=180, debt_min=60, promoted_min=40, listened_min=0)
-    assert w.effective_allowance_min == 120
-    assert w.remaining_min == 80
-    blown = db.Week(WEEK_1, allowance_min=180, debt_min=999, promoted_min=0, listened_min=0)
-    assert blown.effective_allowance_min == 0
-    assert blown.remaining_min == 0
+    w = db.Week(WEEK_1, allowance_min=180, debt_min=0, promoted_min=40, listened_min=0)
+    assert w.effective_allowance_min == 180
+    assert w.remaining_min == 140
+    legacy = db.Week(WEEK_1, allowance_min=180, debt_min=999, promoted_min=0, listened_min=0)
+    assert legacy.effective_allowance_min == 180      # DR5.2: debt never reduces the allowance
+    assert legacy.remaining_min == 180
+    spent = db.Week(WEEK_1, allowance_min=180, debt_min=0, promoted_min=180, listened_min=0)
+    assert spent.remaining_min == 0
 
 
 # --- the allocation gate ----------------------------------------------------
@@ -462,15 +464,24 @@ def test_gate_refuses_the_second_item_once_the_week_is_spent(conn, clk, settings
     assert db.current_week(conn, clk, settings).promoted_min == 120
 
 
-def test_gate_accounts_for_debt(conn, clk, settings):
+def test_gate_accounts_for_what_is_already_promoted(conn, clk, settings):
     db.current_week(conn, clk, settings)
-    conn.execute("UPDATE weeks SET debt_min = 100")
+    conn.execute("UPDATE weeks SET promoted_min = 100")
     conn.commit()
     item = item_in_state(conn, clk, settings, "queued", minutes=90)
     with pytest.raises(db.AllowanceExceeded) as exc:
         db.promote(conn, clk, settings, item.id)
-    assert exc.value.remaining_min == 80        # 180 - 100 debt
+    assert exc.value.remaining_min == 80        # 180 - 100 promoted
     assert exc.value.overage_min == 10
+
+
+def test_a_stray_legacy_debt_never_shrinks_the_gate(conn, clk, settings):
+    """DR5.2: debt is gone. Even a non-zero debt_min left in a row is ignored."""
+    db.current_week(conn, clk, settings)
+    conn.execute("UPDATE weeks SET debt_min = 100")
+    conn.commit()
+    item = item_in_state(conn, clk, settings, "queued", minutes=90)
+    assert db.promote(conn, clk, settings, item.id).state == "promoted"
 
 
 def test_partly_heard_item_fits_where_the_full_one_would_not(conn, clk, settings):
@@ -524,7 +535,7 @@ def test_record_listening_without_a_week_still_stores_the_row(conn, clk, setting
     assert conn.execute("SELECT COUNT(*) FROM listening").fetchone()[0] == 1
 
 
-# --- rollover, lapse and debt ----------------------------------------------
+# --- rollover, lapse and overage (recorded, never carried: DR5.2) ----------------------------------------------
 
 def listen(conn, clk, sid, minutes):
     db.record_listening(conn, clk, sid, position_ms=minutes * MIN_MS,
@@ -560,59 +571,71 @@ def test_roll_over_opens_the_next_week_with_a_fresh_allowance(conn, clk, setting
     assert opened.promoted_min == 0 and opened.listened_min == 0
 
 
-def test_no_debt_when_the_week_stayed_inside_the_allowance(conn, clk, settings):
+def test_no_overage_when_the_week_stayed_inside_the_allowance(conn, clk, settings):
     db.current_week(conn, clk, settings)
     listen(conn, clk, make_episode(conn, "epL", minutes=300), 150)
     clk.advance(days=7)
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.listened_min == 150
+    assert closed.overage_min == 0
     assert opened.debt_min == 0
     assert opened.effective_allowance_min == 180
 
 
-def test_debt_carries_into_the_next_week(conn, clk, settings):
+def test_overage_is_recorded_and_never_carried(conn, clk, settings):
     db.current_week(conn, clk, settings)
     listen(conn, clk, make_episode(conn, "epL", minutes=300), 240)
     clk.advance(days=7)
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.listened_min == 240
-    assert opened.debt_min == 60                       # 240 - 180
-    assert opened.effective_allowance_min == 120
-    assert opened.remaining_min == 120
+    assert closed.overage_min == 60                    # 240 - 180, recorded on the closed week
+    row = conn.execute("SELECT overage_min, debt_min FROM weeks WHERE week_start = ?",
+                       (closed.week_start,)).fetchone()
+    assert (row["overage_min"], row["debt_min"]) == (60, 0)
+    assert opened.debt_min == 0                        # nothing carried
+    assert opened.effective_allowance_min == 180
+    assert opened.remaining_min == 180
 
 
-def test_debt_is_clamped_at_the_allowance(conn, clk, settings):
+def test_overage_is_recorded_in_full_not_clamped(conn, clk, settings):
     db.current_week(conn, clk, settings)
     listen(conn, clk, make_episode(conn, "epL", minutes=2000), 1000)
     clk.advance(days=7)
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.listened_min == 1000
-    assert opened.debt_min == 180                      # not 820
-    assert opened.effective_allowance_min == 0
-    assert opened.remaining_min == 0
+    assert closed.overage_min == 820                   # the full figure, not clamped at 180
+    assert opened.debt_min == 0
+    assert opened.effective_allowance_min == 180       # a blown week never zeroes the next
+    assert opened.remaining_min == 180
 
 
-def test_debt_is_driven_by_listening_not_promotion(conn, clk, settings):
+def test_overage_is_driven_by_listening_not_promotion(conn, clk, settings):
     item = item_in_state(conn, clk, settings, "queued", minutes=180)
     db.promote(conn, clk, settings, item.id)           # 180 promoted, 0 listened
     clk.advance(days=7)
     closed, opened = db.roll_over_week(conn, clk, settings)
     assert closed.promoted_min == 180
+    assert closed.overage_min == 0
     assert opened.debt_min == 0
 
 
-def test_debt_uses_the_effective_allowance_so_it_compounds_honestly(conn, clk, settings):
+def test_overage_never_compounds_across_weeks(conn, clk, settings):
     db.current_week(conn, clk, settings)
     listen(conn, clk, make_episode(conn, "epL", minutes=3000), 240)
     clk.advance(days=7)
-    _, week2 = db.roll_over_week(conn, clk, settings)
-    assert week2.debt_min == 60 and week2.effective_allowance_min == 120
+    closed1, week2 = db.roll_over_week(conn, clk, settings)
+    assert closed1.overage_min == 60
+    assert week2.debt_min == 0 and week2.effective_allowance_min == 180
 
-    listen(conn, clk, make_episode(conn, "epM", minutes=3000), 150)  # 30 over 120
+    listen(conn, clk, make_episode(conn, "epM", minutes=3000), 150)  # 150 against the full 180
     clk.advance(days=7)
     closed2, week3 = db.roll_over_week(conn, clk, settings)
     assert closed2.listened_min == 150
-    assert week3.debt_min == 30
+    assert closed2.overage_min == 0                    # was "30 over 120" under carried debt
+    assert week3.debt_min == 0 and week3.effective_allowance_min == 180
+    # Week 1's record is untouched by week 2's rollover.
+    assert db._to_week(conn.execute("SELECT * FROM weeks WHERE week_start = ?",
+                                    (closed1.week_start,)).fetchone()).overage_min == 60
 
 
 def test_roll_over_from_an_empty_database(conn, clk, settings):
@@ -774,3 +797,93 @@ def test_played_needs_a_positive_delta(conn, clk, settings):
     db.record_listening(conn, clk, item.spotify_id, position_ms=MIN_MS, delta_ms=MIN_MS,
                         fully_played=False)
     assert db.funnel_stats(conn, clk, settings).played == 1
+
+
+# --- dr-brainrot: YouTube rows and the label-aware gate ------------------------------
+
+def youtube_episode(conn, video_id="abcdefghijk", minutes=30, channel="UCchan"):
+    key = f"youtube:{video_id}"
+    db.upsert_episode(conn, key, "A video", "A channel", None, None, minutes * MIN_MS,
+                      platform="youtube", source_key=channel)
+    return key
+
+
+def test_upsert_episode_defaults_to_a_spotify_row(conn):
+    sid = make_episode(conn, "epDefault")
+    row = conn.execute("SELECT platform, source_key FROM episodes WHERE spotify_id = ?", (sid,)).fetchone()
+    assert (row["platform"], row["source_key"]) == ("spotify", None)
+
+
+@pytest.mark.parametrize("key,platform", [
+    ("youtube:abcdefghijk", "spotify"),
+    ("abcdefghijk", "youtube"),
+    ("abcdefghijk", "tiktok"),
+])
+def test_upsert_episode_refuses_a_key_that_contradicts_the_platform(conn, key, platform):
+    with pytest.raises(ValueError):
+        db.upsert_episode(conn, key, "t", "s", None, None, MIN_MS, platform=platform)
+    assert conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
+
+
+def test_youtube_items_carry_platform_and_source_key(conn, clk, settings):
+    key = youtube_episode(conn)
+    item = db.capture(conn, clk, settings, spotify_id=key, why_note="watch",
+                      platform="youtube", source_key="UCchan")
+    assert (item.platform, item.source_key, item.state) == ("youtube", "UCchan", "locked")
+    spotify = capture(conn, clk, settings)
+    assert (spotify.platform, spotify.source_key) == ("spotify", None)
+
+
+def test_capture_refuses_a_platform_the_episode_row_contradicts(conn, clk, settings):
+    key = youtube_episode(conn)
+    with pytest.raises(ValueError):
+        db.capture(conn, clk, settings, spotify_id=key, why_note="x", platform="spotify")
+    with pytest.raises(ValueError):
+        db.capture(conn, clk, settings, spotify_id=key, why_note="x", source_key="UCother")
+    assert db.all_items(conn, include_removed=True) == []
+
+
+def test_polling_targets_exclude_youtube(conn, clk, settings):
+    key = youtube_episode(conn)
+    db.capture(conn, clk, settings, spotify_id=key, why_note="watch")
+    spotify = capture(conn, clk, settings)
+    assert db.polling_targets(conn) == [spotify.spotify_id]
+
+
+def test_worthwhile_promotion_costs_nothing_even_with_no_allowance_left(conn, clk, settings):
+    import labels  # noqa: PLC0415
+
+    key = youtube_episode(conn, minutes=500)
+    item = db.capture(conn, clk, settings, spotify_id=key, why_note="lecture")
+    labels.set_item_override(conn, clk, key, "worthwhile")
+    conn.commit()
+    db.set_state(conn, clk, item.id, "queued")
+    db.current_week(conn, clk, settings)
+    conn.execute("UPDATE weeks SET debt_min = 180")
+    conn.commit()
+
+    promoted = db.promote(conn, clk, settings, item.id)
+    assert promoted.state == "promoted" and promoted.promoted_at is not None
+    assert db.current_week(conn, clk, settings).promoted_min == 0
+
+
+def test_youtube_played_stage_needs_measured_watching_after_promotion(conn, clk, settings):
+    import evidence  # noqa: PLC0415
+    import labels  # noqa: PLC0415
+
+    key = youtube_episode(conn, video_id="watchedvid1", channel="UCw")
+    item = db.capture(conn, clk, settings, spotify_id=key, why_note="watch")
+    db.set_state(conn, clk, item.id, "queued")
+    db.promote(conn, clk, settings, item.id)
+    clk.advance(hours=49)
+    assert db.funnel_stats(conn, clk, settings).played == 0
+
+    source = labels.ensure_source(conn, clk, "youtube_channel", "UCw")
+    settings = config.test_settings(db_path=settings.db_path, raw_dir=settings.db_path.parent / "raw")
+    rec = evidence.begin_import(conn, clk, kind="youtube_history", parser_version="t")
+    evidence.upsert_measurement(conn, rec, source_id=source.id, device="account",
+                                provenance="page_extraction", period_start="2026-09-02",
+                                period_end="2026-09-02", minutes=4.0, item_key="watchedvid1")
+    evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-02", period_end="2026-09-02")
+    stats = db.funnel_stats(conn, clk, settings)
+    assert (stats.played, stats.fully_played) == (1, 0)

@@ -1,0 +1,854 @@
+"""Tests for the dr-brainrot dashboard (dashboard/app.py). Phase 3, integration.
+
+Flask test client against a migrated sqlite file per test, frozen clocks, no
+network (conftest blocks it). Evidence is written the way source modules
+write it, reusing the helpers from test_allowance.py / test_report.py.
+
+Beyond "every page renders", these tests pin the honesty rules the brief sets
+for the UI: provenance tiers look different and a screenshot figure says it is
+lower confidence; unmeasured is a count, never "0 min"; covered-elsewhere
+minutes are shown as excluded; vault figures are never minutes; and the
+countdown is on every page in each of its three states.
+"""
+from __future__ import annotations
+
+import pathlib
+import re
+import sys
+
+import pytest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+import clock  # noqa: E402
+import config  # noqa: E402
+import db  # noqa: E402
+import dr_brainrot_types as T  # noqa: E402
+import evidence  # noqa: E402
+import labels  # noqa: E402
+from dashboard import app as dashboard_app  # noqa: E402
+from tests.test_allowance import (  # noqa: E402
+    WED,
+    label_source,
+    make_settings,
+    measure,
+    open_db,
+)
+from tests.test_report import seed_week, vault_capture  # noqa: E402
+
+PAGES = ("/", "/labels", "/records")
+WEEK_SUNDAY = "2026-09-06"          # the measurement week of WEEK / WED
+CSS = pathlib.Path(dashboard_app.__file__).parent / "static" / "dashboard.css"
+
+
+# ==========================================================================
+# Fixtures and helpers
+# ==========================================================================
+
+@pytest.fixture
+def settings(tmp_path):
+    return make_settings(tmp_path, db_path=tmp_path / "dr-brainrot.db")
+
+
+@pytest.fixture
+def conn(settings):
+    c = open_db(settings)
+    yield c
+    c.close()
+
+
+@pytest.fixture
+def clk():
+    return clock.FrozenClock("2026-09-16T10:00:00+00:00")
+
+
+@pytest.fixture
+def client(settings, clk, conn):
+    app = dashboard_app.create_app(settings, clk, lambda: db.connect(settings))
+    app.config["TESTING"] = True
+    return app.test_client()
+
+
+def text(resp) -> str:
+    return resp.get_data(as_text=True)
+
+
+def flat(html: str) -> str:
+    """Tags stripped, whitespace collapsed: what a reader sees."""
+    return " ".join(re.sub(r"<[^>]+>", " ", html).split())
+
+
+def section(html: str, section_id: str) -> str:
+    m = re.search(rf'<section id="{section_id}">(.*?)</section>', html, re.S)
+    assert m, f"section {section_id} missing"
+    return m.group(1)
+
+
+def body_rows(html: str) -> list[str]:
+    tbody = re.search(r"<tbody>(.*?)</tbody>", html, re.S)
+    assert tbody
+    return re.findall(r"<tr[^>]*>.*?</tr>", tbody.group(1), re.S)
+
+
+def row_for(rows: list[str], *needles: str) -> str:
+    matches = [r for r in rows if all(n in r for n in needles)]
+    assert len(matches) == 1, f"expected one row with {needles}, got {len(matches)}"
+    return matches[0]
+
+
+def populate(conn, clk, settings):
+    """Spotify, YouTube, Screen Time and Cold Turkey measurements plus vault captures."""
+    seed_week(conn, clk, settings)
+    vault_capture(conn, clk, group=T.GROUP_X, outcome="kept", captured_at="2026-09-08T10:00:00+00:00")
+    vault_capture(conn, clk, group=T.GROUP_X, outcome="unprocessed", captured_at="2026-09-08T11:00:00+00:00")
+    vault_capture(conn, clk, group=T.GROUP_YOUTUBE, outcome="excluded", captured_at="2026-09-08T12:00:00+00:00")
+    clk.set("2026-09-16T10:00:00+00:00")
+
+
+# ==========================================================================
+# Rendering
+# ==========================================================================
+
+@pytest.mark.parametrize("path", PAGES)
+def test_every_page_renders_for_an_empty_database(client, path):
+    resp = client.get(path)
+    assert resp.status_code == 200
+    assert 'id="countdown"' in text(resp)
+
+
+@pytest.mark.parametrize("path", PAGES + (f"/?week={WEEK_SUNDAY}", "/records?group=youtube"))
+def test_every_page_renders_for_a_populated_database(client, conn, clk, settings, path):
+    populate(conn, clk, settings)
+    resp = client.get(path)
+    assert resp.status_code == 200
+    html = text(resp)
+    if path.startswith("/records"):
+        assert "Good video" in html
+    if path == f"/?week={WEEK_SUNDAY}":
+        # the Overview answers three questions; the detail lives on Records
+        for sid in ("week-summary", "label-split", "top-sources", "coverage", "blind-spots"):
+            assert f'<section id="{sid}">' in html
+        assert "<svg" in html and "bar-wasteful" in html
+        detail = text(client.get(f"/records?week={WEEK_SUNDAY}"))
+        for sid in ("weekly-totals", "allowance", "gated", "cost-per-keeper", "funnels",
+                    "imports", "reflex"):
+            assert f'<section id="{sid}">' in detail
+
+
+def test_overview_defaults_to_the_current_week_and_links_the_previous_one(client, clk):
+    """DR5.7: the page opens on the week the allowance section describes.
+
+    Defaulting to the last complete week put two different weeks on one screen
+    with nothing saying so, and in week 1 that week was outside the diagnostic.
+    """
+    clk.set("2026-09-16T10:00:00+00:00")        # Wednesday of the week opening Sun 13 Sep
+    html = text(client.get("/"))
+    weeknav = flat(section(html, "week-summary"))
+    assert "Week of Sun 2026-09-13 – Sat 2026-09-19" in weeknav and "in progress" in weeknav
+
+    older = flat(section(text(client.get("/?week=2026-09-08")), "week-summary"))
+    assert "Week of Sun 2026-09-06 – Sat 2026-09-12" in older
+
+
+def test_bad_week_parameter_is_refused(client):
+    assert client.get("/?week=last-tuesday").status_code == 400
+
+
+def test_htmx_is_pinned_with_an_integrity_hash(client):
+    html = text(client.get("/"))
+    assert f'src="{dashboard_app.HTMX_URL}"' in html
+    assert re.search(r"htmx\.org@2\.\d+\.\d+/dist/htmx\.min\.js", dashboard_app.HTMX_URL)
+    assert f'integrity="{dashboard_app.HTMX_SRI}"' in html and dashboard_app.HTMX_SRI.startswith("sha384-")
+
+
+# ==========================================================================
+# Countdown
+# ==========================================================================
+
+@pytest.mark.parametrize("path", PAGES)
+def test_countdown_not_started(client, path):
+    header = flat(text(client.get(path)).split("</header>")[0])
+    assert "Diagnostic not started yet." in header
+    assert "first valid data" in header
+
+
+def test_countdown_not_started_before_go_live_says_why(tmp_path, clk):
+    settings = make_settings(tmp_path, db_path=tmp_path / "g.db", go_live="2026-09-20")
+    open_db(settings).close()
+    app = dashboard_app.create_app(settings, clk, lambda: db.connect(settings))
+    header = flat(text(app.test_client().get("/")).split("</header>")[0])
+    assert "Diagnostic not started yet." in header and "goes live on 2026-09-20" in header
+
+
+@pytest.mark.parametrize("path", PAGES)
+def test_countdown_running(client, conn, clk, path):
+    evidence.ensure_diagnostic_start(conn, "2026-09-07")
+    clk.set("2026-09-16T10:00:00+00:00")        # local day 10; last day 2026-11-01
+    header = flat(text(client.get(path)).split("</header>")[0])
+    assert "Diagnostic day 10 of 56 · 46 days left · ends 2026-11-01 · week 2 of 8" in header
+
+
+@pytest.mark.parametrize("path", PAGES)
+def test_countdown_ended(client, conn, clk, path):
+    evidence.ensure_diagnostic_start(conn, "2026-09-07")
+    clk.set("2026-11-02T10:00:00+00:00")
+    header = text(client.get(path)).split("</header>")[0]
+    assert "countdown-ended" in header
+    assert "Diagnostic ended — name the decision or shut it down" in flat(header)
+    assert "days left" not in header
+
+
+# ==========================================================================
+# Weekly totals: provenance, unmeasured, covered elsewhere, import status
+# ==========================================================================
+
+def test_provenance_badges_are_distinct_per_tier_and_screenshots_are_marked(client, conn, clk, settings):
+    populate(conn, clk, settings)
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))
+
+    tiers = {T.PROV_API: "prov-api", T.PROV_PAGE: "prov-page",
+             T.PROV_SCREENSHOT: "prov-screenshot", T.PROV_EXPORT: "prov-export"}
+    for css in tiers.values():
+        assert any(f'class="prov {css}"' in r for r in rows), css
+    # Each badge's text differs, and each tier has its own, different CSS rule.
+    assert len({dashboard_app.PROVENANCE_BADGES[p][0] for p in tiers}) == 4
+    css_text = CSS.read_text()
+    rules = {c: re.search(rf"\.{c}\s*\{{([^}}]*)\}}", css_text).group(1).strip() for c in tiers.values()}
+    assert len(set(rules.values())) == 4
+
+    iphone = row_for(rows, "iPhone apps", "prov-screenshot")
+    assert 'class="lowconf"' in iphone and "lower confidence" in iphone
+    for other in ("prov-api", "prov-page", "prov-export"):
+        for r in rows:
+            if other in r:
+                assert "lowconf" not in r
+
+
+def test_unmeasured_items_are_a_count_never_zero_minutes(client, conn, clk, settings):
+    clk.set(WED)
+    measure(conn, clk, settings, kind=T.KIND_YOUTUBE_CHANNEL, key="UCbad", day="2026-09-08",
+            minutes=None, status="progress_missing", item_key="badvideo001")
+    clk.set("2026-09-16T10:00:00+00:00")
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))
+    yt = flat(row_for(rows, "YouTube", "prov-page"))
+    assert "1 unmeasured item" in yt and "not counted as zero" in yt
+    assert "nothing measured" in yt
+    assert not re.search(r"(?<![\d.])0(\.0)? min", yt)
+
+
+def test_missing_weekly_evidence_is_not_received_not_zero(client):
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))
+    screentime = flat(row_for(rows, "iPhone apps", "prov-screenshot"))
+    assert "not received" in screentime and "missing" in screentime
+    assert "0 min" not in screentime
+
+
+def test_a_week_not_yet_asked_for_names_the_sunday_it_is(client, clk):
+    """DR5.24: the check-in asks on the Sunday after the week, and the page names that day."""
+    sub = '<strong>not due yet</strong><span class="sub">asked for on Sunday 2026-09-20</span>'
+    overview = section(text(client.get("/")), "coverage")              # Wed 16 Sep: week 13-19 Sep
+    assert re.search(r'<tr class="import-not_due">.*?' + re.escape(sub), overview, re.S)
+    rows = body_rows(section(text(client.get("/records")), "weekly-totals"))
+    assert sub in row_for(rows, "iPhone apps", "prov-screenshot")
+    assert "Monday" not in overview
+    clk.set("2026-09-19T21:30:00+00:00")                               # Saturday 23:30 Warsaw
+    assert sub in section(text(client.get("/")), "coverage")
+    clk.set("2026-09-19T22:30:00+00:00")                               # Sunday 00:30: asked for today
+    overview = section(text(client.get("/?week=2026-09-13")), "coverage")
+    assert "not due yet" not in overview
+    assert '<strong>missing</strong><span class="sub">nothing has arrived for this week yet</span>' in overview
+
+
+STALE_CHIPS = {
+    dashboard_app.STALE_NEWER_WEEK: "out of date: a newer week has finished",
+    dashboard_app.STALE_NEW_DATA: "out of date: new data has arrived",
+    dashboard_app.STALE_RELABELLED: "out of date: you've relabelled since",
+}
+
+
+@pytest.mark.parametrize("reason", [*STALE_CHIPS, None])
+def test_a_stale_summary_names_its_one_reason(client, conn, monkeypatch, reason):
+    """DR5.18 / DR5.26: each reason has its own plain chip, and only that one shows."""
+    conn.execute("INSERT INTO insights (created_at, model, week_start, summary, payload, status) "
+                 "VALUES ('2026-09-14T10:00:00+00:00', 'claude-opus-5', '2026-09-06T16:00:00+00:00', "
+                 "'Wasteful content fell.', '{\"based_on_through\": \"2026-09-12\"}', 'ok')")
+    conn.commit()
+    monkeypatch.setattr(dashboard_app, "insight_staleness", lambda *a, **k: reason)
+    panel = section(text(client.get("/")), "insight")
+    chips = re.findall(r'<span class="state state-unlabelled">([^<]*)</span>', panel)
+    if reason is None:
+        assert 'class="generated"' in panel and "generated-stale" not in panel
+        assert chips == []
+    else:
+        assert 'class="generated generated-stale"' in panel
+        assert chips == [STALE_CHIPS[reason]]
+    assert "It doesn't update itself" in flat(panel)
+
+
+def test_screenshots_sent_after_the_summary_mark_it_out_of_date(client, conn, clk, settings):
+    """End to end, no stand-ins: the overview works the reason out from the data."""
+    conn.execute("INSERT INTO insights (created_at, model, week_start, summary, payload, status) "
+                 "VALUES ('2026-09-14T10:00:00+00:00', 'claude-opus-5', '2026-09-06T16:00:00+00:00', "
+                 "'Screen Time never arrived.', '{\"based_on_through\": \"2026-09-12\"}', 'ok')")
+    conn.commit()
+    assert "generated-stale" not in section(text(client.get("/")), "insight")
+    rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="test-1")   # Wed 16 Sep
+    evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-06", period_end="2026-09-12")
+    panel = section(text(client.get("/")), "insight")
+    assert re.search(r'<span class="state state-unlabelled">out of date: new data has arrived</span>', panel)
+
+
+def test_covered_elsewhere_is_shown_as_excluded_with_its_reason(client, conn, clk, settings):
+    populate(conn, clk, settings)
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "weekly-totals"))
+    iphone = flat(row_for(rows, "iPhone apps", "prov-screenshot"))
+    assert "33 min excluded" in iphone
+    assert "YouTube history (account-level)" in iphone
+    assert "90 min" in iphone                     # Instagram is counted; the YouTube app is not
+
+
+def test_import_status_incomplete_and_partial_with_warnings(client, conn, clk, settings):
+    populate(conn, clk, settings)
+    rec = evidence.begin_import(conn, clk, kind="coldturkey", parser_version="test-1")
+    rec.warnings.append("skipped 3 days on or after the export date")
+    evidence.finish_import(conn, clk, settings, rec, period_start="2026-09-06", period_end="2026-09-12")
+    html = text(client.get(f"/records?week={WEEK_SUNDAY}"))
+    rows = body_rows(section(html, "weekly-totals"))
+    assert "incomplete" in flat(row_for(rows, "YouTube", "prov-page"))
+    assert "partial" in flat(row_for(rows, "Desktop web", "prov-export"))
+    imports = flat(section(html, "imports"))
+    assert "partial" in imports and "skipped 3 days on or after the export date" in imports
+
+
+def test_failed_import_is_visible(client, conn, clk):
+    rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="test-1")
+    evidence.fail_import(conn, rec, "could not read the week header")
+    imports = flat(section(text(client.get("/records")), "imports"))
+    assert "failed" in imports and "could not read the week header" in imports
+
+
+# ==========================================================================
+# Cost per keeper, funnels, allowance, gated
+# ==========================================================================
+
+def test_cost_per_keeper_says_no_keepers_yet(client, conn, clk, settings):
+    seed_week(conn, clk, settings)
+    clk.set("2026-09-16T10:00:00+00:00")
+    rows = body_rows(section(text(client.get("/records")), "cost-per-keeper"))
+    podcasts = flat(row_for(rows, "Podcasts"))
+    assert "no keepers yet" in podcasts
+    assert "prov-api" in row_for(rows, "Podcasts")
+    assert "invisible" in podcasts                # the group's blind spot
+
+
+def test_cost_per_keeper_prices_a_group_with_keepers(client, conn, clk, settings):
+    seed_week(conn, clk, settings)
+    vault_capture(conn, clk, group=T.GROUP_YOUTUBE, outcome="kept")
+    clk.set("2026-09-16T10:00:00+00:00")
+    rows = body_rows(section(text(client.get("/records")), "cost-per-keeper"))
+    assert "40 min per keeper" in flat(rows[0]) and "YouTube" in rows[0]
+    assert "prov-vault" in rows[0]
+
+
+def test_vault_numbers_are_never_minutes(client, conn, clk, settings):
+    populate(conn, clk, settings)
+    funnels = section(text(client.get("/records")), "funnels")
+    vault = funnels.split('<div id="vault-funnel">')[1]
+    assert not re.search(r"\d\s*min\b", flat(funnels)), flat(funnels)
+    v = flat(vault)
+    assert "Kept 1" in v and "Excluded (vanished or in the trash), outside the denominator: 1" in v
+    assert "Captured (unprocessed + kept) 2" in v
+
+
+def test_allowance_status_is_plain_numbers(client, conn, clk, settings):
+    populate(conn, clk, settings)
+    allowance_html = flat(section(text(client.get("/records")), "allowance"))
+    for label in ("Spent", "Remaining", "Over the allowance so far", "Allowance",
+                  "Weeks over the allowance"):
+        assert label in allowance_html
+    assert "debt" not in allowance_html.lower() and "effective" not in allowance_html.lower()
+    assert "target" not in allowance_html.lower() and "score" not in allowance_html.lower()
+    assert "No week in the diagnostic window has gone over." in allowance_html   # 132 of 180
+
+
+def test_weeks_over_the_allowance_table_lists_each_weeks_own_overage(client, conn, clk, settings):
+    populate(conn, clk, settings)                                   # week of 6 Sep: 132 wasteful
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-09",
+            minutes=118.0)                                          # 250 against 180
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-14",
+            minutes=200.0)                                          # current week: 20 over so far
+    html = section(text(client.get("/records")), "allowance")
+    table = html.split("Weeks over the allowance", 1)[1]
+    rows = body_rows(table)
+    assert len(rows) == 2
+    closed = flat(row_for(rows, "2026-09-06"))
+    assert "180 min" in closed and closed.endswith("70 min")
+    current = flat(row_for(rows, "2026-09-13"))
+    assert "(in progress)" in current and current.endswith("20 min")   # not reduced by last week's 70
+    status = flat(html.split("Weeks over the allowance", 1)[0])
+    assert "Over the allowance so far 20 min" in status
+
+
+def test_gated_vs_ungated_shows_the_reflex_share(client, conn, clk, settings):
+    populate(conn, clk, settings)
+    rows = body_rows(section(text(client.get(f"/records?week={WEEK_SUNDAY}")), "gated"))
+    iphone = row_for(rows, "iPhone apps")
+    assert '<td class="reflex">100% ungated</td>' in iphone
+    assert "nothing consumed" in flat(row_for(rows, "Desktop web"))      # None share, not 0%
+
+
+# ==========================================================================
+# Labels
+# ==========================================================================
+
+def test_labels_page_lists_sources_with_unlabelled_stated_and_x_toggleable(client, conn, clk):
+    label_source(conn, clk, T.KIND_YOUTUBE_CHANNEL, "UCplain", None, "Plain Channel")
+    html = text(client.get("/labels"))
+    rows = body_rows(html)
+    plain = row_for(rows, "Plain Channel")
+    assert "unlabelled → counts as wasteful" in plain and "<form" in plain
+    x_row = row_for(rows, "<td>X</td>")
+    assert "<form" in x_row and "wasteful" in x_row
+
+
+def test_labels_page_filters_by_kind_and_label(client, conn, clk):
+    label_source(conn, clk, T.KIND_YOUTUBE_CHANNEL, "UCgood", T.WORTHWHILE, "Good Channel")
+    label_source(conn, clk, T.KIND_IPHONE_APP, "Instagram", None, "Instagram")
+    by_kind = text(client.get("/labels?kind=youtube_channel"))
+    assert "Good Channel" in by_kind and "Instagram" not in by_kind
+    unlabelled = text(client.get("/labels?label=unlabelled"))
+    assert "Instagram" in unlabelled and "Good Channel" not in unlabelled
+    assert client.get("/labels?kind=nonsense").status_code == 400
+
+
+def _overage_scenario(conn, clk, settings):
+    """A closed week with 500 wasteful minutes: 140 over, recorded on it, nothing carried."""
+    clk.set("2026-09-14T10:00:00+00:00")
+    db.current_week(conn, clk, settings)
+    src = measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="news.example", day="2026-09-15",
+                  minutes=500.0)
+    clk.set("2026-09-20T16:30:00+00:00")
+    closed, opened = db.roll_over_week(conn, clk, settings)
+    assert closed.overage_min == 140
+    assert opened.debt_min == 0
+    return src, closed, opened
+
+
+def _week_figures(conn, week_start):
+    row = conn.execute("SELECT overage_min, debt_min FROM weeks WHERE week_start = ?", (week_start,)).fetchone()
+    return row["overage_min"], row["debt_min"]
+
+
+@pytest.fixture
+def overage_settings(tmp_path):
+    return make_settings(tmp_path, db_path=tmp_path / "overage.db", weekly_allowance_min=360)
+
+
+def test_label_toggle_via_htmx_returns_the_row_and_re_records_overage(overage_settings, clk):
+    conn = open_db(overage_settings)
+    src, closed, opened = _overage_scenario(conn, clk, overage_settings)
+    client = dashboard_app.create_app(overage_settings, clk, lambda: db.connect(overage_settings)).test_client()
+
+    resp = client.post(f"/labels/{src.id}", data={"label": T.WORTHWHILE}, headers={"HX-Request": "true"})
+    assert resp.status_code == 200
+    fragment = text(resp)
+    assert fragment.lstrip().startswith(f'<tr id="source-{src.id}"')
+    assert "<html" not in fragment and "<strong>worthwhile</strong>" in fragment
+
+    assert labels.get_source(conn, src.id).label == T.WORTHWHILE
+    assert _week_figures(conn, closed.week_start) == (0, 0)      # now worthwhile: never over
+    assert _week_figures(conn, opened.week_start) == (0, 0)
+    conn.close()
+
+
+def test_label_toggle_via_plain_post_redirects_and_re_records_overage(overage_settings, clk):
+    conn = open_db(overage_settings)
+    src, closed, opened = _overage_scenario(conn, clk, overage_settings)
+    labels.set_source_label(conn, clk, src.id, T.WORTHWHILE)
+    conn.execute("UPDATE weeks SET overage_min = 0 WHERE week_start = ?", (closed.week_start,))
+    conn.commit()
+    client = dashboard_app.create_app(overage_settings, clk, lambda: db.connect(overage_settings)).test_client()
+
+    resp = client.post(f"/labels/{src.id}", data={"label": T.WASTEFUL, "f_kind": "web_domain"})
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith(f"/labels?kind=web_domain#source-{src.id}")
+    assert labels.get_source(conn, src.id).label == T.WASTEFUL
+    assert _week_figures(conn, closed.week_start) == (140, 0)    # re-recorded on the closed week
+    assert _week_figures(conn, opened.week_start) == (0, 0)      # and never carried
+    conn.close()
+
+
+def test_labels_page_says_a_relabel_re_records_overage(client):
+    page = flat(text(client.get("/labels")))
+    assert "updates every week straight away" in page
+    assert "debt" not in page.lower()
+
+
+def test_unknown_youtube_channel_is_shown_but_not_toggleable(client, conn, clk):
+    unknown = label_source(conn, clk, T.KIND_YOUTUBE_CHANNEL, T.UNKNOWN_YOUTUBE_CHANNEL_KEY, None,
+                           "Unknown channel")
+    row = row_for(body_rows(text(client.get("/labels"))), "Unknown channel")
+    assert "<form" not in row and "Not toggleable" in row
+    resp = client.post(f"/labels/{unknown.id}", data={"label": T.WORTHWHILE})
+    assert resp.status_code == 400
+    assert labels.get_source(conn, unknown.id).label is None
+
+
+def test_label_toggle_refuses_bad_input_and_cross_site_posts(client, conn, clk):
+    src = label_source(conn, clk, T.KIND_IPHONE_APP, "Instagram", None, "Instagram")
+    assert client.post(f"/labels/{src.id}", data={"label": "great"}).status_code == 400
+    assert client.post("/labels/999999", data={"label": T.WASTEFUL}).status_code == 404
+    resp = client.post(f"/labels/{src.id}", data={"label": T.WORTHWHILE},
+                       headers={"Sec-Fetch-Site": "cross-site"})
+    assert resp.status_code == 403
+    assert labels.get_source(conn, src.id).label is None
+
+
+# ==========================================================================
+# Records
+# ==========================================================================
+
+def test_records_rows_show_provenance_status_and_import(client, conn, clk, settings):
+    populate(conn, clk, settings)
+    rows = body_rows(text(client.get("/records")))
+    bad = row_for(rows, "badvideo001")
+    assert "progress_missing" in bad and "unmeasured" in bad and "prov-page" in bad
+    assert re.search(r"#\d+", bad)
+    pod = row_for(rows, "Pod", "prov-api")
+    assert "API poll" in pod
+    covered = row_for(rows, "prov-screenshot", "already measured by")
+    assert "lower confidence" in covered
+
+
+def test_records_filters(client, conn, clk, settings):
+    populate(conn, clk, settings)
+    yt = text(client.get("/records?group=youtube"))
+    table = yt.split('<table id="records">')[1].split("</table>")[0]   # the filter applies here only
+    assert "Good video" in table and "Instagram" not in table and "prov-export" not in table
+
+    worth = body_rows(text(client.get("/records?label=worthwhile")))
+    assert len(worth) == 1 and "Good video" in worth[0]
+
+    dated = body_rows(text(client.get("/records?start=2026-09-09&end=2026-09-09")))
+    assert any("2026-09-09" in r and "prov-export" in r for r in dated)   # Cold Turkey X, that day
+    assert not any("Good video" in r for r in dated)                      # YouTube, 2026-09-07
+    assert all("2026-09-07" not in r and "2026-09-08" not in r for r in dated)
+
+    bad = client.get("/records?start=yesterday")
+    assert bad.status_code == 400 and "Start must be a date" in text(bad)
+
+
+# ==========================================================================
+# Wiring
+# ==========================================================================
+
+def test_ingest_blueprint_is_mounted_behind_the_token(client, settings):
+    assert client.get("/api/youtube/cursor").status_code == 401
+    assert client.post("/api/youtube/history", data=b"{}").status_code == 401
+    ok = client.get("/api/youtube/cursor", headers={"X-Dr-Brainrot-Token": settings.ingest_token})
+    assert ok.status_code == 200 and ok.get_json() == {"cursor": None, "cursor_date": None}
+
+
+def test_body_limit_is_at_least_25_mb(settings, clk):
+    app = dashboard_app.create_app(settings, clk, lambda: db.connect(settings))
+    assert app.config["MAX_CONTENT_LENGTH"] >= 25 * 1024 * 1024
+
+
+def test_each_request_gets_its_own_connection_closed_on_teardown(settings, clk, conn):
+    opened = []
+
+    def get_conn():
+        c = db.connect(settings)
+        opened.append(c)
+        return c
+
+    client = dashboard_app.create_app(settings, clk, get_conn).test_client()
+    client.get("/")
+    client.get("/labels")
+    assert len(opened) == 2
+    for c in opened:
+        with pytest.raises(Exception):
+            c.execute("SELECT 1")
+
+
+def test_main_binds_loopback_only(monkeypatch, tmp_path):
+    settings = make_settings(tmp_path, db_path=tmp_path / "main.db", dashboard_port=8799)
+    monkeypatch.setattr(config, "load", lambda *a, **k: settings)
+    calls = []
+    import flask
+
+    monkeypatch.setattr(flask.Flask, "run", lambda self, *a, **k: calls.append((a, k)))
+    dashboard_app.main()
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert not args
+    assert kwargs == {"host": "127.0.0.1", "port": 8799, "threaded": True, "debug": False,
+                      "use_reloader": False}
+    conn = db.connect(settings)
+    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone() is not None
+    conn.close()
+
+
+# ==========================================================================
+# Tool: not content (DR5.5)
+# ==========================================================================
+
+def test_labels_page_states_the_content_rule_and_offers_tool(client, conn, clk):
+    src = label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", None, "amazon.pl")
+    html = text(client.get("/labels"))
+    page = " ".join(re.sub(r"<[^>]+>", "", html).split())                 # inline emphasis removed in place
+    assert ("Only content is measured here — things you watch, read or listen to. For each source, ask: "
+            "is this content? If it is, is it brain rot (wasteful) or worth your time (worthwhile)? "
+            "If you only go there to get something done — buy, pay, book, log in, check the weather "
+            "— it's a tool, and it isn't counted.") in page
+    assert '<option value="tool"' in html                                   # filter option
+    row = row_for(body_rows(html), "amazon.pl")
+    assert 'name="label" value="tool"' in row and 'hx-post' in row
+
+
+def test_tool_toggle_via_htmx_returns_the_row_and_re_records_overage(overage_settings, clk):
+    conn = open_db(overage_settings)
+    src, closed, opened = _overage_scenario(conn, clk, overage_settings)
+    client = dashboard_app.create_app(overage_settings, clk, lambda: db.connect(overage_settings)).test_client()
+
+    resp = client.post(f"/labels/{src.id}", data={"label": T.TOOL}, headers={"HX-Request": "true"})
+    assert resp.status_code == 200
+    fragment = text(resp)
+    assert fragment.lstrip().startswith(f'<tr id="source-{src.id}"')
+    assert "tool → not content, not counted" in fragment
+    assert re.search(r'value="tool"\s+disabled', fragment)
+    assert labels.get_source(conn, src.id).label == T.TOOL
+    assert _week_figures(conn, closed.week_start) == (0, 0)             # tool: never over
+    conn.close()
+
+
+def test_tool_toggle_via_plain_post_redirects_and_filters(overage_settings, clk):
+    conn = open_db(overage_settings)
+    src, closed, _ = _overage_scenario(conn, clk, overage_settings)
+    client = dashboard_app.create_app(overage_settings, clk, lambda: db.connect(overage_settings)).test_client()
+
+    resp = client.post(f"/labels/{src.id}", data={"label": T.TOOL, "f_label": "tool"})
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith(f"/labels?label=tool#source-{src.id}")
+    assert labels.get_source(conn, src.id).label == T.TOOL
+    assert _week_figures(conn, closed.week_start) == (0, 0)
+    listed = text(client.get("/labels?label=tool"))
+    assert "news.example" in listed
+    assert "news.example" not in text(client.get("/labels?label=unlabelled"))
+    # Cross-site posts are refused for tool exactly as for the other labels.
+    other = label_source(conn, clk, T.KIND_IPHONE_APP, "Mail", None, "Mail")
+    assert client.post(f"/labels/{other.id}", data={"label": T.TOOL},
+                       headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert labels.get_source(conn, other.id).label is None
+    conn.close()
+
+
+def test_overview_states_scope_and_shows_tool_minutes_outside_the_bars(client, conn, clk, settings):
+    clk.set(WED)
+    db.current_week(conn, clk, settings)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", T.TOOL)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="amazon.pl", day="2026-09-08", minutes=200.0)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-08", minutes=30.0)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "reddit.com", T.WASTEFUL)
+    clk.set("2026-09-16T10:00:00+00:00")
+
+    # The page now opens on the current week (DR5.7), so ask for the week the
+    # minutes above are in; the point of this test is tool minutes, not the default.
+    html = text(client.get("/?week=2026-09-08"))
+    assert "Brain-rot content only: tools are excluded" in flat(html)
+
+    totals = section(text(client.get("/records?week=2026-09-08")), "weekly-totals")
+    assert "Tool (not content, excluded)" in totals
+    desktop = row_for(body_rows(totals), "Desktop web")
+    assert "30 min" in desktop and "200 min" in desktop
+
+    split = section(html, "label-split")
+    week_row_html = row_for(body_rows(split.split("</svg>")[1]), WEEK_SUNDAY)
+    cells = re.findall(r'<td class="num[^"]*">(.*?)</td>', week_row_html, re.S)
+    figures = [flat(c) for c in cells]
+    assert "30 min" in figures        # wasteful, in the bars
+    assert "200 min" in figures       # tool, outside them
+    assert flat(week_row_html).count("200 min") == 1
+    # the bar holds content only: wasteful + undecided + worthwhile, never tool
+    assert "Week of 2026-09-06: wasteful 30 min, undecided 0 min, worthwhile 0 min" in split
+
+    keepers = row_for(body_rows(section(text(client.get("/records")), "cost-per-keeper")), "<td>Desktop web</td>")
+    assert "30 min" in keepers and "200 min" not in keepers
+    assert "anything you mark as a tool" in section(html, "blind-spots")
+
+
+def test_records_page_filters_tool(client, conn, clk, settings):
+    clk.set(WED)
+    label_source(conn, clk, T.KIND_WEB_DOMAIN, "amazon.pl", T.TOOL)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="amazon.pl", day="2026-09-08", minutes=5.0)
+    measure(conn, clk, settings, kind=T.KIND_WEB_DOMAIN, key="reddit.com", day="2026-09-08", minutes=5.0)
+    clk.set("2026-09-16T10:00:00+00:00")
+    resp = client.get("/records?label=tool")
+    assert resp.status_code == 200
+    assert "amazon.pl" in text(resp) and "reddit.com" not in text(resp)
+
+
+# ==========================================================================
+# The brain against your peak week (#rot)
+# ==========================================================================
+
+def test_the_brain_renders_on_an_empty_database_as_not_measured(client):
+    html = text(client.get("/"))
+    part = section(html, "rot")
+    assert "Not measured yet" in flat(part)
+    assert 'role="img"' in part and 'aria-label="Grey brain outline, nothing drawn' in part
+    assert "rot-blank" in part                         # never a clean, healthy brain
+    # The same brain, every groove of it, but grey and unlit: drawn, never lit.
+    assert 'class="rot-sulcus"' in part and "rot-light" not in part and "Gradient" not in part
+
+
+def test_the_brain_only_moves_when_motion_is_welcome():
+    """Every animation sits inside screen and prefers-reduced-motion:
+    no-preference, so the still drawing (reduced motion, print) is the whole
+    drawing, and only transform and opacity move."""
+    css = (pathlib.Path(dashboard_app.__file__).parent / "static/dashboard.css").read_text()
+    rot = css[css.index("The brain against your peak week (#rot)"):]
+    motion = re.search(r"@media screen and \(prefers-reduced-motion: no-preference\) \{(.*?)\n\}",
+                       rot, re.S).group(1)
+    assert "animation:" in motion and "animation:" not in rot.replace(motion, "")
+    frames = re.findall(r"@keyframes ([\w-]+) \{(.*?)\n\}", rot, re.S)
+    assert {name for name, _ in frames} == {"rot-grow", "rot-breathe", "rot-drift", "rot-sprout"}
+    for _, body in frames:
+        assert set(re.findall(r"([a-z-]+)\s*:", body)) <= {"transform", "opacity"}
+
+
+def test_the_brain_never_names_the_product_or_borrows_another_components_classes(
+        client, conn, clk, settings):
+    populate(conn, clk, settings)
+    for html in (text(client.get("/")), text(client.get("/?week=2026-09-06"))):
+        part = section(html, "rot")
+        assert not re.search(r"\bDRBR\b|Dr\.? ?Brainrot|dr-brainrot", part)
+        assert "What it was" not in part                 # P4-01 compares first occurrences
+        classes = {c for attr in re.findall(r'class="([^"]+)"', part) for c in attr.split()}
+        assert not {c for c in classes
+                    if c.startswith(("bar-", "state-", "import-", "progress-", "win"))}
+        ids = re.findall(r'\sid="([^"]+)"', html)
+        assert len(ids) == len(set(ids)), "duplicate ids on the page"
+
+
+def test_the_lead_row_gives_the_panel_below_its_margin_back():
+    css = CSS.read_text()
+    first_of_type = css.index("section:first-of-type")
+    for rule in (".lead + section { margin-top: var(--s8); }", ".lead > section { margin-top: 0; }"):
+        assert css.index(rule) > first_of_type        # same specificity: source order decides
+
+
+def _rot_svg():
+    env = dashboard_app.create_app(config.test_settings(), None, lambda: None).jinja_env
+    return env.get_template("_rot.html").module.rot_svg
+
+
+def test_mushrooms_grow_inside_the_brain_each_with_its_own_ids():
+    """From 85% of the peak week only: inside the brain's clip, after undecided
+    time and under the outline, so the outline can never be crossed; one
+    sprout and one mound per mushroom; ids unique per brain and per page."""
+    rot_svg = _rot_svg()
+    assert "rot-shrooms" not in str(rot_svg(dashboard_app.specimen(0.84, 0, "a"), "x"))
+    sp = dashboard_app.specimen(0.97, 0.1, "b")
+    svg = str(rot_svg(sp, "x"))
+    assert 'role="img"' in svg and 'aria-label="x"' in svg
+    clip = svg[svg.index('clip-path="url(#b-clip)"'):svg.index('<path class="rot-outline"')]
+    assert 'class="rot-shrooms"' in clip
+    assert clip.index('class="rot-undecided"') < clip.index('class="rot-shrooms"')
+    assert svg.count('class="rot-sprout"') == svg.count('class="rot-mound"') == len(sp.shrooms) == 5
+    assert all(f'id="b-{g}"' in svg for g in ("cap", "stem", "mound"))
+    ids = re.findall(r'\sid="([^"]+)"', svg)
+    assert len(ids) == len(set(ids))
+    other = re.findall(r'\sid="([^"]+)"', str(rot_svg(dashboard_app.specimen(1.1, 0, "c"), "y")))
+    assert not set(ids) & set(other)
+
+
+def test_mushrooms_are_caramel_and_cream_never_red():
+    """Red means danger on this page: every mushroom colour is a warm brown or
+    cream (hue 20-50), and the rules only read tokens."""
+    css = CSS.read_text()
+    rot = css[css.index("The brain against your peak week (#rot)"):]
+    tokens = dict(re.findall(r"(--rot-(?:cap|cocoa|gill|spot|stem)[\w-]*):\s*(#[0-9A-Fa-f]{6})", rot))
+    assert len(tokens) == 9
+    danger = {v.upper() for v in re.findall(r"--danger[\w-]*:\s*(#[0-9A-Fa-f]{6})", css)}
+    for name, hexa in tokens.items():
+        r, g, b = (int(hexa[k:k + 2], 16) / 255 for k in (1, 3, 5))
+        hi, lo = max(r, g, b), min(r, g, b)
+        assert hi == r and r > g > b, name                       # warm, red over green over blue
+        hue = 60 * (g - b) / (hi - lo)
+        assert 20 <= hue <= 50 and hexa.upper() not in danger, (name, hue)
+    rules = re.findall(r"\.rot-(?:shrooms|cap-\d|stem-\d)[^{]*\{([^}]*)\}", rot)
+    assert rules and not any(re.search(r"#[0-9A-Fa-f]{3,6}\b", body) for body in rules)
+
+
+def test_mushrooms_come_up_once_from_their_foot_and_then_are_still():
+    css = CSS.read_text()
+    rot = css[css.index("The brain against your peak week (#rot)"):]
+    assert "infinite" not in re.sub(r"/\*.*?\*/", "", rot, flags=re.S)     # comments may say why
+    motion = re.search(r"@media screen and \(prefers-reduced-motion: no-preference\) \{(.*?)\n\}",
+                       rot, re.S).group(1)
+    for cls, name in (("rot-sprout", "rot-sprout"), ("rot-mound", "rot-grow")):
+        # One run (no count given), held at the end, after the mould has grown in.
+        line = re.search(rf"\.{cls} \{{ animation: {name} ([^;]*); \}}", motion).group(1)
+        assert line.endswith(" both") and not re.search(r"\s\d+\s|\binfinite\b", line), line
+        assert re.search(r"calc\(2\.\d+s \+ var\(--i\) \* \.3s\)", line), line
+    outside = rot.replace(motion, "")
+    assert ".rot-sprout { transform-box: fill-box; transform-origin: 50% 100%; }" in outside
+    frames = dict(re.findall(r"@keyframes ([\w-]+) \{(.*?)\n\}", rot, re.S))
+    assert "100% { transform: rotate(0deg) scale(1, 1); }" in frames["rot-sprout"]   # ends as drawn
+
+LINK = '<a class="source-link" href="https://x.com" target="_blank" rel="noopener noreferrer"'
+
+
+def test_a_sites_name_opens_the_site_wherever_it_is_listed(client, conn, clk, settings):
+    """x.com is a web domain in the seed week: its name links out, in a new tab,
+    with no referrer; a channel key that isn't a channel id stays plain text."""
+    populate(conn, clk, settings)
+    overview = section(text(client.get(f"/?week={WEEK_SUNDAY}")), "top-sources")
+    assert LINK in overview and "Good" in flat(overview)
+    assert 'href="https://www.youtube.com/channel/UCgood"' not in overview
+    assert LINK in text(client.get("/records"))
+    assert LINK in text(client.get("/labels"))
+
+
+# --- This week so far against the same days last week (DR5.29) ----------------------------
+
+def _pace(**kw):
+    import pace
+    base = dict(first_day="2026-10-04", last_day="2026-10-07", days=4, this_week_min=39.13,
+                last_week_min=29.8, direction="level",
+                text="So far this week (Sun–Wed): 39 min, level with 30 min by Wednesday last week.",
+                counted=("the Mac's browser", "Mac apps", "podcast listening"),
+                left_out=("YouTube history, not synced since the last day counted — run the extension "
+                          "to include it",),
+                joins_later=("Screen Time", "the phone browser by site"))
+    return pace.Pace(**{**base, **kw})
+
+
+def test_pace_reads_as_a_part_week_and_links_the_youtube_sync():
+    from dashboard import app as dashboard_app
+    parts = dashboard_app.pace_parts(_pace())
+    assert parts["lead"] == "So far this week (Sun–Wed)"
+    assert parts["rest"].startswith("39 min, level with 30 min")
+    assert parts["left_out"] == [{"text": "YouTube history, not synced since the last day counted",
+                                  "sync": True}]
+    assert parts["counted"] == "the Mac's browser, Mac apps and podcast listening"
+    other = dashboard_app.pace_parts(_pace(left_out=("Mac apps, a day wasn't read",), text="odd"))
+    assert other["left_out"] == [{"text": "Mac apps, a day wasn't read", "sync": False}]
+    assert other["lead"] == "" and other["rest"] == "odd"
+
+
+def test_pace_shows_on_the_current_week_only(client, conn, clk, settings, monkeypatch):
+    from dashboard import app as dashboard_app
+    populate(conn, clk, settings)
+    monkeypatch.setattr(dashboard_app.pace, "pace", lambda *a, **k: _pace(direction="down"))
+    current = section(text(client.get("/")), "week-summary")
+    assert '<div class="pace pace-down">' in current
+    assert '<span class="pace-lead">So far this week (Sun–Wed)</span>' in current
+    assert 'href="https://www.youtube.com/feed/history"' in current
+    assert "same days so far just below" in current
+    past = section(text(client.get(f"/?week={WEEK_SUNDAY}")), "week-summary")
+    assert 'class="pace' not in past
+    monkeypatch.setattr(dashboard_app.pace, "pace", lambda *a, **k: None)
+    none = section(text(client.get("/")), "week-summary")
+    assert 'class="pace' not in none and "this week isn't over yet" in none

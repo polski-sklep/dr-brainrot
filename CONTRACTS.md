@@ -1,5 +1,13 @@
 # CONTRACTS
 
+**Part I** (below, unchanged) is the podcast queue's original contract. **Part II**, at the
+end of this file, is dr-brainrot's. Where Part II changes a Part I behaviour it says
+so explicitly; otherwise Part I still holds.
+
+---
+
+# Part I — The podcast queue
+
 Phase 1 output. Every module in Phases 2 and 3 implements exactly these
 signatures and imports other modules only through them. Do not widen a
 signature without updating this file first.
@@ -429,13 +437,13 @@ rather than raising.
 
 ```python
 # triage.py
-def run_triage(conn, clk, settings, spotify, bot) -> None
+def run_triage(conn, clk, settings, spotify, bot) -> list[str]   # what couldn't be posted (DR5.25)
 def render_item(item: QueueItem, week: Week, warning: bool) -> tuple[str, InlineKeyboardMarkup]
 def render_deadline_notice(item: QueueItem, week: Week) -> tuple[str, InlineKeyboardMarkup]
 def render_stats(conn, clk, settings) -> str
 
 # poll.py
-def run_poll(conn, clk, settings, spotify, bot) -> None
+def run_poll(conn, clk, settings, spotify, bot) -> list[str]     # the steps that failed (DR5.25)
 def surface_deadlines(conn, clk, settings, bot) -> None
 def check_alerts(conn, clk, settings, bot) -> None
 ```
@@ -446,16 +454,21 @@ def check_alerts(conn, clk, settings, bot) -> None
 2. `lift_expired_locks()` — `locked → queued`.
 3. Expire anything at or past its lifespan (`cycles_seen >= lifespan_cycles`)
    and anything whose deadline has passed, both as soft deletes.
-4. `bump_cycle()` on each survivor, then post it with title, show, duration,
-   why-note and cycle age. `cycles_seen == lifespan_cycles` after the bump gets
-   the "last cycle" warning.
-5. Post the week's header: allowance, debt carried, remaining.
+   Then the week is marked triaged (`meta.last_triage_week`), before any post
+   (DR5.25), so a retry never bumps a cycle twice.
+4. Post each survivor with title, show, duration, why-note and the cycle it is
+   about to reach, then `bump_cycle()` it — only if the post went out
+   (DR5.25). `cycles_seen + 1 == lifespan_cycles` gets the "last cycle"
+   warning. An item whose post failed keeps its cycle and comes back next week.
+5. Post the week's header: allowance, debt carried, remaining. Only when step 4
+   had something to post (DR5.24).
 
-`run_poll()` calls `lift_expired_locks()`, fetches positions for
-`polling_targets()`, computes `clamped_delta` per episode, writes `listening`
-rows, updates `weeks.listened_min`, flips `fully_played` episodes to the
-`played` state, and then calls `surface_deadlines()` followed by
-`check_alerts()`.
+`run_poll()` calls `lift_expired_locks()`, then runs three isolated steps
+(DR5.25): `positions` fetches positions for `polling_targets()`, computes
+`clamped_delta` per episode, writes `listening` rows, updates
+`weeks.listened_min` and flips `fully_played` episodes to the `played` state;
+then `deadlines` (`surface_deadlines()`) and `alerts` (`check_alerts()`). A
+failed step is rolled back, logged and returned; the others still run.
 
 `surface_deadlines()` posts each `queued` item whose deadline falls at or
 before `clock.next_week_start(now)` — i.e. one the weekly triage would expire
@@ -471,3 +484,993 @@ Both send before writing their bookkeeping row, so a Telegram outage is retried
 by tomorrow's poll rather than swallowed (D3.5).
 
 Crontab lines go in `README.md`. They are not installed.
+
+
+---
+
+# Part II — dr-brainrot
+
+Phase 1 output for the dr-brainrot extension (`dr-brainrot-build-brief.md`). Binding on every
+Phase 2 agent. **No agent changes a shared contract privately.** If a contract
+must change, stop, write the change here centrally, and apply it to every
+affected component. Agents record everything else in `NOTES-<agent>.md` (now `docs/build-notes/`) for the
+integration pass.
+
+Governing rule for all of it: **the user labels, the system counts.** No
+heuristic may infer value (dwell time, length, session length, engagement,
+folder, completion, duration, or anything else). If you are tempted, don't,
+and write the temptation down in your notes.
+
+## §0 File ownership (Phase 2)
+
+No two agents modify the same file. Paths not listed are reserved for the
+integration pass and must not be edited in Phase 2.
+
+| Agent | Owns (may create/modify) |
+|---|---|
+| **A — YouTube** | `sources/youtube.py`, `ingest_api.py`, `extension/**`, `tests/test_youtube*.py`, `tests/test_ingest_api.py`, `tests/fixtures/youtube/**`, `NOTES-A.md` |
+| **B — Screen Time + Cold Turkey** | `sources/screentime.py`, `sources/ocr_vision.py`, `sources/coldturkey.py`, `handlers_imports.py`, `tests/test_screentime*.py`, `tests/test_coldturkey*.py`, `tests/test_handlers_imports.py`, `tests/fixtures/screentime/**`, `tests/fixtures/coldturkey/**`, `NOTES-B.md` |
+| **C — Vault + labels** | `sources/vault.py`, `labels.py`, `handlers_labels.py`, `tests/test_vault*.py`, `tests/test_labels*.py`, `tests/test_handlers_labels.py`, `tests/fixtures/vault/**`, `NOTES-C.md`; **and** the separate repo `/Users/Jacob/Projects/obsidian-ingest` on a branch `drbr-capture-id` |
+| **D — Gate + reporting** | `allowance.py`, `report.py`, `db.py`, `bot.py`, `poll.py`, `triage.py`, `tests/test_allowance*.py`, `tests/test_report*.py`, `tests/test_db.py`, `tests/test_bot.py`, `tests/test_poll.py`, `tests/test_triage.py`, `tests/test_integration.py`, `NOTES-D.md` |
+| **Integration only** | `schema.sql`, `migrations/**`, `config.py`, `clock.py`, `dr_brainrot_types.py`, `evidence.py`, `conftest.py`, `check_env.py`, `jobs.py`, `dashboard/**`, `dr-brainrot` (launcher), `launchd/**`, `requirements.txt`, `.env*`, `README.md`, `CONTRACTS.md`, `DECISIONS.md`, `EXISTING.md`, `REVIEW.md`, `tests/test_dr_brainrot_*.py` |
+
+Agents run tests with `/Users/Jacob/Projects/dr-brainrot/.venv/bin/python -m pytest -q`
+from their own worktree root. Real personal inputs are read-only at
+`/Users/Jacob/Projects/dr-brainrot/inputs/` (gitignored; never copy them into the
+repo unsanitised).
+
+## §1 Conventions
+
+- **Instants:** ISO-8601 UTC via `clock.iso()`, as in Part I.
+- **Local days:** `'YYYY-MM-DD'` in `settings.tz` (`DR_BRAINROT_TZ`, `Europe/Warsaw`). Convert only with `dr_brainrot_types.local_date`.
+- **Measurement week:** local Sunday..Saturday (`dr_brainrot_types.measurement_week`). It is charged to the queue's allowance week opening **18:00 on that same Sunday** (`dr_brainrot_types.allowance_week_start_for_day`). A local day is never split between two allowance weeks. Spotify deltas keep the queue's instant-based attribution (`clock.week_start_for(polled_at)`).
+- **Time is injected:** every function that needs "now" takes a `Clock`. Tests use `clock.FrozenClock`.
+- **Settings:** `config.Settings` gains `youtube_api_key`, `vault_path`, `vault_inbox`, `capture_outbox`, `raw_dir`, `diagnostic_weeks`, `dashboard_port`, `ingest_token` (defaults keep `config.test_settings()` valid). Tests pass `raw_dir=tmp_path/...` and `vault_path=tmp_path/...` explicitly.
+- **No network in tests**, enforced by `conftest.py`. Every external client is injected.
+- **Secrets** never appear in logs, exceptions shown to the user, fixtures, or notes.
+
+## §2 Schema (migration `0002_dr_brainrot.sql`, schema_version 2)
+
+Authoritative DDL is `migrations/0002_dr_brainrot.sql`; semantics:
+
+| Table | Purpose / invariants |
+|---|---|
+| `episodes` + `platform` ('spotify' default / 'youtube'), `source_key` | Queue item metadata. A YouTube row has `spotify_id = 'youtube:<videoId>'`, `show` = channel title, `source_key` = channel id, `duration_ms` from the Data API. |
+| `sources` | Labelled things. `UNIQUE(kind, source_key)`, key normalised by `labels.normalise_key`. `label` NULL = unlabelled. X pre-seeded wasteful. |
+| `item_labels` | Per-item override, `item_ref` = `'spotify:<id>'`/`'youtube:<id>'`, origin `'capture'`. |
+| `imports` | One row per ingestion attempt, including failures. `raw_path` relative to `settings.raw_dir`. |
+| `measurements` | Non-Spotify minutes. Natural key `(provenance, source_id, item_key, period_start, period_end)`; later import replaces the fact. `minutes IS NULL` ⇔ `status != 'ok'`. |
+| `category_measurements` | Screen Time category totals (reported only; not labelled, not gated). |
+| `vault_captures` | Obsidian captures from the outbox, identity = `capture_id`. |
+| `vault_observations` | One row per capture per scan; latest scan per capture is current. |
+| `prompts_sent` | Dedup bookkeeping for bot prompts (like the queue's `alerts_sent`). |
+
+## §3 Canonical constants — `dr_brainrot_types.py`
+
+Labels `WASTEFUL`/`WORTHWHILE`, `DEFAULT_LABEL = WASTEFUL`; bases
+`BASIS_ITEM_OVERRIDE` > `BASIS_SOURCE_LABEL` > `BASIS_DEFAULT`; source kinds
+`podcast_show | youtube_channel | iphone_app | web_domain | x`; report groups
+`podcasts | youtube | x | iphone_apps | desktop_web` (+ keeper-only `web`,
+`other`); provenance `api | page_extraction | screenshot_ocr | manual_export |
+vault_scan | user_label` with `PROVENANCE_TEXT`; devices `iphone | desktop |
+account`; measurement statuses `ok | progress_missing | duration_missing |
+unreadable`; import kinds `youtube_history | screentime | coldturkey |
+vault_scan`; `COVERED_ELSEWHERE` (double-count exclusions);
+`VideoInfo(video_id, title, channel_id, channel_title, duration_s|None)`;
+`VideoLookupError`; `item_ref()`; week helpers.
+
+## §4 Evidence — `evidence.py`
+
+```python
+store_raw(settings, kind, data: bytes, ext) -> (rel_path, sha256)      # content-addressed, 0600, idempotent
+raw_file(settings, rel_path) -> Path
+find_import_by_sha(conn, kind, sha) -> Row | None                        # latest non-failed
+begin_import(conn, clk, *, kind, parser_version, raw_path=None, raw_sha256=None) -> ImportRecord   # row starts 'failed'
+upsert_measurement(conn, rec, *, source_id, device, provenance, period_start, period_end,
+                   minutes, status='ok', item_key='', item_title=None, detail=None) -> None       # no commit
+finish_import(conn, clk, settings, rec, *, period_start, period_end, status=None) -> 'ok'|'partial'
+fail_import(conn, rec, error: str) -> None                              # rolls back uncommitted writes
+get_meta / set_meta / ensure_diagnostic_start(conn, first_data_date)
+diagnostic(conn, clk, settings) -> Diagnostic(started, start, end, days_remaining, week_number, ended)
+class ParseError(Exception)          # base for every source parse error
+class Outcome(import_id, status, measurements_written, warnings, error, period_start, period_end, duplicate_of)
+```
+
+**Every ingest function has this shape and these semantics:**
+
+1. Store the raw bytes first (`store_raw`).
+2. If `find_import_by_sha` returns a prior non-failed import, return `Outcome(..., duplicate_of=that_id)` and write nothing. Re-parsing is explicit (`reparse`).
+3. `begin_import`, parse, `upsert_measurement` per fact, `finish_import`.
+4. Any `ParseError` (or a dependency failure such as `VideoLookupError`) → `fail_import(conn, rec, message)` and return a failed `Outcome`. Never raise to a handler for bad evidence; never write zeros for what could not be read.
+5. `rec.warnings` for anything partially unreadable ⇒ status `partial`.
+6. `finish_import` fixes the diagnostic start (first import with a period) and calls `allowance.on_measurements_changed`.
+
+Each source module exposes `PARSER_VERSION: str` and
+`reparse(conn, clk, settings, import_id, ...) -> Outcome`, which reads the raw
+file again and writes a **new** import row.
+
+## §5 Labels — `labels.py` (Agent C extends; signatures fixed)
+
+```python
+normalise_key(kind, raw) -> (kind, key)       # X app / x.com / twitter.com fold into ('x','x')
+ensure_source(conn, clk, kind, raw_key, display_name=None) -> Source           # no commit
+get_source(conn, source_id) -> Source | None
+is_covered_elsewhere(source) -> str | None
+set_source_label(conn, clk, source_id, label) -> Source                         # commits
+set_item_override(conn, clk, item_ref, label) -> None                           # no commit
+parse_override_token(text) -> (note, label | None)    # '#worthwhile|#worth|#wasteful|#waste'
+item_override(conn, item_ref) -> str | None
+resolve(conn, *, source_id, item_ref=None) -> ResolvedLabel(label, basis)       # THE resolver
+# Agent C adds:
+sources_needing_label(conn, clk, settings, *, limit=8) -> list[Source]
+mark_prompted(conn, clk, source_ids) -> None
+list_sources(conn, *, kind=None, label=None | 'unlabelled') -> list[Source]
+```
+
+Precedence is exactly: item override → source label → wasteful default.
+`sources_needing_label` returns only unlabelled, not-covered sources that have
+at least one measurement, listening row (via a queue episode) or vault capture,
+and were not prompted in the last 7 days; oldest `first_seen_at` first.
+
+## §6 Sources
+
+### §6.1 YouTube — `sources/youtube.py`, `ingest_api.py`, `extension/` (Agent A)
+
+The real saved history page (`inputs/Watch history - YouTube.html`) carries the
+data in `ytInitialData`; scrolling fetches more via POST `/youtubei/v1/browse`
+continuation JSON. The extension captures those JSON objects **from the page's
+own data** and posts them; parsing happens server-side in Python so it is
+testable against the real fixture.
+
+```python
+PARSER_VERSION = "youtube-1"
+class YouTubeParseError(evidence.ParseError)
+@dataclass WatchEntry(video_id, title, channel_id|None, channel_name|None, watch_date: str,
+                      is_short: bool, percent: float|None, order: int)
+parse_pages(pages: list[dict], *, captured_at: str, tz: str) -> ParsedHistory(entries, warnings)
+resolve_date_header(text: str, captured_local: date) -> date      # 'Today','Yesterday',weekday,'Sep 9','Aug 30, 2025'
+class DataApiClient(settings, *, transport=None):                 # httpx, videos.list part=contentDetails,snippet, 50 ids/call
+    videos(video_ids) -> dict[str, VideoInfo]                     # missing ids simply absent; raises VideoLookupError
+    video_info(video_id) -> VideoInfo | None
+class FakeYouTubeApi                                              # test double, same surface
+ingest(conn, clk, settings, payload: bytes, api) -> Outcome
+reparse(conn, clk, settings, import_id, api) -> Outcome
+current_cursor(conn) -> str | None                                # meta 'youtube_cursor'
+```
+
+Payload (JSON bytes) from the extension:
+`{"schema": 1, "captured_at": "<UTC ISO>", "extension_version": "...", "cursor": "<videoId>|null", "cursor_reached": bool, "pages": [<ytInitialData or browse response>, ...]}`
+
+Rules:
+- Walk the JSON generically for `itemSectionRenderer` sections; date = the section header. A section whose header cannot be resolved, or a page with zero sections, is a `YouTubeParseError` — loud, never an empty week.
+- Regular videos: `lockupViewModel` (contentType VIDEO), percent from `thumbnailOverlayProgressBarViewModel.startPercent`. Absent progress on a regular video → measurement `status='progress_missing'`, `minutes=None`, and a warning. Never dropped, never 0.
+- Shorts: `shortsLockupViewModel` inside `reelShelfRenderer`. **Assumed fully watched**: `minutes = duration_s/60` from the Data API, `detail.assumed_full = true`. Never an assumed average length.
+- `minutes = percent/100 * duration_s/60`. Missing API duration → `status='duration_missing'`.
+- Source = `youtube_channel` keyed by the API's `channel_id` (display = channel title); device `account`; provenance `page_extraction`; `item_key` = video id; period = the watch date (one day).
+- Entries at or after the stored cursor (the cursor video and everything older) are skipped. On `ok`/`partial`, the cursor becomes the newest video id of this payload. A failed import never moves the cursor.
+- `VideoLookupError` → failed import (raw kept; `reparse` later).
+- No time of day, no sittings, no rewatch correction are fabricated.
+
+`ingest_api.py`: `make_blueprint(*, get_conn, clk, settings, api_factory) -> flask.Blueprint` with
+`GET /api/youtube/cursor` and `POST /api/youtube/history`. Both require header
+`X-Dr-Brainrot-Token == settings.ingest_token` (constant-time compare), else 401.
+Body limit 25 MB. Responds JSON with the `Outcome` fields. Mounted by the
+dashboard app (Phase 3) on `127.0.0.1:settings.dashboard_port`.
+
+`extension/`: Manifest V3, unpacked, works in Chrome and Brave. Content script
+on `https://www.youtube.com/feed/history*` reads the page's initial data and
+the browse responses (MAIN-world fetch/XHR observation), a popup button runs
+the weekly sync: get cursor → scroll until the cursor video id has been seen,
+there is no further continuation, or a page cap → POST payload → show the
+Outcome (including failures, prominently). A missing `ytInitialData` or zero
+sections is reported as a failure in the popup, never as "0 videos".
+
+### §6.2 Screen Time — `sources/screentime.py`, `sources/ocr_vision.py` (Agent B)
+
+Real evidence: `inputs/IMG_5223..5232.PNG`, one scrolled sequence on the
+iPhone's per-device view. Sections: summary (daily average, top-3 category
+totals, total), Limits, **Most Used** (app + duration like `1h 17m`, `23m`,
+`53s`), Pickups (counts), First Used After Pickup (counts), Notifications
+(counts). Header shows the device name and a week label.
+
+```python
+# ocr_vision.py — the only module importing pyobjc
+@dataclass TextObservation(text, confidence, x, y, w, h)   # normalised 0..1, origin top-left
+recognize(image_bytes) -> list[TextObservation]             # Apple Vision VNRecognizeTextRequest, accurate, on-device
+
+# screentime.py
+PARSER_VERSION = "screentime-1"
+class ScreenTimeParseError(evidence.ParseError)
+parse_duration(text) -> float | None                        # minutes; '1h 17m'->77, '53s'->0.883; None if not a duration
+parse_observations(pages: list[list[TextObservation]], *, received_at: str, tz: str) -> ScreenTimeParse(
+    device_name, week_label, period_start|None, period_end|None, apps: list[(name, minutes)],
+    categories: list[(name, minutes)], total_minutes|None, warnings, is_full_past_week: bool)
+ingest_batch(conn, clk, settings, images: list[tuple[bytes, str]], *, received_at, ocr=recognize) -> Outcome
+reparse(conn, clk, settings, import_id, *, ocr=recognize) -> Outcome
+```
+
+Rules:
+- Raw: each image via `store_raw('screentime', ...)`, plus a JSON manifest (image rel paths in order, received_at) stored the same way; `imports.raw_path` = the manifest. Duplicate detection uses the manifest sha.
+- Only per-app minutes from **Most Used** and category totals from the summary are measurements. Counts (pickups, notifications) are ignored and never read as minutes.
+- Overlapping screenshots repeat rows: dedupe by app name; the same app with two different durations is a warning, not a guess.
+- A row whose name or duration cannot be read → warning (import `partial`); nothing invented.
+- **Only a complete past week writes measurements** (`is_full_past_week`: label "Last Week" or an explicit date range entirely before `received_at`'s week). "This Week" or an all-devices view is stored as evidence with a warning explaining what to resend, status `partial`, zero measurements.
+- Measurement: source `iphone_app` via `labels.ensure_source` (X folds automatically), device `iphone`, provenance `screenshot_ocr`, period = that Sunday..Saturday. `detail` holds the raw OCR text for the row and the confidence.
+- Tests never call Vision: they feed recorded `TextObservation` fixtures. Committed fixtures are sanitised (see §12). A local-only test may run real OCR on `inputs/` and must `skip` when the files are absent.
+
+### §6.3 Cold Turkey — `sources/coldturkey.py` (Agent B)
+
+Real evidence: `inputs/Cold Turkey Blocker Website Statistics.json` —
+`[{"label": "<domain>", "data": [[<UTC-midnight epoch ms>, <minutes float>], ...]}, ...]`.
+The sibling "Websites Blocked" export is a *count* chart and must be rejected.
+
+```python
+PARSER_VERSION = "coldturkey-1"
+class ColdTurkeyParseError(evidence.ParseError)
+parse(data: bytes) -> ColdTurkeyParse(rows: list[(label, date, minutes)], days: list[date], warnings)
+ingest(conn, clk, settings, data: bytes, *, filename: str | None = None) -> Outcome
+reparse(conn, clk, settings, import_id) -> Outcome
+```
+
+Rules: day = the UTC calendar date of the timestamp (Cold Turkey encodes local
+days at UTC midnight). Minutes are taken as given (float). Source `web_domain`
+(X folds), device `desktop`, provenance `manual_export`, period = that day.
+Only fields observed in the real file are assumed. Malformed/missing/
+unexpected shapes raise `ColdTurkeyParseError`; duplicated (label, day) pairs
+are a warning with a documented rule. Import `meta` records the listed domain
+count and the note that unlisted domains are unmeasured.
+
+### §6.4 Vault — `sources/vault.py` + obsidian-ingest (Agent C)
+
+**Outbox line** (JSONL, appended by obsidian-ingest to `DR_BRAINROT_CAPTURE_OUTBOX`, one object per line):
+`{"v": 1, "capture_id": "<uuid4 hex, 32 chars>", "captured_at": "<UTC ISO>", "capture_type": "<ingest input type/format, verbatim>", "url": str|null, "title": str, "author": str|null, "rel_path": "<path relative to vault>", "body_sha256": "<hex>"}`
+
+**Frontmatter key:** `drbr_capture_id: <capture_id>` in the note's first frontmatter block.
+
+**Body hash** (identical in both repos, shared test vector): the text after the
+first frontmatter block's closing `---` line, `.strip()`ped, UTF-8, SHA-256.
+
+```python
+PARSER_VERSION = "vault-1"
+FRONTMATTER_KEY = "drbr_capture_id"
+body_sha256(note_text: str) -> str
+read_outbox(conn, clk, settings) -> OutboxResult(new: int, malformed: list[str])     # idempotent by capture_id
+scan(conn, clk, settings) -> Outcome        # kind 'vault_scan', raw_path None, meta = counts
+latest_outcomes(conn) -> dict[capture_id, VaultOutcome(outcome, rel_path, edited, copies, scanned_at)]
+keeper_group_for(capture_type) -> str       # x-post/x-article -> x; youtube -> youtube; article -> web; else other
+```
+
+Rules:
+- Identity is `capture_id` only. Paths are recorded, never matched on.
+- Outcomes, exactly: `unprocessed` (every copy under `settings.vault_inbox/`), `kept` (a copy anywhere else in the vault), `excluded` (no file carries the id, or only in `.trash/`). Excluded never counts as failure and leaves the denominator.
+- `edited` = current body hash ≠ `body_sha256` at capture. Secondary flag only.
+- Skip `.obsidian/`, `.git/`, `.trash/` when looking for kept/unprocessed copies.
+- Two files with one id: `copies=2`, outcome by the rule above, plus a warning.
+- obsidian-ingest (branch `drbr-capture-id`): generate the id and append the outbox line **before** writing the note (a logged capture whose note never appears is excluded, which is harmless; a note the log never heard of would be invisible); write the id into frontmatter; outbox failure is logged loudly and the bot reply says the dr-brainrot log failed. Add tests there (pytest, no network). Do **not** restart its launchd agent; integration does.
+
+### §6.5 Spotify
+
+Unchanged except where Part II §7 says. Podcast source = `podcast_show` keyed by
+normalised `episodes.show`.
+
+## §7 Gate and allowance — `allowance.py`, `db.py`, `poll.py`, `triage.py`, `bot.py` (Agent D)
+
+```python
+item_label(conn, item: db.QueueItem) -> labels.ResolvedLabel
+    # source: podcast_show(show) for spotify rows, youtube_channel(source_key) for youtube rows;
+    # item_ref: spotify:<id> / youtube:<videoId>
+promotion_cost(conn, item) -> tuple[int, labels.ResolvedLabel]    # worthwhile -> 0
+pooled_minutes(conn, settings, week_start: str) -> PooledMinutes(
+    wasteful_min: float, worthwhile_min: float, by_group: dict[str, GroupMinutes],
+    covered_excluded_min: float, unmeasured_items: int)
+gated_split(conn, settings, week_start: str) -> dict[group, GatedSplit(gated_min, ungated_min, wasteful_ungated_min)]
+on_measurements_changed(conn, clk, settings) -> None     # recompute debt_min of every week that has a predecessor
+debt_for(closed: db.Week, pooled: PooledMinutes) -> int  # clamp(wasteful - effective, 0, allowance)
+```
+
+Behaviour:
+- **Lock stays intact for every item**, worthwhile or wasteful. Triage flow unchanged.
+- **Worthwhile items never spend the allowance**: promotion cost 0, no refusal, and their consumption is excluded from allowance, debt and alerts.
+- **Wasteful** (including unlabelled-default) promotions go through the queue's gate exactly as before.
+- **Pooled consumption** for an allowance week = wasteful Spotify minutes (clamped deltas in the week window, labelled per episode) + wasteful `measurements` minutes (status ok, not `COVERED_ELSEWHERE`) whose day maps to the week. `weeks.listened_min` keeps its Part I meaning (raw Spotify minutes).
+- **Debt** at rollover = `clamp(pooled wasteful − effective allowance, 0, allowance_min)`. Late imports recompute it (`on_measurements_changed`). Alerts in `poll.check_alerts` compare pooled wasteful minutes.
+- **Gated** consumption: Spotify delta whose queue item was promoted at or before the poll instant; YouTube measurement whose `youtube:<id>` queue item was promoted on or before that local day. Everything else (all Screen Time, Cold Turkey, unpromoted YouTube/Spotify) is ungated.
+- **YouTube capture:** a YouTube link sent to the bot captures into the queue through `bot_data["youtube"]` (any object with `video_info(video_id) -> VideoInfo | None`, raising `VideoLookupError`). `duration_s is None` refuses capture with a message. YouTube rows are excluded from Spotify polling and never auto-`played`.
+- **Override at capture:** the why-note goes through `labels.parse_override_token` (and the queue's deadline parse). An override is stored with `labels.set_item_override`. The confirmation shows the resolved label and basis. The triage post shows the label and "costs 0 min" for worthwhile.
+- Labels are always read through `labels.resolve` via `allowance.item_label`; nothing caches a label.
+
+## §8 Telegram integration hooks
+
+- `bot.build_app` registers the queue's handlers, then calls `handlers_imports.register(app)` and `handlers_labels.register(app)`.
+- Callback data prefix `d:` is reserved for dr-brainrot. `d:imp:...` (B), `d:lbl:...` (C). The queue's handler ignores `d:`; malformed non-`d:` data is still answered "Unrecognised button.". Data ≤ 64 bytes.
+- Extension modules must not add a plain TEXT handler. Photos, image documents and JSON documents belong to B; label commands/callbacks to C; links and notes to D (`bot.py`).
+- Every handler is wrapped in `bot.authorised_only` and reads `settings`, `conn`, `clk` from `context.bot_data`.
+- Jobs call, and never duplicate, these functions (all return a list of sent-message summaries, send via `triage.send`, dedupe via `prompts_sent`, and do nothing once `evidence.diagnostic(...).ended`):
+  - B: `handlers_imports.send_due_prompts(conn, clk, settings, bot) -> list[str]` — for the most recent complete measurement week, prompt once per day (from the Monday after it) for each of screentime / coldturkey / youtube that has no ok/partial import covering it.
+  - C: `handlers_labels.send_label_batch(conn, clk, settings, bot) -> list[str]` — only once the diagnostic has run ≥ 7 days; one message per source with two buttons.
+- User-facing replies for imports state the Outcome honestly: counts written, warnings, or the failure reason and what to resend.
+
+## §9 Reporting — `report.py` (Agent D)
+
+All functions are read-only and take `(conn, clk, settings, ...)`.
+
+```python
+diagnostic_banner(...) -> evidence.Diagnostic
+weekly_totals(..., week_start: str) -> list[SourceTotal(group, provenance: str, device, minutes, unmeasured_items, covered_excluded_min, import_status)]
+  import_status: None (API-polled) | 'ok' | 'partial' | 'not_due' | 'missing' | 'so_far' | 'incomplete'
+  The last four are two pairs: nothing arrived ('not_due' before the week is asked
+  for, 'missing' after) and partial coverage ('so_far' before, 'incomplete' after).
+  Slugs, not prose: the template maps them to words and to a CSS class (DR5.10).
+top_sources(..., week_start, limit=8) -> list[SourceLine(source_id, display_name, group,
+                                       minutes, label, reflex_min, provenances)]
+  The week's content BY NAME, biggest first. label is None when undecided — never guessed.
+  Tool sources never appear. Same exclusions as pooled_minutes, so list and totals agree.
+PooledMinutes/GroupMinutes/WeekSplit gain unclassified_min and .charged_min
+  (= wasteful + unclassified). Reported headline reads wasteful_min; the allowance,
+  overage and alerts read charged_min (DR5.11).
+week_is_due(clk, settings, mweek) -> bool   # the Sunday after the week has come (DR5.24; was Monday)
+due_on(mweek) -> date                       # that Sunday: the day checklist.send_due asks
+everything_in(totals) -> bool               # every expected source covers the week
+label_split(..., weeks: int = 8) -> list[WeekSplit(week_start, wasteful_min, worthwhile_min)]
+allowance_status(...) -> AllowanceStatus(week_start, allowance_min, debt_min, effective_min, spent_wasteful_min, remaining_min, promoted_min)
+gated_vs_ungated(..., week_start: str) -> list[GatedRow(group, gated_min, ungated_min, share_ungated|None)]
+cost_per_keeper(..., since: str | None = None) -> list[KeeperRow(group, minutes, keepers, minutes_per_keeper|None, provenances, blind_spots)]   # ranked; None price sorts last
+funnels(...) -> Funnels(queue: db.FunnelStats, vault: VaultFunnel(captured, unprocessed, kept, excluded, edited_kept))
+blind_spots(...) -> list[str]
+records(..., *, group=None, label=None, start=None, end=None, limit=500) -> list[RecordRow]
+```
+
+- Cost per keeper = group minutes (all labels, excluding covered duplicates) ÷ vault captures from that group currently `kept`. Zero keepers → `minutes_per_keeper=None` ("no keepers yet"), never infinity or zero.
+- Vault figures are **counts**. No function converts a capture into minutes.
+- Every row carries provenance; screenshot-derived rows keep `screenshot_ocr` all the way to the UI.
+- `blind_spots` includes at least: podcast listening outside the queue is invisible; Cold Turkey lists only its top domains; only one desktop machine is exported; YouTube rewatches undercount and dates have no time of day; YouTube progress-missing items; Screen Time weeks not yet received.
+- No targets, scores or streaks.
+
+## §10 Dashboard (Phase 3, integration)
+
+Flask + HTMX, server-rendered, bound to `127.0.0.1:settings.dashboard_port`,
+mounts `ingest_api.make_blueprint`. Consumes only `report.py`, `labels.py`
+(label manager toggle via `set_source_label`) and `evidence.diagnostic`.
+
+## §11 Jobs (integration)
+
+`jobs.py daily` (launchd, daily): `vault.read_outbox`, `vault.scan`,
+`handlers_imports.send_due_prompts`, `handlers_labels.send_label_batch`,
+diagnostic-end notice. The queue's `poll.py`/`triage.py` schedules are unchanged.
+
+## §12 Fixtures and personal data
+
+- Committed fixtures are derived from the real inputs **and sanitised**: titles, channel names, video ids, app names beyond what the parser needs, domains, device name and exact minutes are replaced with synthetic values while the structure the parser depends on is kept byte-for-byte in shape.
+- For Screen Time, fixtures are recorded OCR observations (JSON), sanitised the same way; images are not committed.
+- A test may read `/Users/Jacob/Projects/dr-brainrot/inputs/` only as an optional local check that `pytest.skip`s when absent, and it must not print personal content.
+- Nothing from the vault is committed.
+
+## §13 Amendments made at integration (Phase 2.5)
+
+- §1 Settings: `go_live: str` (`DR_BRAINROT_GO_LIVE`, local date). `evidence.finish_import` never fixes `diagnostic_start` before it. (DR2.2)
+- §6.1: minutes rule for partial regular videos prefers `resume_s` (DR2.1); one fact per regular video per sync under its newest date, one per distinct day for Shorts (DR2.3); entries before `settings.go_live` are skipped and counted in meta (DR2.2); cursor also stores `youtube_cursor_date`, and `GET /api/youtube/cursor` returns `{cursor, cursor_date}` (DR2.4); a failed import answers HTTP 422 with the Outcome body; the key is sent as the `X-Goog-Api-Key` header; `PARSER_VERSION = "youtube-2"`.
+- §3: `dr_brainrot_types.UNKNOWN_YOUTUBE_CHANNEL_KEY`; §5 `sources_needing_label` excludes it (DR2.5).
+- §6.4: `scan` records a failed import when `settings.vault_path` is unset or missing (DR2.6). `/labels` sends immediately, ignoring the once-per-day `prompts_sent` gate but keeping the 7-day and per-source cooldowns.
+- §6.2 (Agent B, accepted): `ocr_vision.recognize_region` and a `region_ocr=` parameter on `ingest_batch`/`reparse`; `TextObservation.origin`; batches are per chat, not per album; the duplicate check matches identical images in the same week; `reparse` replaces the previous import's rows; "This Week"/all-devices imports have NULL periods (DR1.13, DR2.8).
+- §6.3: days on or after the export date are skipped with a warning (DR2.9). Measurements carry `item_key` = the raw domain, so X from `x.com` and `twitter.com` never overwrite each other; **readers sum per source**.
+- §7/§9 (Agent D, accepted): `QueueItem.platform`/`source_key` (defaulted); `triage.render_item(..., label=None)` and `render_deadline_notice(..., label=None)`; `bot.build_app(..., youtube=None)`; `report.window_start(conn, clk, settings)`; `allowance.ensure_item_source`, `whole_minutes`, `week_end`. Week coverage: a YouTube week is covered by any ok/partial sync received after that Saturday; others by period overlap.
+- §8: after any label change (Telegram or dashboard) the caller runs `allowance.on_measurements_changed` (DR2.7). `handlers_imports.send_due_prompts` never asks about a week ending before `settings.go_live`.
+- §11: `jobs.run_daily(conn, clk, settings, bot) -> list[failed step names]`; each step is isolated and any failure makes `jobs.py daily` exit 1.
+
+## §14 Amendments made at verification (Phase 4)
+
+All additive and defaulted; every earlier call site stays valid. Reasons and tests in REVIEW.md Part II.
+
+- §7 `allowance.pooled_minutes` and `gated_split` skip measurement rows whose `period_end` is before `settings.go_live` (DR4.1). Spotify listening is unaffected. `PooledMinutes` gains `screenshot_ocr_min` and `screenshot_ocr_wasteful_min`; `GatedSplit` gains `provenances: frozenset` (excluded from equality).
+- §9 `SourceTotal` gains `import_id` (the import covering that week, not the latest of its kind) and `covered_reasons: tuple[(reason, minutes)]`. `GatedRow` gains `wasteful_ungated_min` and `provenances`. `WeekSplit` gains `screenshot_ocr_min`; `AllowanceStatus` gains `spent_screenshot_ocr_min`. New: `report.latest_imports(conn, clk, settings) -> list[ImportSummary]` and `report.import_detail(conn, clk, settings, import_id) -> ImportSummary | None`. The dashboard reads imports only through these.
+- §6.4 `vault.scan` resolves `settings.vault_inbox` to its on-disk spelling and **fails** when the inbox folder is missing while any capture is logged (a warning only when there are none) (DR4.2).
+- §6.2 A complete past week whose parse yields no app rows is evidence only: NULL period, status `partial`, nothing written, and a reparse in that state deletes nothing.
+- §6.1 `EvidenceError`/`LabelError` during YouTube ingest fail the import like a `ParseError`.
+- Part I §5 `triage.render_item`, `render_deadline_notice` and `render_week_header` take keyword `tz=None`; callers with `Settings` pass `settings.tz`.
+- §8 The bot's capture confirmation distinguishes an override typed in this note from one stored by an earlier capture of the same item.
+
+## §15 Post-build amendment — automated Cold Turkey (DR5.1)
+
+- `config.Settings.coldturkey_db: Path | None` (`DR_BRAINROT_COLDTURKEY_DB`); None = manual exports only.
+- `sources/coldturkey_local.py`: `hostname(url) -> str | None`; `read_host_minutes(db_path, *, first_day, last_day, tz) -> dict[(date, host), minutes]` (read-only, raises `ColdTurkeyLocalError`); `export_document(totals) -> bytes`; `window(clk, settings) -> (first, last) | None`; `sync(conn, clk, settings) -> Outcome | None`.
+- `coldturkey.ingest(..., origin="export" | "local_db")`; import `meta.origin`, measurement `detail.origin`; `reparse` keeps the origin.
+- `jobs.run_daily` step `coldturkey_local` runs before `import_prompts`.
+- `handlers_imports.prompt_text(kind, week, *, automated_coldturkey=False)`.
+- `check_env.py` step 8 checks the database is readable (counts only).
+
+## §16 Post-build amendment — no debt carry-over (DR5.2)
+
+- Migration `0003_no_debt.sql`, schema_version 3: `weeks.overage_min INTEGER NULL CHECK >= 0`; `debt_min` zeroed.
+- `db.Week.overage_min: int | None`; `effective_allowance_min` = `allowance_min` (ignores `debt_min`).
+- `db.roll_over_week` records `closed.overage_min` and opens the new week with `debt_min = 0`.
+- `allowance.debt_for` removed → `allowance.overage_for(week, pooled) -> int`; `on_measurements_changed` re-records `overage_min` for every week.
+- `report.AllowanceStatus.debt_min` → `overage_min`; `report.WeekSplit` gains `allowance_min`, `overage_min`.
+- `triage.render_week_header(..., last_week_overage_min=None)`.
+
+## §17 Post-build amendment — desktop apps from Qbserve (DR5.3)
+
+- Migration `0004_desktop_apps.sql`, schema_version 4: rebuilds `sources`, `imports`, `measurements`, `prompts_sent` with widened CHECKs (`kind` + `desktop_app`; `provenance` + `app_tracker`; import `kind` + `qbserve`; prompt `kind` + `qbserve_stale`). Columns, constraints, indexes and rows are unchanged.
+- `db.migrate` runs each step with `PRAGMA foreign_keys=OFF` (set before `BEGIN`), runs `PRAGMA foreign_key_check` before committing, and raises `db.MigrationError` (whole step rolled back) on any violation. Foreign keys are back ON afterwards.
+- `dr_brainrot_types`: `KIND_DESKTOP_APP = "desktop_app"`, `GROUP_DESKTOP_APPS = "desktop_apps"` (in `REPORT_GROUPS`; `report_group(KIND_DESKTOP_APP)`), `PROV_APP_TRACKER = "app_tracker"` (in `PROVENANCES`, between export and vault), `IMPORT_KINDS` + `"qbserve"`, `COVERED_ELSEWHERE[("desktop_app", "com.spotify.client")]`.
+- `labels.normalise_key("desktop_app", bundle)` → bundle casefolded; known Mac X bundles → `("x", "x")`.
+- `config.Settings.qbserve_db: Path | None` (`DR_BRAINROT_QBSERVE_DB`); None = desktop apps not measured.
+- `evidence.upsert_measurement` accepts `PROV_APP_TRACKER`.
+- `sources/qbserve.py`:
+  - `read_app_minutes(db_path, *, first_day, last_day, tz) -> (list[AppDay], facts)` is read-only and raises `QbserveError`;
+  - `document(rows, facts, *, first_day, last_day, tz) -> bytes` and `parse(data) -> (first, covered_through | None, rows)`;
+  - `window(clk, settings)`, `sync(conn, clk, settings) -> Outcome | None`, `reparse(conn, clk, settings, import_id)`;
+  - `staleness_hours(conn, clk) -> float | None`.
+
+  An import's period ends at the local day of Qbserve's newest record, and is NULL when nothing in the window was recorded.
+- `jobs.run_daily` step `qbserve` runs after `coldturkey_local` and before `import_prompts`. While `staleness_hours > 36` and the diagnostic hasn't ended, it sends one Telegram warning per local day. (Since DR5.27 the warning is its own step and asks `report.qbserve_silence` instead; see §21.)
+- `report`:
+  - `IMPORT_KIND_FOR_PROVENANCE[PROV_APP_TRACKER] = "qbserve"`;
+  - an `EXPECTED_WEEKLY` row for Qbserve, applied only while `settings.qbserve_db` is set;
+  - `GROUP_BLIND_SPOTS[GROUP_DESKTOP_APPS]`;
+  - `QBSERVE_STALE_HOURS = 36`, and `blind_spots` adds a staleness / never-imported line.
+- Dashboard: group name "Desktop apps", badge `("app tracker", "apptracker")` with its own CSS rule, and import kind name "Qbserve".
+- `reparse.py` dispatches `qbserve`. `check_env.py` step 9 checks the database shape and prints counts and timestamps only.
+
+## §18 Post-build amendment — the tool source label (DR5.5)
+
+- Migration `0005_tool_label.sql`, schema_version 5:
+  - rebuilds `sources` with `label CHECK (label IN ('wasteful','worthwhile','tool'))`; every column, row, id, `UNIQUE (kind, source_key)` and inbound foreign key is unchanged;
+  - `item_labels.label` is **not** widened;
+  - data step: `label='tool'`, `labelled_at` = migration time (UTC, `YYYY-MM-DDTHH:MM:SS+00:00`) for `kind='web_domain' AND source_key IN ('127.0.0.1','localhost')`.
+- `dr_brainrot_types`: `TOOL = "tool"`, `SOURCE_LABELS = (WASTEFUL, WORTHWHILE, TOOL)`. `LABELS` is unchanged (item overrides).
+- `labels`:
+  - `set_source_label` and `list_sources(label=)` accept `tool`;
+  - `set_item_override` and `parse_override_token` stay binary (no `#tool`);
+  - `resolve` precedence is unchanged: override, then source label (which may now be `tool`, basis `source_label`), then the wasteful default. `ResolvedLabel.label` may be `tool` only via a source label;
+  - `sources_needing_label`: tool counts as labelled.
+- `allowance`:
+  - `GroupMinutes.tool_min` and `PooledMinutes.tool_min` (defaulted 0.0). Tool minutes are in neither `wasteful_min` nor `worthwhile_min`, nor in `screenshot_ocr_min`/`screenshot_ocr_wasteful_min`;
+  - `gated_split` skips tool minutes;
+  - `promotion_cost` is 0 for `tool` (and `db.promote` never refuses it);
+  - `overage_for` and `poll.check_alerts` are unchanged in code: they read `wasteful_min`, which excludes tool.
+- `report`:
+  - `SourceTotal.minutes` counts content labels only; new `SourceTotal.tool_min`;
+  - `WeekSplit.tool_min`;
+  - `allowance_status` and `cost_per_keeper` exclude tool minutes;
+  - `records(label=)` accepts `tool`;
+  - `TOOL_SCOPE_LINE` is the first `blind_spots` line.
+- Dashboard:
+  - `POST /labels/<id>` accepts `label=tool` (HTMX and plain POST, same `Sec-Fetch-Site` refusal) and still calls `allowance.on_measurements_changed`;
+  - `/labels?label=tool` and `/records?label=tool`;
+  - `TOOL_TEXT = "tool → not content, not counted"`;
+  - Overview: the scope line, a tool column in weekly totals and in the per-week table.
+- `handlers_labels`: callback `d:lbl:<w|v|t>:<id>`; third button `TOOL_BUTTON = "Tool (not content)"`; `CONTENT_QUESTION` in the prompt; the edited message reads "labelled tool — not counted".
+- `triage.label_line` appends `TOOL_COST` for tool. `bot`'s capture confirmation says a tool-source item costs 0 and how to override it.
+- Alert and header text: "wasteful content minutes" (`poll._approaching_text`, `_exceeded_text`, `triage.render_week_header`).
+
+## §19 Post-build amendment — the UX overhaul (DR5.6)
+
+Telegram keeps captures, Sunday triage, allowance alerts and the Monday import
+reminder. Everything else is the dashboard's.
+
+### `report.py` (new; all read-only, all `(conn, clk, settings)`)
+
+```python
+needs_attention(conn, clk, settings) -> list[NeedsRow]     # rows needing the user first, then automatic
+provenance_map(conn, clk, settings) -> list[ProvenanceRow] # "where each number comes from"
+needs_your_eye(conn, clk, settings) -> list[EyeRow]        # OCR rows a person can resolve, newest first
+
+@dataclass(frozen=True)
+class NeedsRow:
+    group: str            # T.GROUP_* incl. the new T.GROUP_VAULT
+    label: str            # "iPhone apps", "Desktop web", "Vault (Obsidian)" … (report.GROUP_TEXT)
+    mode: str             # report.MODE_AUTOMATIC | report.MODE_MANUAL
+    schedule_text: str    # "every morning 09:30" | "every morning 09:17" | "weekly, you run it" |
+                          # "continuously while it runs, read every morning 09:30"
+    last_data_at: str | None   # UTC ISO instant of the newest data
+    covered: bool         # is any part of the CURRENT week covered
+    state: str            # report.STATE_OK | STATE_WAITING | STATE_MISSING | STATE_STALE | STATE_ATTENTION
+    action_text: str      # "" when the user owes nothing — sort/count on this, not on state
+    detail: str           # one sentence: why
+
+@dataclass(frozen=True)
+class ProvenanceRow:
+    group: str; label: str; measures: str; tool: str
+    provenance: str            # T.PROV_*
+    provenance_text: str       # T.PROVENANCE_TEXT[provenance]
+    mode: str; schedule_text: str
+    limits: tuple[str, ...]    # reuses report.GROUP_BLIND_SPOTS
+    folds_into: str | None = None   # T.GROUP_X on both X rows
+
+@dataclass(frozen=True)
+class EyeRow:
+    measurement_id: int; group: str; source: str
+    day: str; period_end: str          # local dates
+    status: str; provenance: str       # always T.PROV_SCREENSHOT for now
+    what_was_read: tuple[str, ...]     # detail.raw, verbatim ("Facebook | 2h 27m")
+    options_min: tuple[float, ...]     # every duration the evidence contains, ascending
+    suggested_min: float | None        # only when exactly one candidate; never invented
+    detail: str
+```
+
+Constants the dashboard may render: `report.GROUP_TEXT`, `MODE_AUTOMATIC`,
+`MODE_MANUAL`, `STATE_*`, `NEEDS_STATES`, `SCHEDULE_DAILY_JOB`,
+`SCHEDULE_SPOTIFY_POLL`, `SCHEDULE_MANUAL_WEEKLY`, `SCHEDULE_CONTINUOUS`,
+`STALE_HOURS`, `DIAGNOSTIC_ENDED_NOTE`, `X_FOLD_NOTE`, `EYE_PROVENANCES`.
+`needs_attention` rows for the three groups covering X are not separate; X's
+two collection paths appear only in `provenance_map`.
+
+### `labels.py` (new)
+
+```python
+label_queue(conn, clk, settings, *, limit=None) -> list[QueueRow]   # by minutes DESC, then first_seen_at, id
+bulk_set_label(conn, clk, source_ids, label, *, settings) -> int    # commits once; runs on_measurements_changed
+unlabelled_summary(conn, clk, settings) -> Summary
+
+@dataclass(frozen=True)
+class QueueRow:
+    source_id: int; kind: str; group: str; display_name: str
+    minutes: float                    # measured minutes in the diagnostic window (0.0, never None)
+    provenances: tuple[str, ...]      # T.PROV_* seen for this source
+    seen_in: tuple[str, ...]          # the same, in words (labels.PROVENANCE_SEEN)
+    first_seen_at: str
+
+@dataclass(frozen=True)
+class Summary:
+    count: int; minutes: float; top_group: str | None
+```
+
+`bulk_set_label` takes `settings` keyword-only because it re-records every
+week's overage itself; ids that no longer exist are skipped, not raised, and
+the return value is the number of rows actually changed. `sources_needing_label`
+is unchanged and still used by the Qbserve tests; `label_queue` shares its
+exclusions (covered elsewhere, the unknown-YouTube-channel bucket, no evidence)
+but has no per-source cooldown.
+
+### `sources/screentime.py` (new)
+
+```python
+correct_measurement(conn, clk, settings, measurement_id, minutes) -> None   # commits; ValueError subclass on refusal
+class CorrectionError(ValueError)
+MAX_CORRECTION_MIN = 1440
+```
+
+Sets `minutes`, `status='ok'` and appends to `detail.corrections`
+(`{at, by: "person", minutes, previous_minutes, previous_status}`) with
+`detail.corrected_by_person = True`; `detail.raw` is untouched and provenance
+stays `screenshot_ocr`. Refuses a non-number, NaN/inf, a negative value, one
+over `MAX_CORRECTION_MIN`, an unknown id, or a non-`screenshot_ocr` row. Then
+runs `allowance.on_measurements_changed`.
+
+Measurement `detail` gains `readings: list[float]` (every duration the row was
+read as) and `unreadable_reason: 'conflicting_durations' | 'no_duration' | null`.
+Screen Time import `meta` gains `unnamed_row_texts: list[str]`.
+
+### `handlers_labels.py` (replaced)
+
+```python
+send_label_digest(conn, clk, settings, bot) -> list[str]   # one summary line, or []
+digest_text(summary: labels.Summary, settings) -> str
+labels_url(settings) -> str                                # http://127.0.0.1:<dashboard_port>/labels
+cmd_labels(update, context)                                # /labels: the same sentence, no buttons
+register(app)                                              # CommandHandler only
+DIGEST_EVERY = timedelta(days=3); LABEL_PROMPTS_AFTER = timedelta(days=7); PROMPT_KIND = "labels"
+NOTHING_WAITING; CONTENT_QUESTION
+```
+
+Removed: `send_label_batch`, `render_prompt`, `on_label_callback`,
+`callback_data`, `CALLBACK_PREFIX`, `TOOL_BUTTON`, `_keyboard`, `_seen_in`,
+and the `d:lbl:` namespace entirely. The digest's 3-day gate reads
+`MAX(sent_on) FROM prompts_sent WHERE kind='labels'`; `/labels` writes no
+`prompts_sent` row.
+
+### `handlers_imports.py`
+
+`prompt_text(kind, week, *, automated_coldturkey=False)` is unchanged in shape
+and rewritten in content: what is missing, `MANUAL_LINE`, numbered steps
+(`SCREENTIME_STEPS`, `YOUTUBE_STEPS`, `COLDTURKEY_STEPS`) and
+`AUTOMATIC_TRAILER`. `send_due_prompts` skips `coldturkey` while
+`report.needs_attention` reports `GROUP_DESKTOP` as automatic and `ok`.
+
+### `jobs.py`
+
+```python
+run_sync(conn, clk, settings, bot=None) -> dict[str, StepResult]   # SYNC_STEPS, in order
+@dataclass(frozen=True)
+class StepResult: name: str; ok: bool; summary: str; error: str | None = None
+SYNC_STEPS = ("read_outbox", "vault_scan", "coldturkey_local", "qbserve")
+```
+
+`run_daily` = `run_sync` + `import_prompts`, `label_digest` (renamed from
+`label_batch`), `diagnostic_end`; it still returns the names of failed steps.
+Without a `bot`, the Qbserve staleness warning is skipped and does not consume
+that day's slot. **The HTTP endpoint for "Sync now" is not built here** —
+`dashboard/app.py` is owned elsewhere.
+
+### `dr_brainrot_types.py`
+
+`GROUP_VAULT = "vault"`. Not in `REPORT_GROUPS`, not a `report_group()` result:
+the vault produces counts, never minutes. It exists so the attention and
+provenance tables can name it.
+
+## §20 Post-build amendment — the weekly insights summary (DR5.8)
+
+A written summary at the top of the Overview, generated once a week from the
+figures `report.py` already computes. Aggregates only leave this Mac.
+
+### `insights.py` (new)
+
+```python
+build_payload(conn, clk, settings) -> dict          # aggregate-only facts; read-only, deterministic
+write_summary(conn, clk, settings, *, client=None, force=False) -> Insight   # never raises
+fallback_summary(payload: dict) -> str              # dr-brainrot's own sentences, computed locally
+latest(conn, clk, settings) -> Insight | None       # the newest stored row, or None
+
+@dataclass(frozen=True)
+class Insight:
+    summary: str                  # the paragraph to print
+    created_at: str               # UTC ISO instant (clock.iso)
+    model: str | None             # None IS the fallback — nothing else to branch on
+    week_start: str               # the allowance week it was generated in, UTC ISO
+    fallback_reason: str | None   # printable, verbatim; None exactly when a model wrote `summary`
+    based_on_through: str | None  # LOCAL date YYYY-MM-DD in settings.tz; None when no week is complete
+
+MODEL = "claude-opus-5"; MAX_TOKENS = 400; PAYLOAD_SCHEMA = 1; WEEKS = 8
+STATUS_OK = "ok"; STATUS_FAILED = "failed"        # the stored column; nothing renders it
+REASON_NO_KEY; REASON_TOO_LITTLE; REASON_CALL_FAILED; REASON_UNKNOWN
+SYSTEM_PROMPT; USER_PROMPT_HEADER; user_prompt(payload) -> str
+class SummaryUnusable(RuntimeError)
+```
+
+**The `insight` context key** (what the design session renders). The Overview's
+`render_template("overview.html", …)` call carries `insight`, appended after
+`flash` and never reordered. It is an `Insight` or `None`.
+
+- `insight is None` — nothing has been generated yet. Render no panel.
+- `insight.model is None` — dr-brainrot wrote the sentences itself. **This, and only
+  this, is the fallback test**; there is no `is_fallback` and no `status` on the
+  dataclass. Print `insight.fallback_reason` beside the summary: it is the real
+  reason in words ("No ANTHROPIC_API_KEY is set, so dr-brainrot wrote these sentences
+  from its own figures.", "API call failed: RuntimeError: …", "Too little data:
+  …"), never a code, and is non-None exactly when `model` is None.
+- `insight.model` set (`"claude-opus-5"`) — a model wrote it;
+  `fallback_reason` is None.
+- `insight.summary` is one paragraph of plain text: 3–5 short sentences, no
+  markdown, no headings, no lists. Render it as text, not as markup.
+- `insight.created_at` is a UTC instant; the `local_dt` filter formats it.
+- `insight.based_on_through` is a **local date** (`YYYY-MM-DD`, `settings.tz`) —
+  the Saturday of the last complete measurement week. Directly comparable to
+  `report.window_start(...)`, to a `T.MeasurementWeek.end` and to
+  `T.iso_date(T.local_date(clk.now(), tz))`, which is what lets the panel say
+  the summary was written before later data arrived. It is never an instant and
+  is never derived from `week_start`.
+
+`POST /insights/refresh` → endpoint `refresh_insight`. Same-origin only (the
+standing `Sec-Fetch-Site` guard), 303 to the Overview with `?msg=` =
+`insight-written` (level `ok`) or `insight-fallback` (level `warn`). Both codes
+are in `FLASH_TEXT`.
+
+### The payload, field by field
+
+Aggregate-only (DR5.8). Deterministic, JSON-serialisable, every float rounded
+to 1 place, lists in fixed order.
+
+```
+schema, generated_for_week_start, timezone, based_on_through, complete_weeks,
+weekly_allowance_min
+diagnostic: {started, ended, start, end, week_number, total_weeks}
+weeks[]:    week_start, days {from, to}, wasteful_min, worthwhile_min, tool_min,
+            screenshot_ocr_min, allowance_min, overage_min, reflex_wasteful_min,
+            reflex_share_of_wasteful, unmeasured_items,
+            change_from_previous_week {wasteful_min, wasteful_pct, worthwhile_min,
+                                       worthwhile_pct, tool_min} | null,
+            by_group[]: group, wasteful_min, worthwhile_min, tool_min, gated_min,
+                        ungated_min, share_ungated, wasteful_ungated_min,
+                        unmeasured_items, covered_excluded_min
+            coverage_gaps[]: one sentence per weekly import that never arrived
+cost_per_keeper[]: group, minutes, keepers, minutes_per_keeper
+funnels: queue {captured, survived_lock, promoted, played, fully_played, *_rate},
+         vault {captured, unprocessed, kept, excluded, edited_kept}
+```
+
+`group` is always one of the fixed `T.REPORT_GROUPS` constants (plus
+`GROUP_WEB` / `GROUP_OTHER` in `cost_per_keeper`), never a source key. The only
+prose is `coverage_gaps`, assembled from `report.GROUP_TEXT` and
+`report.EXPECTED_WEEKLY`; stored import warnings and errors are never copied.
+No source name, item title, note title, path, URL or video id can reach it.
+
+### `db.py` / migrations
+
+`SCHEMA_VERSION = 6`. `migrations/0006_insights.sql` adds `insights (id,
+created_at, model, week_start, summary, payload, status CHECK IN ('ok','failed'),
+error, input_tokens, output_tokens)` plus `idx_insights_week`. Additive: no table
+is rebuilt.
+
+### `jobs.py`
+
+`run_daily` gains an `insights` step after `diagnostic_end`. It is **not** in
+`SYNC_STEPS` and **not** added to the returned failed-step list.
+
+### `config.py`
+
+`Settings.anthropic_api_key: str = ""` (`ANTHROPIC_API_KEY`, in `_KEYS`).
+Optional; empty means the panel shows dr-brainrot's computed sentences.
+
+### `check_env.py`
+
+`check_anthropic(env)`, step 10 of 10 (`STEPS = 10`). Shape only
+(`ANTHROPIC_SHAPE`), never a live call; unset is an `OK`, not a failure. The key
+is in `SECRET_KEYS`, so it is only ever printed masked.
+
+## §21 Post-build amendment — the Sunday session (DR5.24–DR5.27)
+
+### `checklist.py` (new, DR5.24)
+
+The only thing that asks the user for anything. Read-only apart from three
+`meta` keys; no table changes, no migration.
+
+```python
+CHECKLIST_KEY = "checklist_week"            # week (Sunday, ISO) whose Sunday list was dealt with
+NUDGE_KEY = "checklist_nudge_week"          # week whose one reminder (or late list) was decided
+RECAPTURE_KEY = "checklist_recapture"       # JSON {cut-off week: asking week whose check-in asked for it again}
+SCREENTIME_WEEKS_BACK = 3                   # taps of ‹ from This Week the iPhone still has
+LABELS_WORTH_A_MESSAGE_MIN = 60.0           # labels alone send only from an hour undecided (DR5.19's bar)
+MISSING = "missing"; CUT_OFF = "cut_off"; IN = "in"
+SCREENTIME_TODO; SCREENTIME_AGAIN; SCREENTIME_OLDER ({span}, {taps}); YOUTUBE_TODO; COLDTURKEY_TODO ({span});
+COLDTURKEY_FAILING; COLDTURKEY_MANUAL; AUTOMATIC_LINE ({what}); LAST_REMINDER ({url})
+
+url(settings, path) -> str                  # http://127.0.0.1:<dashboard_port><path>
+asking_week(conn, clk, settings) -> T.MeasurementWeek | None
+    # the week just finished (Sun..Sat ending on or before yesterday); None if it
+    # ended before go-live or starts after the diagnostic's last day. The final
+    # week is still asked for after the diagnostic has ended.
+@dataclass(frozen=True)
+class WeekNeeds: week; screentime: str; youtube: str; coldturkey: str | None;
+                 readings: int; unlabelled: labels.Summary; final: bool;
+                 recapture: tuple[T.MeasurementWeek, ...] = ()
+    evidence_missing -> bool   # screentime != IN or youtube != IN or coldturkey == MISSING or recapture
+    owed -> bool               # evidence_missing or readings > 0 or unlabelled.minutes >= 60
+week_needs(conn, clk, settings, week) -> WeekNeeds     # read-only
+render(needs, settings, *, nudge: bool, late: bool = False) -> str
+send_due(conn, clk, settings, bot) -> list[str]        # e.g. "sunday checklist for week 2026-10-04: screentime, youtube, labels"
+```
+
+* Screen Time: `report._covering_import`; the latest covering import with
+  `meta.most_used_complete is False` is `CUT_OFF`; `None`/absent is `IN`.
+* YouTube: `report._covering_import` (a sync received after the Saturday).
+* Cold Turkey: `None` while `report.needs_attention` reports `GROUP_DESKTOP`
+  automatic and `ok`; otherwise an ok/partial import received after the
+  week's Saturday (local midnight) whose period overlaps the week is `IN`,
+  else `MISSING`.
+* Recapture: weeks before W, back to `SCREENTIME_WEEKS_BACK` taps from this
+  week and not before `report.window_start`, whose latest covering Screen
+  Time import is `CUT_OFF`, and which `checklist_recapture` does not record
+  as asked in another week's check-in (absent, or asked with W).
+* Readings: `len(report.needs_your_eye(...))`. Labels: `labels.unlabelled_summary`.
+* `send_due`, by the local day of the run (W = `asking_week`):
+  Sunday — the list if `owed` and `checklist_week != W`; `checklist_week = W`
+  after a successful send, or at once when nothing is owed. Monday to
+  Saturday, if `checklist_nudge_week != W`: when `checklist_week == W`, the
+  evidence-only reminder if `evidence_missing`; otherwise the whole list
+  (`late=True`) if `owed`, except Tue..Sat while neither marker has ever been
+  written (logged, nothing sent). `checklist_nudge_week = W` after a
+  successful send, or when nothing is to be sent. Sends through
+  `triage.send`; a failed send raises and writes no marker. After any send,
+  each recapture week, and W itself if `CUT_OFF`, is recorded in
+  `checklist_recapture` as asked with W (pruned to weeks the iPhone still has).
+* The order of steps is fixed: Screen Time, older captures to take again,
+  YouTube, Cold Turkey, readings, labels. The reminder carries evidence steps
+  only. `LAST_REMINDER` is "That's the only reminder. …".
+
+### `handlers_imports.py`
+
+Removed: `PROMPT_KINDS`, `AUTOMATIC_TRAILER`, `SCREENTIME_STEPS`,
+`YOUTUBE_STEPS`, `COLDTURKEY_STEPS`, `MANUAL_LINE`, `prompt_text`, `_covered`,
+`_self_feeding` (now `checklist._self_feeding`), `send_due_prompts`. The Screen
+Time reply gains "N readings couldn't be read for sure. Settle them here:
+<url>/#needs-your-eye" when rows of the import's own period are waiting.
+
+### `handlers_labels.py`
+
+Removed: `DIGEST_WEEKDAY`, `DIGEST_MIN_MINUTES`, `PROMPT_KIND`,
+`_last_digest_day`, `due_digest`, `record_digest`, `send_label_digest`.
+`digest_text(summary, settings) -> str` is the `/labels` reply only. `/labels`
+still answers after the diagnostic ends while `checklist.asking_week` is not
+None.
+
+### `jobs.py`
+
+`run_daily` = `run_sync` + `qbserve_warning` (DR5.25), `checklist`,
+`diagnostic_end` (+ `insights`, not counted as a failure).
+`send_end_notice(conn, clk, settings, bot, *, asked=False)` waits while the
+final week is `owed`, until `final.saturday + 3 days`, and never in a run whose
+check-in sent something (`asked`); its last sentence is "Nothing more will be
+asked for."
+
+### `triage.py`
+
+`NOTHING_LINE` is removed. `run_triage` posts nothing at all for an empty
+queue: the week header goes out only when at least one item was posted. Steps
+1–3 and the marker are unchanged.
+
+### Telegram unreachable (DR5.25)
+
+```python
+# triage.py
+def try_send(bot, settings, text, reply_markup=None) -> bool
+    # `send`, but a failure is logged at ERROR (which message, why, token
+    # scrubbed) and returns False. `send` stays strict.
+class SyncBot:   # opens nothing until the first send_message; a failed
+                 # connection fails that send only, the next one starts afresh;
+                 # close() is a no-op if never opened and never raises
+def run_triage(conn, clk, settings, spotify, bot) -> list[str]   # "item <id>", "header"
+def main() -> int                                                 # 1 when something wasn't posted
+
+# poll.py
+def run_poll(conn, clk, settings, spotify, bot) -> list[str]     # "positions", "deadlines", "alerts"
+def main() -> int
+
+# jobs.py
+def run_sync(conn, clk, settings) -> dict[str, StepResult]       # no bot: sends nothing
+```
+
+* Every scheduled entry point reads and records before it sends, and builds
+  its `SyncBot` without touching the network.
+* `run_triage`: steps 1–3, then the marker, then per survivor post-then-bump
+  through `try_send`, then the header through `try_send` if there were
+  survivors. A lost post is not re-sent.
+* `run_poll`: bookkeeping (week, lock lift, sources), then `positions`,
+  `deadlines`, `alerts`, each isolated. `surface_deadlines` and `check_alerts`
+  are unchanged: they raise on a failed send and record only after one.
+* `run_daily` = `run_sync`, then `qbserve_warning`, `checklist`,
+  `diagnostic_end` as separate steps (+ `insights`). `_qbserve` only reads;
+  the warning runs whether or not the read worked.
+* `bot._silence_token_logging(token=None)`: with a token, also
+  `bot.scrub_token_from_logs(token, handlers=None)`, a `logging.Filter` on the
+  root logger's handlers that replaces the token with `<TOKEN>` in each
+  record's message, traceback and stack. Every `main` loads settings first and
+  passes `settings.telegram_bot_token`.
+
+### `report.py`
+
+`due_on(mweek) = mweek.saturday + 1 day`; `week_is_due` reads it (§9).
+`_weekly_manual_state` uses `week_is_due`. `prompts_sent` no longer receives
+`screentime`, `youtube`, `coldturkey` or `labels` rows; old rows stay and the
+CHECK constraint is untouched.
+
+### Summary staleness (DR5.26)
+
+```python
+# dashboard/app.py
+STALE_NEWER_WEEK = "newer_week"; STALE_NEW_DATA = "new_data"; STALE_RELABELLED = "relabelled"
+SENT_BY_HAND = ("screentime", "youtube_history", "coldturkey")
+READ_DAILY = ("coldturkey", "qbserve", "brave_sync")     # count only when catching up
+def insight_staleness(conn, insight, last_complete_sunday, tz) -> str | None
+    # checks, in order: newer_week, then new_data, then relabelled; the first that holds wins
+def _new_data_since(conn, written, week: T.MeasurementWeek, tz) -> bool
+```
+
+`week` is the summary's week, `T.measurement_week(based_on_through)`;
+`compared` is the week before it, unless that ended before the diagnostic
+started (then `week` again). `written` is `insight.created_at`, which
+`insights.write_summary` stamps before `build_payload` reads the figures, not
+when the answer is stored. `new_data` holds when any of:
+
+* an ok/partial import of a `SENT_BY_HAND` kind with `received_at > written`
+  (Cold Turkey only when `meta.origin` is not `local_db`; none = manual
+  export) whose period overlaps `compared`..`week`, or a YouTube sync received
+  after `week`'s Saturday when none had been received between that Saturday
+  and `written`;
+* a measurement overlapping `compared`..`week` with a
+  `detail.corrections[].at > written`;
+* a `listening` row with `delta_ms > 0` polled after `written`, inside
+  `week`'s allowance week (`allowance_week_start_for_day(week.sunday)` to the
+  next week start);
+* an ok/partial import of a `READ_DAILY` kind (`coldturkey` with
+  `meta.origin == "local_db"`, `qbserve`, `brave_sync`) with
+  `received_at > written` whose period overlaps `week`, when no import of the
+  same kind had been received between `week`'s Saturday (local midnight
+  after it) and `written`: a read catching up after a gap.
+
+Otherwise the automatic reads never count, and `vault_scan` never does: they
+re-read eight days every morning. Read-only, no new state, derived on every
+render. `overview.html` names the reason in the same order.
+
+### Keeping Qbserve running (DR5.27)
+
+```python
+# report.py
+QBSERVE_WITNESS_MIN = 10.0                  # Cold Turkey minutes after Qbserve's last record that mean "in use"
+@dataclass(frozen=True)
+class QbserveSilence: latest_record_at: str; witnessed_min: float | None   # None: the 36-hour timer decided
+def _coldturkey_witness(conn, clk, settings, *, after: date) -> float | None
+    # sum of ok `manual_export` minutes with period_start > after, any label;
+    # None when settings.coldturkey_db is unset or the newer of meta
+    # `coldturkey_local_read_at` and the newest ok/partial `local_db` Cold
+    # Turkey import's received_at is over 36 h old
+def qbserve_silence(conn, clk, settings) -> QbserveSilence | None
+    # None when qbserve_db is unset or no record exists. D = local day of the
+    # latest usable Qbserve import's meta.latest_record_at. With a witness:
+    # warns when it saw >= QBSERVE_WITNESS_MIN after D, or > 0 and the record
+    # is over QBSERVE_STALE_HOURS old; 0 never warns. Without: warns when the
+    # record is over QBSERVE_STALE_HOURS old.
+
+# sources/coldturkey_local.py
+READ_AT_KEY = "coldturkey_local_read_at"    # meta: last successful read, set by sync() even when the
+                                            # window held no browsing or was unchanged (no import)
+QBSERVE_ACTION = "Open Qbserve and check it's recording; it is reopened automatically every 10 minutes."
+def _automatic_state(conn, clk, kind, *, what, tz, never_action, stale_action)   # latest_record_at removed
+```
+
+* `jobs._qbserve_stale_warning` sends when `qbserve_silence` holds, at most
+  once per local day (`prompts_sent` kind `qbserve_stale`), never after the
+  diagnostic has ended. `jobs.QBSERVE_STALE_HOURS` is removed;
+  `qbserve.staleness_hours` stays but nothing schedules on it.
+* `blind_spots`: the "last read" line (read over 36 h old) is unchanged and
+  comes first; the "has not recorded since" line follows `qbserve_silence`.
+* `needs_attention` Qbserve row: `_automatic_state` first (never read,
+  failed, read over 36 h old); when that is `ok` and `qbserve_silence`
+  holds, `STATE_STALE` with `QBSERVE_ACTION`.
+* `launchd/com.jacob.dr-brainrot.qbserve.plist`: `/bin/sh -c "/usr/bin/pgrep -xq
+  Qbserve || { /bin/date ...; /usr/bin/open -g -j -a Qbserve; }"`,
+  `StartInterval` 600, `RunAtLoad` true, output to `logs/qbserve.log`. In
+  `./dr-brainrot`'s `AGENTS`, so `start`, `stop` and `status` include it. No
+  repository code, no Qbserve data.
+
+## §22 Post-build amendment — audiobooks from Audible (DR5.28)
+
+- Migration `0008_audiobooks.sql`, schema_version 8: rebuilds `imports`, `sources` and `measurements` with widened CHECKs (import `kind` + `audible`; source `kind` + `audiobook`; `provenance` + `audible_stats`), by the procedure of 0004/0005/0007. Columns, constraints, indexes and rows are unchanged. `schema.sql` stays the v1 baseline.
+- `dr_brainrot_types`: `KIND_AUDIOBOOK = "audiobook"` (key = ASIN, kept as given), `GROUP_AUDIOBOOKS = "audiobooks"` (in `REPORT_GROUPS`, not `KEEPER_GROUPS`; `report_group(KIND_AUDIOBOOK)`), `PROV_AUDIBLE_STATS = "audible_stats"` (in `PROVENANCES` after `browser_sync`; text "Audible's own listening stats"), `IMPORT_KINDS` + `"audible"`, `UNKNOWN_AUDIOBOOK_KEY = "unknown"`, `COVERED_ELSEWHERE` for `("iphone_app", "audible")`, `("web_domain", "audible.co.uk")`, `("web_domain", "audible.com")` and `("desktop_app", "com.audible.iphone")`. Audiobook measurements use `DEVICE_ACCOUNT`.
+- `config.Settings.audible_auth: Path | None` (`DR_BRAINROT_AUDIBLE_AUTH`, default `data/audible_auth.json`; set but empty = None). The store file is `audible_auth.with_name("audible_store.json")`. `test_settings` keeps None.
+- `labels`:
+  - `normalise_key("audiobook", asin)` → the ASIN, stripped, case kept;
+  - `ensure_source(conn, clk, kind, raw_key, display_name=None, *, label_on_create=None)`: `label_on_create` (a source label) and `labelled_at` are written only when the call creates the row; an existing row is never touched, so the user's later label wins. Backward compatible;
+  - `PROVENANCE_SEEN[PROV_AUDIBLE_STATS] = "Audible listening stats"`.
+- `evidence.upsert_measurement` accepts `PROV_AUDIBLE_STATS`.
+- `sources/audible.py`:
+
+  ```python
+  PARSER_VERSION = "audible-1"; KIND = "audible"; LOOKBACK_DAYS = 8
+  CHUNK_DAYS = 30; CHUNK_STEP = 28                # 30-day requests, started 28 days apart
+  STANDING_LABEL = T.WORTHWHILE; READ_AT_KEY = "audible_read_at"
+  SIGN_IN_COMMAND = "cd ~/Projects/dr-brainrot && .venv/bin/python audible_login.py --again"
+  BOOK_NOT_KNOWN = "Audible (book not known)"
+  FAIL_SIGN_IN, FAIL_UNREACHABLE, FAIL_UNEXPECTED = "sign_in", "unreachable", "unexpected"
+  class AudibleError(evidence.ParseError)          # a document or answer of the wrong shape
+  class AudibleReadError(Exception): failure; message   # Audible not read; message has a class name only
+  def setup(settings) -> Setup | None              # None = not signed in; reads only the store file
+  def window(conn, clk, settings) -> (date, date) | None
+      # yesterday back LOOKBACK_DAYS; go-live on the first read; the day after the last covered
+      # day after a gap; decided by reads received before local midnight today only
+  def chunk_starts(first, last) -> list[date]
+  def classify(exc) -> (failure, message)          # by class names in the MRO, never str(exc)
+  def fetch(client, first, last) -> (stats, books | None, library_problem | None, truncated)
+  def document(stats, books, *, store, first, last, library_problem=None, truncated=False) -> bytes
+      # stats answers verbatim + the library reduced to asin/title/places; no time, no sign-in data
+  def parse(data) -> Document                      # raises AudibleError; keeps first..last only
+      # Document.unusable: {day: why} for a figure in another unit, impossible (< 0, > 24 h) or
+      # listed twice with different totals. Only a change of shape (no list of totals, an entry
+      # that isn't an object or has no readable date) raises.
+  UNUSABLE_UNIT, UNUSABLE_NUMBER, UNUSABLE_OVER_A_DAY, UNUSABLE_TWICE; unusable_warning(day, why)
+  def content_moved(a, b) -> dict[asin, int]       # book seconds; a new finish counts to the end
+  def first_reads(snapshots) -> list[Snapshot]     # earliest read per local day
+  def split_minutes(total_min, weights) -> dict    # 2 dp, sums to round(total, 2)
+  def attribute(day, total_min, reads) -> list[Share]
+  def sync(conn, clk, settings, *, client=None) -> Outcome | None
+  def reparse(conn, clk, settings, import_id) -> Outcome   # days a later read covers are left alone
+  ```
+
+  A successful read's import period is its whole window (every day vouched for); it deletes and rewrites every `audible_stats` row in that window (DR5.15). A failed read records a failed import (`meta.failure`, `read_at`, `first_day`, `last_day`, `store`; no raw file) and changes nothing else. An unusable day inside a successful read gets one `unreadable` row (minutes NULL, on "book not known", `detail.unreadable_reason`) and one warning, so the import is `partial` and its period still runs to its end: the day is unmeasured, never zero, and later reads are never held back by it. Every read that reaches Audible stamps `meta` `audible_read_at`, duplicates included. Each book is a source labelled `worthwhile` on creation (`meta.standing_label`, `meta.new_books`). Measurement `detail`: `basis` (`one_book` | `split` | `book_not_known`), `day_total_min`, `share`, `content_s_moved`, `between`, `why` (`before_first_read` | `no_read_after_yet` | `nothing_moved`). The real client is built from the saved sign-in only inside `sync`, with the library's warnings suppressed; a refreshed sign-in is written back to the same file, atomically, at 0600.
+- `jobs`: `_audible` step, last in `SYNC_STEPS` and `run_sync`. Not signed in → "not set up (no Audible sign-in): audiobooks not measured", ok. A failed read raises, failing the step.
+- `report`:
+  - `IMPORT_KIND_FOR_PROVENANCE[PROV_AUDIBLE_STATS] = "audible"`; an `EXPECTED_WEEKLY` row for Audible;
+  - `expects(kind, settings) -> bool`: Qbserve only while `qbserve_db` is set, Audible only while signed in, everything else always. `weekly_totals` and `insights._coverage_gaps` use it;
+  - `GROUP_BLIND_SPOTS[GROUP_AUDIOBOOKS]`, `GROUP_TEXT` "Audiobooks", `ATTENTION_ORDER` before the vault;
+  - `AudibleFailure(kind, at, error, covered_through)`; `audible_failure(conn)` (the newest read failed and no read has reached Audible since); `audible_needs_signin(conn, settings)`. "Newest" is by `meta.read_at`, and a reparse (`meta.reparse_of`) is not a read: it never clears a failure or freshens "Read on …";
+  - `READ_TO_THE_END = ("audible",)`: in `weekly_totals`, a finished week is covered only once a successful read reached its Saturday; until then its status is `incomplete` (`import_id` None), even though an import overlaps it. A running week is unchanged;
+  - `latest_imports` leaves out `audible` while he is signed out and nothing was ever received; `gated_vs_ungated` and `cost_per_keeper` leave out a 0-minute Audiobooks row while he is signed out or before any read covered it (`_groups_unread`). Figures already read always show;
+  - `RecordRow.split_estimated` (default True) is False for an audiobook day given whole to "book not known";
+  - `blind_spots` adds at most one Audible line (a failed read, or no read for 36 hours), none when not signed in or never read. Only an unreachable Audible promises that the next morning tries again; an answer of a new shape says the read may need updating;
+  - `needs_attention` adds an Audiobooks row: not signed in → `waiting`, no action, `AUDIBLE_NOT_SET_UP`; a failed read → `attention`, with `AUDIBLE_SIGNIN_ACTION` only when the sign-in was refused; never read → `waiting`; over 36 hours → `stale`, no action;
+  - `provenance_map` adds an Audiobooks row.
+- `checklist`: `WeekNeeds.audible_signin: bool = False` (last field). `render`, when not a nudge, adds the un-numbered `AUDIBLE_SIGNIN_LINE` to the tail; `owed` is unchanged, so it never causes a send. `_automatic` lists "audiobooks" after "podcasts" while signed in and not needing a new sign-in.
+- Dashboard: group name "Audiobooks", kind name "audiobook", import kind name "Audible", badge `("listening stats", "audiblestats")` with its own `.prov-audiblestats` rule, the "split estimated" chip (`caveat(prov, split=true)`; records pass `r.split_estimated`), jinja global `PROV_AUDIBLE_STATS`. `READ_DAILY` and `_AUTO` include `audible` (DR5.26 rule 4).
+- `pace.DAILY_CHANNELS[PROV_AUDIBLE_STATS] = "audible"`, and `_day_charged` reads its rows: audiobooks count in this week's pace (adding nothing while worthwhile). Signed out, the channel is skipped without a mention.
+- `progress.CHANNEL_NAMES[PROV_AUDIBLE_STATS] = "audiobook listening"`; `insights.SYSTEM_PROMPT` lists audiobooks among the groups.
+- `reparse.py` dispatches `audible`.
+- `conftest.py`: `sys.modules["audible"]` is a stub that fails the test (`pytest.fail`, a BaseException) on first use; reading the real `data/audible_auth.json` or `data/audible_store.json` raises.

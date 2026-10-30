@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Label queue{% endblock %}
+{% block content %}
+<h1>Label queue</h1>
+{% include "_label_tabs.html" %}
+
+<div class="rule">
+<p>Only <strong>content</strong> is measured here. Is this something you watch, read or listen to? If so,
+is it brain rot (<strong>wasteful</strong>) or worth your time (<strong>worthwhile</strong>)? If you only go
+there to get something done, it is a <strong>tool</strong> and it isn't counted.</p>
+</div>
+
+{% if unlabelled.count %}
+<div class="metrics">
+  <div class="metric">
+    <span class="metric-label">Undecided sources</span>
+    <span class="metric-value">{{ unlabelled.count }}</span>
+    <span class="metric-note">each counting as wasteful until you decide</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">Minutes waiting on a label</span>
+    <span class="metric-value">{{ unlabelled.minutes|min }}</span>
+    <span class="metric-note">so far in the diagnostic</span>
+  </div>
+  <div class="metric">
+    <span class="metric-label">Mostly</span>
+    <span class="metric-value">{% if unlabelled.top_group %}{{ GROUP_NAMES.get(unlabelled.top_group, unlabelled.top_group) }}{% else %}<span class="absent">—</span>{% endif %}</span>
+    <span class="metric-note">where most of the undecided time is</span>
+  </div>
+</div>
+<p class="note">Biggest first: the top rows change your figures most.</p>
+
+<form method="post" action="{{ url_for('labels_bulk') }}" id="queue-form">
+  <div class="bulkbar">
+    <span class="bulkbar-label">Label the selected as</span>
+    <span class="segmented">
+      <button type="submit" name="label" value="{{ WASTEFUL }}">wasteful</button>
+      <button type="submit" name="label" value="{{ WORTHWHILE }}">worthwhile</button>
+      <button type="submit" name="label" value="{{ TOOL }}">tool (not content)</button>
+    </span>
+    <span class="spacer"></span>
+    <span class="count" id="queue-selected"></span>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr>
+      <th class="col-check"><input type="checkbox" id="queue-all" aria-label="Select every source in the queue"></th>
+      <th class="col-flex">Source</th><th>Kind</th><th class="num">Minutes</th><th>Seen in</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr id="queue-{{ r.source_id }}">
+        <td class="col-check"><input type="checkbox" name="source_id" value="{{ r.source_id }}"
+                   aria-label="select {{ r.display_name }}"></td>
+        <td class="cell-source col-flex" title="{{ r.display_name }}">{{ r.display_name }}</td>
+        <td class="cell-nowrap muted">{{ KIND_NAMES.get(r.kind, r.kind) }}</td>
+        <td class="num">{{ r.minutes|min }}</td>
+        <td class="cell-nowrap muted">{{ r.seen_in|join(', ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</form>
+{% else %}
+<p class="absent">Nothing to decide — every source with measured minutes is labelled.</p>
+{% endif %}
+
+<script>
+(function () {
+  var form = document.getElementById("queue-form");
+  if (!form) return;
+  var all = document.getElementById("queue-all");
+  var out = document.getElementById("queue-selected");
+  var boxes = function () { return form.querySelectorAll('input[name="source_id"]'); };
+  function tally() {
+    var n = form.querySelectorAll('input[name="source_id"]:checked').length;
+    out.textContent = n ? n + " selected" : "none selected";
+    if (all) { all.checked = n > 0 && n === boxes().length; all.indeterminate = n > 0 && n < boxes().length; }
+  }
+  if (all) all.addEventListener("change", function () {
+    boxes().forEach(function (b) { b.checked = all.checked; });
+    tally();
+  });
+  form.addEventListener("change", function (e) {
+    if (e.target.name === "source_id") tally();
+  });
+  tally();
+})();
+</script>
+{% endblock %}

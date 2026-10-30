@@ -1,0 +1,201 @@
+"""handlers_labels.py: /labels (CONTRACTS Part II §8, §19, §21).
+
+Since DR5.6 nothing here labels anything, and since DR5.24 nothing here sends
+anything of its own either: the label request is the last item of the Sunday
+check-in (tests/test_checklist.py). What is tested is the reply to /labels, its
+gate, and that no button or callback survived the move to the dashboard.
+"""
+from __future__ import annotations
+
+import asyncio
+import pathlib
+
+import pytest
+from telegram.ext import CallbackQueryHandler, CommandHandler
+
+import clock
+import config
+import db
+import dr_brainrot_types as T
+import evidence
+import handlers_labels as H
+import labels
+
+OWNER = 1
+STRANGER = 666
+
+
+# --- doubles ----------------------------------------------------------------
+
+class FakeUser:
+    def __init__(self, uid):
+        self.id = uid
+
+
+class FakeMessage:
+    def __init__(self):
+        self.replies: list[str] = []
+
+    async def reply_text(self, text, **kwargs):
+        self.replies.append(text)
+
+
+class FakeQuery:
+    def __init__(self, data, uid=OWNER):
+        self.data = data
+        self.from_user = FakeUser(uid)
+        self.answers: list[str | None] = []
+        self.edits: list[str] = []
+
+    async def answer(self, text=None, **kwargs):
+        self.answers.append(text)
+
+    async def edit_message_text(self, text, **kwargs):
+        self.edits.append(text)
+
+
+class FakeUpdate:
+    def __init__(self, *, uid=OWNER, query=None):
+        self.effective_user = FakeUser(uid)
+        self.callback_query = query
+        self.message = FakeMessage()
+
+
+class AsyncBot:
+    def __init__(self):
+        self.sent: list[dict] = []
+
+    async def send_message(self, **kwargs):
+        self.sent.append(kwargs)
+
+
+class FakeContext:
+    def __init__(self, bot_data, bot=None):
+        self.bot_data = bot_data
+        self.bot = bot or AsyncBot()
+
+
+# --- fixtures ---------------------------------------------------------------
+
+@pytest.fixture
+def settings(tmp_path):
+    return config.test_settings(tz="Europe/Warsaw", raw_dir=tmp_path / "raw", telegram_user_id=OWNER)
+
+
+@pytest.fixture
+def clk():
+    return clock.FrozenClock("2026-09-16T10:00:00+00:00")
+
+
+@pytest.fixture
+def conn(settings):
+    c = db.connect(settings)
+    db.init_db(c)
+    db.migrate(c)
+    yield c
+    c.close()
+
+
+@pytest.fixture
+def ctx(conn, clk, settings):
+    return FakeContext({"conn": conn, "clk": clk, "settings": settings})
+
+
+def _observed(conn, clk, settings, name, day="2026-09-06", minutes=3.0):
+    s = labels.ensure_source(conn, clk, T.KIND_IPHONE_APP, name)
+    rec = evidence.begin_import(conn, clk, kind="screentime", parser_version="t")
+    evidence.upsert_measurement(conn, rec, source_id=s.id, device="iphone", provenance=T.PROV_SCREENSHOT,
+                                period_start=day, period_end=day, minutes=minutes)
+    evidence.finish_import(conn, clk, settings, rec, period_start=day, period_end=day)
+    return s
+
+
+def _started(conn, clk, settings, *names):
+    """Diagnostic starts 2026-09-06 via the first measurement; sources observed."""
+    return [_observed(conn, clk, settings, n) for n in names]
+
+
+# --- registration -----------------------------------------------------------
+
+def test_register_adds_the_command_and_no_callback_handler():
+    class App:
+        def __init__(self):
+            self.handlers = []
+
+        def add_handler(self, h):
+            self.handlers.append(h)
+
+    app = App()
+    H.register(app)
+    assert [h for h in app.handlers if isinstance(h, CallbackQueryHandler)] == []
+    cmd = [h for h in app.handlers if isinstance(h, CommandHandler)]
+    assert len(cmd) == 1 and "labels" in cmd[0].commands
+
+
+def test_no_label_callback_survives_the_move_to_the_dashboard():
+    """The `d:lbl:` namespace is gone: no handler, no data builder, no prompt."""
+    for name in ("on_label_callback", "callback_data", "render_prompt", "send_label_batch", "CALLBACK_PREFIX"):
+        assert not hasattr(H, name), f"{name} should have been removed with in-Telegram labelling"
+    source = pathlib.Path(H.__file__).read_text()
+    assert "d:lbl:" not in source
+    assert "InlineKeyboard" not in source
+
+
+# --- /labels ----------------------------------------------------------------
+
+def test_labels_command_replies_with_the_count_and_a_link_and_no_buttons(conn, clk, settings, ctx):
+    _observed(conn, clk, settings, "Notes", minutes=12.0)
+    update = FakeUpdate()
+    asyncio.run(H.cmd_labels(update, ctx))
+    (reply,) = update.message.replies
+    assert "1 source (12 min) is unlabelled" in reply
+    assert f"http://127.0.0.1:{settings.dashboard_port}/labels" in reply
+    assert ctx.bot.sent == []
+
+
+def test_labels_command_reply_does_not_talk_about_reminders(conn, clk, settings, ctx):
+    _observed(conn, clk, settings, "Notes", minutes=12.0)
+    update = FakeUpdate()
+    asyncio.run(H.cmd_labels(update, ctx))
+    (reply,) = update.message.replies
+    assert "reminder" not in reply and "Also:" not in reply
+
+
+def test_labels_command_when_nothing_waits(conn, clk, settings, ctx):
+    (s,) = _started(conn, clk, settings, "Notes")
+    labels.set_source_label(conn, clk, s.id, T.TOOL)
+    update = FakeUpdate()
+    asyncio.run(H.cmd_labels(update, ctx))
+    assert update.message.replies == [H.NOTHING_WAITING]
+
+
+def test_labels_command_explains_the_gate(conn, clk, settings, ctx):
+    update = FakeUpdate()
+    asyncio.run(H.cmd_labels(update, ctx))
+    assert "after the first 7 days" in update.message.replies[0]
+    assert ctx.bot.sent == []
+
+
+def test_labels_command_unauthorised_is_silent(conn, clk, settings, ctx):
+    _started(conn, clk, settings, "Notes")
+    update = FakeUpdate(uid=STRANGER)
+    asyncio.run(H.cmd_labels(update, ctx))
+    assert update.message.replies == [] and ctx.bot.sent == []
+
+
+def test_labels_command_still_answers_while_the_final_week_is_asked_for(conn, clk, settings, ctx):
+    """Sun 8 Nov: the diagnostic has ended, but its final check-in ends with labelling."""
+    _observed(conn, clk, settings, "Notes", day="2026-09-13", minutes=12.0)   # 8 weeks: ends Sat 7 Nov
+    for day, answers in (("2026-11-08", True), ("2026-11-09", True), ("2026-11-15", False)):
+        clk.set(f"{day}T10:00:00+00:00")
+        update = FakeUpdate()
+        asyncio.run(H.cmd_labels(update, ctx))
+        (reply,) = update.message.replies
+        assert ("1 source (12 min) is unlabelled" in reply) is answers, (day, reply)
+    assert "no longer requested" in reply
+
+
+def test_no_label_message_is_sent_by_this_module_any_more():
+    """The DR5.19 Monday digest folded into the Sunday check-in (DR5.24)."""
+    for name in ("send_label_digest", "due_digest", "record_digest", "DIGEST_MIN_MINUTES", "PROMPT_KIND"):
+        assert not hasattr(H, name), name

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightly refresh — `jobs.py sync`: every automatic read and nothing else
+  (DR5.29): outbox, vault, Cold Turkey, Qbserve, phone browser and, last,
+  Audible's listening stats (DR5.28), the one read that needs the internet;
+  signed out of Audible, that step does nothing. Cold Turkey, Qbserve and
+  Audible only read finished days, so the day that has just ended lands in the
+  figures at a quarter past midnight instead of waiting for the 09:30 run. It
+  sends nothing: no Telegram, no reminders, no summary — those stay with the
+  morning job.
+
+  Screen Time and the phone browser arrive once a week from screenshots, and
+  YouTube when the extension runs, so they are not refreshed here; the
+  dashboard's pace line compares only the sources that report every day.
+
+  Unlike cron, launchd runs a MISSED calendar job at the next wake, so on a
+  Mac asleep overnight this runs on waking instead. It is idempotent: an
+  unchanged window is recorded as a duplicate and writes nothing.
+
+  Like the morning job it runs whatever is checked out (DR5.14): never leave
+  the tree uncommitted at the end of a day.
+
+  Install:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jacob.dr-brainrot.nightly.plist
+  Run now:  launchctl kickstart -p gui/$(id -u)/com.jacob.dr-brainrot.nightly
+  Stop:     launchctl bootout   gui/$(id -u)/com.jacob.dr-brainrot.nightly
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jacob.dr-brainrot.nightly</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/Jacob/Projects/dr-brainrot/.venv/bin/python</string>
+        <string>/Users/Jacob/Projects/dr-brainrot/jobs.py</string>
+        <string>sync</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/Jacob/Projects/dr-brainrot</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>0</integer>
+        <key>Minute</key>
+        <integer>15</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/jobs.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/Jacob/Projects/dr-brainrot/logs/jobs.log</string>
+</dict>
+</plist>

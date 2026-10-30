@@ -17,6 +17,18 @@ Two rules govern this module and everything else is detail:
 module imports cleanly when they are absent or mid-write, and so that tests
 can inject fakes through `bot_data` without touching the real modules.
 `spotify` is injected as an object and never constructed here.
+
+dr-brainrot (CONTRACTS.md Part II §7, Agent D) adds, without loosening either rule:
+
+3. **YouTube links capture into the same queue.** The video is looked up
+   through ``bot_data["youtube"]`` (anything with ``video_info(video_id)``),
+   held in memory exactly like a Spotify capture, and written only when the
+   why-note arrives. A video whose duration is unknown is refused: the time
+   cost at capture is the point, and it is never guessed.
+4. **The label override is part of the why-note.** ``#worthwhile`` /
+   ``#wasteful`` (``labels.parse_override_token``) in the same message is the
+   override — one decision, not two (DR1.6). The confirmation says which
+   label now applies and why, read back through ``allowance.item_label``.
 """
 from __future__ import annotations
 
@@ -40,7 +52,7 @@ from telegram.ext import (
 import clock
 from config import Settings
 
-log = logging.getLogger("pop.bot")
+log = logging.getLogger("dr-brainrot.bot")
 
 #: Key under which the in-flight capture is parked in ``context.user_data``.
 PENDING_KEY = "pending_capture"
@@ -94,6 +106,68 @@ def _parse_episode_ref(spotify, text: str) -> str:
 def _looks_like_spotify_ref(text: str) -> bool:
     low = text.lower()
     return "open.spotify.com" in low or "spotify:" in low
+
+
+# --------------------------------------------------------------------------
+# YouTube links (dr-brainrot)
+# --------------------------------------------------------------------------
+
+#: A YouTube video id: exactly 11 url-safe base64 characters, not a prefix of
+#: something longer.
+_YT_ID = r"(?P<id>[A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])"
+_YT_HOST = r"(?:https?://)?(?:www\.|m\.)?"
+_YOUTUBE_PATTERNS = (
+    re.compile(_YT_HOST + r"youtube\.com/watch/?\?(?:[^\s#]*?&)?v=" + _YT_ID, re.IGNORECASE),
+    re.compile(_YT_HOST + r"youtube\.com/shorts/" + _YT_ID, re.IGNORECASE),
+    re.compile(r"(?:https?://)?(?:www\.)?youtu\.be/" + _YT_ID, re.IGNORECASE),
+)
+
+YOUTUBE_NOT_A_VIDEO = (
+    "That is not a YouTube video link. Send a youtube.com/watch?v=…, youtu.be/… "
+    "or /shorts/… link."
+)
+YOUTUBE_UNAVAILABLE = "Could not reach YouTube just now. Send the link again in a moment."
+YOUTUBE_NOT_CONFIGURED = "YouTube capture is not set up on this bot yet. Nothing was saved."
+YOUTUBE_NO_SUCH_VIDEO = "YouTube has no video with that id. Nothing was saved."
+YOUTUBE_NO_DURATION = (
+    "YouTube reports no duration for that video (live, upcoming or unavailable), "
+    "so it can't be captured: the time cost has to be known. Nothing was saved."
+)
+
+
+def _looks_like_youtube_ref(text: str) -> bool:
+    low = text.lower()
+    return "youtube.com" in low or "youtu.be" in low
+
+
+def parse_youtube_ref(text: str) -> str | None:
+    """The 11-character video id from a watch, youtu.be or shorts link, or None.
+
+    Like `parse_episode_ref`, a link inside surrounding text is found (D2.2).
+    Channel, playlist and search links return None: they are not a video.
+    """
+    for pattern in _YOUTUBE_PATTERNS:
+        m = pattern.search(text or "")
+        if m:
+            return m.group("id")
+    return None
+
+
+class _YouTubePending:
+    """The in-memory stand-in for a Spotify `Episode` while a YouTube capture waits.
+
+    Carries only what the confirmation and `db.upsert_episode` need. Never
+    written anywhere until the why-note arrives.
+    """
+
+    def __init__(self, info) -> None:
+        self.video_id = info.video_id
+        self.title = info.title
+        self.show = info.channel_title
+        self.source_key = info.channel_id
+        self.duration_ms = int(info.duration_s) * 1000
+        self.description = None
+        self.release_date = None
 
 
 # --------------------------------------------------------------------------
@@ -251,8 +325,36 @@ def _episode_line(title: str, show: str, duration_ms: int) -> str:
     return f"{title}\n{show} · {clock.fmt_duration(duration_ms)}"
 
 
-def _confirmation(item, settings: Settings) -> str:
+#: A resolved label's basis in plain words, for the capture confirmation.
+BASIS_WORDS = {
+    "item_override": "your tag in this note",
+    "source_label": "the source's label",
+    "default_unlabelled": "source not labelled yet, so wasteful by default",
+}
+
+
+#: An override already stored for this item from an earlier capture. Overrides
+#: are per item, not per queue row, so re-capturing an episode without a tag
+#: keeps the old one; saying "your tag in this note" then would be untrue.
+EARLIER_TAG_WORDS = "your tag from an earlier capture of this item"
+
+
+def _label_line(label, *, tagged_now: bool = True) -> str:
+    words = BASIS_WORDS.get(label.basis, label.basis)
+    if label.basis == "item_override" and not tagged_now:
+        words = EARLIER_TAG_WORDS
+    return f"Label: {label.label} ({words})"
+
+
+def _confirmation(item, settings: Settings, label=None, *, tagged_now: bool = True) -> str:
     lines = ["Captured.", "", _episode_line(item.title, item.show, item.duration_ms), "", f"Why: {item.why_note}"]
+    if label is not None:
+        lines.append(_label_line(label, tagged_now=tagged_now))
+        if label.label == "worthwhile":
+            lines.append("Costs 0 min of the allowance — worthwhile. Still locked like everything else.")
+        elif label.label == "tool":
+            lines.append("Costs 0 min of the allowance — its source is labelled tool (not content). "
+                         "Add #wasteful or #worthwhile to count it. Still locked like everything else.")
     if item.deadline:
         lines.append(f"Deadline: {clock.fmt_local(item.deadline, settings.tz)}")
     if item.state == "locked":
@@ -277,15 +379,20 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     pending = context.user_data.get(PENDING_KEY)
     # A link mid-conversation replaces the pending capture rather than
-    # queueing behind it, and anything that looks like a Spotify ref is
-    # treated as a link attempt so a bad one is never swallowed as a note.
-    if pending is None or _looks_like_spotify_ref(text):
+    # queueing behind it, and anything that looks like a Spotify or YouTube
+    # ref is treated as a link attempt so a bad one is never swallowed as a
+    # note.
+    if pending is None or _looks_like_spotify_ref(text) or _looks_like_youtube_ref(text):
         await _handle_link(update, context, text)
     else:
         await _handle_note(update, context, text, pending)
 
 
 async def _handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    if _looks_like_youtube_ref(text) and not _looks_like_spotify_ref(text):
+        await _handle_youtube_link(update, context, text)
+        return
+
     message = update.effective_message
     spotify = _bot_data(context).get("spotify")
 
@@ -305,10 +412,62 @@ async def _handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
         return
 
     # Held in memory only. Nothing has touched the database.
-    context.user_data[PENDING_KEY] = {"spotify_id": spotify_id, "episode": episode}
+    context.user_data[PENDING_KEY] = {"spotify_id": spotify_id, "episode": episode, "platform": "spotify"}
     await message.reply_text(
         _episode_line(episode.title, episode.show, episode.duration_ms) + "\n\nWhy?"
     )
+
+
+async def _handle_youtube_link(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    """A YouTube link: look the video up, park it in memory, ask why.
+
+    Every failure replies and writes nothing, and none of them disturbs a
+    capture already pending — the same guarantees the Spotify path gives.
+    """
+    from dr_brainrot_types import VideoLookupError, queue_key_for_youtube  # noqa: PLC0415
+
+    message = update.effective_message
+    video_id = parse_youtube_ref(text)
+    if video_id is None:
+        await message.reply_text(YOUTUBE_NOT_A_VIDEO)
+        return
+
+    youtube = _bot_data(context).get("youtube")
+    if youtube is None:
+        await message.reply_text(YOUTUBE_NOT_CONFIGURED)
+        return
+
+    try:
+        info = youtube.video_info(video_id)
+    except VideoLookupError:
+        log.warning("YouTube lookup failed for %s", video_id)
+        await message.reply_text(YOUTUBE_UNAVAILABLE)
+        return
+
+    if info is None:
+        await message.reply_text(YOUTUBE_NO_SUCH_VIDEO)
+        return
+    if info.duration_s is None:
+        # The duration is the cost shown at capture and charged at promotion.
+        # Guessing one would make the gate lie.
+        await message.reply_text(YOUTUBE_NO_DURATION)
+        return
+
+    video = _YouTubePending(info)
+    context.user_data[PENDING_KEY] = {
+        "spotify_id": queue_key_for_youtube(video_id),
+        "episode": video,
+        "platform": "youtube",
+    }
+    await message.reply_text(
+        _episode_line(video.title, video.show, video.duration_ms) + "\n\nWhy?"
+    )
+
+
+def _labels_module():
+    import labels  # noqa: PLC0415 — lazy, like db
+
+    return labels
 
 
 async def _handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, pending: dict) -> None:
@@ -318,33 +477,66 @@ async def _handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
     clk = _bot_data(context).get("clk")
     db = _db(context)
     episode = pending["episode"]
+    platform = pending.get("platform", "spotify")
+    labels = _labels_module()
 
-    note, deadline = parse_deadline(text, clk, settings.tz)
+    # The override token first, then the queue's trailing deadline, so either order
+    # in the message works: "for the interview #worth by friday" and
+    # "for the interview by friday #worth" both parse to the same capture.
+    tokenless, override = labels.parse_override_token(text)
+    note, deadline = parse_deadline(tokenless, clk, settings.tz)
     if not note.strip():
-        # The note is the whole point; a bare date is not one.
+        # The note is the whole point; a bare date (or a bare tag) is not one.
         await message.reply_text("I need a reason, not just a date. Why this one?")
         return
 
-    db.upsert_episode(
-        conn,
-        pending["spotify_id"],
-        episode.title,
-        episode.show,
-        getattr(episode, "description", None),
-        getattr(episode, "release_date", None),
-        episode.duration_ms,
-    )
-    try:
-        item = db.capture(
-            conn, clk, settings,
-            spotify_id=pending["spotify_id"],
-            why_note=note,
-            deadline=deadline,
+    if platform == "youtube":
+        db.upsert_episode(
+            conn, pending["spotify_id"], episode.title, episode.show, None, None,
+            episode.duration_ms, platform="youtube", source_key=episode.source_key,
         )
+    else:
+        db.upsert_episode(
+            conn,
+            pending["spotify_id"],
+            episode.title,
+            episode.show,
+            getattr(episode, "description", None),
+            getattr(episode, "release_date", None),
+            episode.duration_ms,
+        )
+    try:
+        if platform == "youtube":
+            item = db.capture(
+                conn, clk, settings,
+                spotify_id=pending["spotify_id"], why_note=note, deadline=deadline,
+                platform="youtube", source_key=episode.source_key,
+            )
+        else:
+            item = db.capture(
+                conn, clk, settings,
+                spotify_id=pending["spotify_id"],
+                why_note=note,
+                deadline=deadline,
+            )
     except ValueError as exc:
         log.warning("capture rejected: %s", exc)
         await message.reply_text("That did not stick. Send me the link again.")
         return
+
+    import allowance  # noqa: PLC0415 — lazy, like db
+
+    # The override is written only once the item exists, so a rejected
+    # capture never leaves a dangling label. Explicit statement only.
+    if override is not None:
+        from dr_brainrot_types import item_ref  # noqa: PLC0415
+
+        ref = pending["spotify_id"] if platform == "youtube" else item_ref("spotify", pending["spotify_id"])
+        labels.set_item_override(conn, clk, ref, override)
+        conn.commit()
+    # Identity for the label batch; never a label.
+    allowance.ensure_item_source(conn, clk, _item_view(item, platform, episode))
+    label = allowance.item_label(conn, _item_view(item, platform, episode))
 
     # Seed the measurement baseline with the position the episode is already
     # at, as a zero-delta observation. `resume_point` is a POSITION, and
@@ -354,7 +546,7 @@ async def _handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
     # week — and `promotion_cost_min()` charges the full duration for an
     # episode that is already half heard, which is the exact case D1.7 says
     # should cost half. Delta 0: the position is recorded, not credited.
-    if getattr(episode, "resume_position_ms", 0):
+    if platform == "spotify" and getattr(episode, "resume_position_ms", 0):
         db.record_listening(
             conn, clk, pending["spotify_id"],
             int(episode.resume_position_ms), 0,
@@ -362,7 +554,24 @@ async def _handle_note(update: Update, context: ContextTypes.DEFAULT_TYPE, text:
         )
 
     context.user_data.pop(PENDING_KEY, None)
-    await message.reply_text(_confirmation(item, settings))
+    await message.reply_text(_confirmation(item, settings, label, tagged_now=override is not None))
+
+
+def _item_view(item, platform: str, episode):
+    """The item as `allowance` sees it, whatever `db` returned.
+
+    The real `db.QueueItem` already carries platform and source_key; a test
+    double may not, so fill them from the pending capture rather than letting
+    a YouTube item be mistaken for a Spotify one.
+    """
+    if getattr(item, "platform", None) == platform:
+        return item
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    return SimpleNamespace(
+        spotify_id=item.spotify_id, show=item.show, platform=platform,
+        source_key=getattr(episode, "source_key", None),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -427,9 +636,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 # --------------------------------------------------------------------------
 
 START_TEXT = (
-    "POP holds a podcast episode for 48h before it is eligible, then you triage "
-    "it against a weekly time allowance.\n\n"
-    "Send me a Spotify episode link and I will ask you why."
+    "The queue holds a podcast episode for 48h before it is eligible, then you triage "
+    "it against a weekly allowance of wasteful content minutes.\n\n"
+    "Send me a Spotify episode or YouTube video link and I will ask you why. "
+    "Add #worthwhile or #wasteful to your reason to label that one item."
 )
 
 
@@ -542,11 +752,13 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.exception("could not deliver the failure notice")
 
 
-def build_app(settings: Settings, conn, clk, spotify) -> Application:
+def build_app(settings: Settings, conn, clk, spotify, *, youtube=None) -> Application:
     """Assemble the Application. Constructs no client and opens no socket.
 
     `spotify` is any object with the `SpotifyClient` surface; the bot never
-    builds one itself, so tests inject `FakeSpotify`.
+    builds one itself, so tests inject `FakeSpotify`. `youtube` (dr-brainrot) is any
+    object with `video_info(video_id)`; without one, YouTube links are answered
+    "not set up" and nothing is captured.
     """
     app = Application.builder().token(settings.telegram_bot_token).build()
     app.bot_data.update({
@@ -555,18 +767,46 @@ def build_app(settings: Settings, conn, clk, spotify) -> Application:
         "clk": clk,
         "spotify": spotify,
     })
+    if youtube is not None:
+        app.bot_data["youtube"] = youtube
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("queue", cmd_queue))
     app.add_handler(CommandHandler("stats", cmd_stats))
-    app.add_handler(CallbackQueryHandler(on_callback))
+    # The queue's buttons own every callback EXCEPT the dr-brainrot namespace. Anything not
+    # starting "d:" still reaches on_callback, so malformed data is answered
+    # "Unrecognised button." exactly as before.
+    app.add_handler(CallbackQueryHandler(on_callback, pattern=_not_dr_brainrot_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    _install_dr_brainrot_extensions(app)
     app.add_error_handler(on_error)
     return app
 
 
-def _silence_token_logging() -> None:
-    """Stop httpx logging the bot token in plaintext on every API call.
+#: Callback data prefix reserved for dr-brainrot extensions (CONTRACTS.md Part II §8).
+DR_BRAINROT_CALLBACK_PREFIX = "d:"
+
+
+def _not_dr_brainrot_callback(data: object) -> bool:
+    return not str(data or "").startswith(DR_BRAINROT_CALLBACK_PREFIX)
+
+
+def _install_dr_brainrot_extensions(app: Application) -> None:
+    """dr-brainrot handler modules register their own handlers here.
+
+    Each module owns its handlers, commands and callback namespace
+    (``d:<module>:...``); bot.py only calls ``register``. Neither module may
+    add a plain TEXT handler: free text belongs to the queue's capture flow.
+    """
+    import handlers_imports  # noqa: PLC0415
+    import handlers_labels  # noqa: PLC0415
+
+    handlers_imports.register(app)
+    handlers_labels.register(app)
+
+
+def _silence_token_logging(token: str | None = None) -> None:
+    """Stop the bot token reaching the log in plaintext.
 
     httpx logs each request at INFO including the full URL, and the Telegram
     Bot API puts the token *in the path*:
@@ -578,10 +818,55 @@ def _silence_token_logging() -> None:
     a file that gets tailed, scp'd to the VPS and swallowed by any log shipper.
     Raising httpx to WARNING keeps real failures visible and drops the URLs.
 
-    Shared by all three entry points; poll.py and triage.py import it.
+    Given the `token`, it is also scrubbed from every record the handlers
+    write (`scrub_token_from_logs`): a rejected token comes back inside
+    `InvalidToken`'s own message, and a scheduled step that fails on it logs
+    the exception with its traceback (DR5.25).
+
+    Shared by every entry point; jobs.py, poll.py and triage.py import it.
     """
     for noisy in ("httpx", "httpcore", "telegram.request"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    if token:
+        scrub_token_from_logs(token)
+
+
+class _TokenScrubber(logging.Filter):
+    """Replaces the bot token in a record's message, traceback and stack."""
+
+    def __init__(self, token: str) -> None:
+        super().__init__()
+        self.token = token
+
+    def _clean(self, text: str) -> str:
+        return text.replace(self.token, "<TOKEN>")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+            if self.token in message:
+                record.msg, record.args = self._clean(message), None
+            if record.exc_info and not record.exc_text:
+                # What the handler's formatter would print, made now so it can be cleaned.
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+            if record.exc_text and self.token in record.exc_text:
+                record.exc_text = self._clean(record.exc_text)
+            if record.stack_info and self.token in record.stack_info:
+                record.stack_info = self._clean(record.stack_info)
+        except Exception:  # noqa: BLE001 — a filter must never stop a record, or raise into the caller
+            pass
+        return True
+
+
+def scrub_token_from_logs(token: str, handlers: list[logging.Handler] | None = None) -> None:
+    """Scrub `token` from everything `handlers` write (default: the root logger's).
+
+    On the handlers, not a logger, because a logger's filters never see its
+    children's records. Idempotent.
+    """
+    for handler in logging.getLogger().handlers if handlers is None else handlers:
+        if not any(isinstance(f, _TokenScrubber) and f.token == token for f in handler.filters):
+            handler.addFilter(_TokenScrubber(token))
 
 
 def main() -> None:  # pragma: no cover — the production entry point
@@ -592,13 +877,32 @@ def main() -> None:  # pragma: no cover — the production entry point
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
-    _silence_token_logging()
     settings = config.load()
+    _silence_token_logging(settings.telegram_bot_token)
     conn = _dbmod.connect(settings)
     _dbmod.init_db(conn)
     _dbmod.migrate(conn)
-    app = build_app(settings, conn, clock.RealClock(), SpotifyClient(settings))
+    app = build_app(settings, conn, clock.RealClock(), SpotifyClient(settings),
+                    youtube=_youtube_client(settings))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+def _youtube_client(settings: Settings):  # pragma: no cover — production wiring
+    """The YouTube Data API client, or None if it is not available.
+
+    `sources/youtube.py` is written by another Phase 2 agent; until it is
+    merged, or when no key is configured, the bot runs with YouTube capture
+    answering "not set up" rather than refusing to start.
+    """
+    if not settings.youtube_api_key:
+        log.warning("YOUTUBE_API_KEY not set; YouTube capture disabled")
+        return None
+    try:
+        from sources.youtube import DataApiClient  # noqa: PLC0415
+    except ImportError:
+        log.warning("sources.youtube unavailable; YouTube capture disabled")
+        return None
+    return DataApiClient(settings)
 
 
 if __name__ == "__main__":  # pragma: no cover

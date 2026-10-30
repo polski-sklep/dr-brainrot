@@ -56,7 +56,7 @@ class SpotifyScopeError(SpotifyError):
     """The token lost `user-read-playback-position`. Never swallowed anywhere."""
 
 
-log = logging.getLogger("pop.spotify")
+log = logging.getLogger("dr-brainrot.spotify")
 
 
 class InvalidEpisodeRef(ValueError):

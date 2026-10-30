@@ -71,9 +71,9 @@ class _Callback(BaseHTTPRequestHandler):
         _Callback.result = params
         ok = "code" in params
         body = (
-            "<h2>POP: consent granted.</h2><p>Close this tab and return to the terminal.</p>"
+            "<h2>dr-brainrot: consent granted.</h2><p>Close this tab and return to the terminal.</p>"
             if ok else
-            f"<h2>POP: consent failed.</h2><pre>{params.get('error', 'unknown error')}</pre>"
+            f"<h2>dr-brainrot: consent failed.</h2><pre>{params.get('error', 'unknown error')}</pre>"
         )
         self.send_response(200 if ok else 400)
         self.send_header("Content-Type", "text/html; charset=utf-8")

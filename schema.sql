@@ -1,4 +1,4 @@
--- POP schema. Applied by db.init_db(); safe to re-run.
+-- The queue's schema. Applied by db.init_db(); safe to re-run.
 --
 -- Timestamps are ISO-8601 UTC strings produced by clock.iso() —
 -- e.g. "2026-08-30T08:27:00+00:00". Fixed width, so lexicographic

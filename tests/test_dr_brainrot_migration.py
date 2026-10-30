@@ -1,0 +1,746 @@
+"""Migrations 0002 (dr-brainrot) and 0003 (no debt, DR5.2): upgrade a representative pre-dr-brainrot queue database.
+
+The fixture database is built from the untouched version-1 `schema.sql` and
+populated with rows in every queue table, in every queue state, so the upgrade
+is tested against data shaped like the real installation rather than against
+an empty file.
+"""
+from __future__ import annotations
+
+import sqlite3
+
+import pytest
+
+import clock
+import config
+import db
+
+V1_ROWS = {
+    "episodes": [
+        ("4rOoJ6Egrf8K2IrywzwOMk", "Episode A", "Show One", "desc", "2026-08-01", 3_600_000),
+        ("5sPpK7Fhsg9L3JszxAxPNl", "Episode B", "Show Two", None, "2026", 1_800_000),
+    ],
+    "queue": [
+        (1, "4rOoJ6Egrf8K2IrywzwOMk", "looked good", "2026-08-30T08:00:00+00:00", None, "locked", 0, None, None, None),
+        (2, "4rOoJ6Egrf8K2IrywzwOMk", "for the trip", "2026-08-20T08:00:00+00:00",
+         "2026-09-01T16:00:00+00:00", "promoted", 1, 1, "2026-08-23T17:00:00+00:00", None),
+        (3, "5sPpK7Fhsg9L3JszxAxPNl", "curious", "2026-08-10T08:00:00+00:00", None, "dropped", 2, 0, None,
+         "2026-08-12T08:00:00+00:00"),
+        (4, "5sPpK7Fhsg9L3JszxAxPNl", "again", "2026-08-11T08:00:00+00:00", None, "played", 1, None,
+         "2026-08-16T17:00:00+00:00", "2026-08-18T08:00:00+00:00"),
+    ],
+    "listening": [
+        (1, "4rOoJ6Egrf8K2IrywzwOMk", "2026-08-24T07:17:00+00:00", 600_000, 600_000, 0),
+        (2, "5sPpK7Fhsg9L3JszxAxPNl", "2026-08-17T07:17:00+00:00", 1_790_000, 1_790_000, 1),
+    ],
+    "weeks": [("2026-08-23T16:00:00+00:00", 180, 12, 60, 40)],
+    "alerts_sent": [("2026-08-23T16:00:00+00:00", "approaching", "2026-08-27T07:17:00+00:00")],
+    "deadline_notices": [(2, "2026-08-31T07:17:00+00:00")],
+}
+
+
+def _v1_database(path) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(path))
+    conn.row_factory = sqlite3.Row
+    conn.executescript(db.SCHEMA_PATH.read_text())
+    for table, rows in V1_ROWS.items():
+        marks = ",".join("?" * len(rows[0]))
+        conn.executemany(f"INSERT INTO {table} VALUES ({marks})", rows)
+    conn.execute("INSERT INTO meta (key, value) VALUES ('last_triage_week', '2026-08-23T16:00:00+00:00')")
+    conn.commit()
+    return conn
+
+
+def _dump(conn: sqlite3.Connection) -> dict[str, list[tuple]]:
+    out = {}
+    for table in V1_ROWS:
+        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+        added = {"episodes": ("platform", "source_key"), "weeks": ("overage_min",)}.get(table, ())
+        v1_cols = [c for c in cols if c not in added]
+        out[table] = [tuple(r) for r in conn.execute(f"SELECT {', '.join(v1_cols)} FROM {table} ORDER BY 1")]
+    return out
+
+
+@pytest.fixture
+def v1(tmp_path):
+    conn = _v1_database(tmp_path / "dr-brainrot.db")
+    yield conn
+    conn.close()
+
+
+def test_fixture_really_is_version_1(v1):
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "1"
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name='sources'").fetchone() is None
+
+
+def test_upgrade_preserves_every_pop_row_exactly(v1):
+    before = _dump(v1)
+    db.init_db(v1)        # production order: init_db then migrate
+    db.migrate(v1)
+    after = _dump(v1)
+    # The one deliberate data change: migration 0003 zeroes carried debt (DR5.2).
+    assert before["weeks"] == [("2026-08-23T16:00:00+00:00", 180, 12, 60, 40)]
+    assert after["weeks"] == [("2026-08-23T16:00:00+00:00", 180, 0, 60, 40)]
+    assert {t: r for t, r in after.items() if t != "weeks"} == {t: r for t, r in before.items() if t != "weeks"}
+    # ...and adds overage_min, uncomputed until the allowance code records it.
+    assert v1.execute("SELECT overage_min FROM weeks").fetchall()[0][0] is None
+    assert v1.execute("SELECT value FROM meta WHERE key='last_triage_week'").fetchone()[0] == \
+        "2026-08-23T16:00:00+00:00"
+
+
+def test_upgrade_sets_version_and_creates_dr_brainrot_tables(v1):
+    db.init_db(v1)
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
+    assert db.SCHEMA_VERSION == 8
+    assert "overage_min" in [r[1] for r in v1.execute("PRAGMA table_info(weeks)")]
+    names = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"sources", "item_labels", "imports", "measurements", "category_measurements",
+            "vault_captures", "vault_observations", "prompts_sent", "insights"} <= names
+
+
+def test_existing_episodes_default_to_spotify(v1):
+    db.migrate(v1)
+    assert {r[0] for r in v1.execute("SELECT platform FROM episodes")} == {"spotify"}
+
+
+def test_x_is_seeded_wasteful_and_nothing_else_is_labelled(v1):
+    db.migrate(v1)
+    rows = [tuple(r) for r in v1.execute("SELECT kind, source_key, label FROM sources")]
+    assert rows == [("x", "x", "wasteful")]
+
+
+def test_migrate_twice_is_a_noop(v1):
+    db.migrate(v1)
+    before = [tuple(r) for r in v1.execute("SELECT * FROM sources")]
+    db.migrate(v1)
+    db.init_db(v1)
+    assert [tuple(r) for r in v1.execute("SELECT * FROM sources")] == before
+
+
+def test_pop_behaviour_survives_upgrade(v1, tmp_path):
+    """The migrated database still runs the queue's gate and state machine."""
+    db.migrate(v1)
+    settings = config.test_settings(db_path=tmp_path / "dr-brainrot.db")
+    clk = clock.FrozenClock("2026-08-30T09:00:00+00:00")
+    item = db.get_item(v1, 2)
+    assert item.state == "promoted"
+    db.roll_over_week(v1, clk, settings)
+    assert db.get_item(v1, 2).state == "queued"
+    with pytest.raises(db.IllegalTransition):
+        db.set_state(v1, clk, 3, "queued")          # dropped stays terminal
+    assert db.funnel_stats(v1, clk, settings).captured == 3   # item 1 still inside its lock
+
+
+def test_fresh_database_reaches_same_schema_as_upgraded(tmp_path):
+    fresh = sqlite3.connect(str(tmp_path / "fresh.db"))
+    fresh.row_factory = sqlite3.Row
+    db.init_db(fresh)
+    db.migrate(fresh)
+    upgraded = _v1_database(tmp_path / "old.db")
+    db.init_db(upgraded)
+    db.migrate(upgraded)
+
+    def schema(c):
+        return sorted(tuple(r) for r in c.execute(
+            "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"))
+
+    assert schema(fresh) == schema(upgraded)
+
+
+def test_failed_migration_rolls_back_whole_step(v1, monkeypatch, tmp_path):
+    broken = tmp_path / "migrations"
+    broken.mkdir()
+    good = (db.MIGRATIONS_DIR / "0002_dr_brainrot.sql").read_text()
+    (broken / "0002_dr_brainrot.sql").write_text(good + "\nCREATE TABLE sources (x);\n")  # duplicate -> error
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", broken)
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "1"
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name='sources'").fetchone() is None
+    assert "platform" not in [r[1] for r in v1.execute("PRAGMA table_info(episodes)")]
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
+
+
+def test_failed_0003_rolls_back_whole_step_including_the_debt_reset(v1, monkeypatch, tmp_path):
+    broken = tmp_path / "migrations"
+    broken.mkdir()
+    (broken / "0002_dr_brainrot.sql").write_text((db.MIGRATIONS_DIR / "0002_dr_brainrot.sql").read_text())
+    good = (db.MIGRATIONS_DIR / "0003_no_debt.sql").read_text()
+    (broken / "0003_no_debt.sql").write_text(good + "\nCREATE TABLE sources (x);\n")  # duplicate -> error
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", broken)
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    # 0002 committed on its own; 0003 left nothing behind.
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "2"
+    assert "overage_min" not in [r[1] for r in v1.execute("PRAGMA table_info(weeks)")]
+    assert v1.execute("SELECT debt_min FROM weeks").fetchone()[0] == 12       # the UPDATE rolled back too
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
+    assert tuple(v1.execute("SELECT debt_min, overage_min FROM weeks").fetchone()) == (0, None)
+
+
+def test_migrating_a_v2_database_zeroes_debt_and_adds_overage(v1, monkeypatch):
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
+    db.init_db(v1)
+    db.migrate(v1)                                   # stop at version 2, as the live database was
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "2"
+    v1.execute("INSERT INTO weeks (week_start, allowance_min, debt_min, promoted_min, listened_min) "
+               "VALUES ('2026-08-30T16:00:00+00:00', 180, 180, 0, 0)")
+    v1.commit()
+    assert [r[0] for r in v1.execute("SELECT debt_min FROM weeks ORDER BY 1")] == [12, 180]
+    assert "overage_min" not in [r[1] for r in v1.execute("PRAGMA table_info(weeks)")]
+
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "3"
+    rows = [tuple(r) for r in v1.execute(
+        "SELECT week_start, allowance_min, debt_min, promoted_min, listened_min, overage_min FROM weeks ORDER BY 1")]
+    assert rows == [("2026-08-23T16:00:00+00:00", 180, 0, 60, 40, None),
+                    ("2026-08-30T16:00:00+00:00", 180, 0, 0, 0, None)]
+    with pytest.raises(sqlite3.IntegrityError):      # overage is never negative
+        v1.execute("UPDATE weeks SET overage_min = -1")
+    week = db._to_week(v1.execute("SELECT * FROM weeks ORDER BY 1 DESC").fetchone())
+    assert week.effective_allowance_min == 180       # the full allowance, debt gone
+
+
+def test_measurement_check_rejects_zero_standin(v1):
+    db.migrate(v1)
+    v1.execute("INSERT INTO imports (kind, received_at, parser_version, status) VALUES "
+               "('coldturkey','2026-09-16T10:00:00+00:00','t','ok')")
+    v1.execute("INSERT INTO sources (kind, source_key, display_name, first_seen_at) VALUES "
+               "('web_domain','google.com','google.com','2026-09-16T10:00:00+00:00')")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, "
+                   "period_end, minutes, status) VALUES (1, 2, 'desktop', 'manual_export', "
+                   "'2026-09-13', '2026-09-13', 0, 'unreadable')")
+
+
+# --- 0004: desktop apps (DR5.3), tables rebuilt to widen CHECKs ----------------------
+
+DR_BRAINROT_TABLES = ("sources", "item_labels", "imports", "measurements", "category_measurements",
+               "vault_captures", "vault_observations", "prompts_sent")
+T0 = "2026-09-16T10:00:00+00:00"
+
+
+def _schema(c):
+    return sorted(tuple(r) for r in c.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"))
+
+
+def _v3_with_dr_brainrot_rows(v1, monkeypatch):
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
+    db.init_db(v1)
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "3"
+    v1.executescript(f"""
+        INSERT INTO sources (id, kind, source_key, display_name, label, labelled_at, first_seen_at, prompted_at)
+        VALUES (2, 'web_domain', 'google.com', 'google.com', NULL, NULL, '{T0}', '{T0}'),
+               (3, 'youtube_channel', 'UCabc', 'Chan', 'worthwhile', '{T0}', '{T0}', NULL);
+        INSERT INTO item_labels VALUES ('youtube:vid1', 'worthwhile', '{T0}', 'capture');
+        INSERT INTO imports (id, kind, received_at, raw_path, raw_sha256, parser_version, status, period_start,
+                             period_end, warnings, error, meta)
+        VALUES (1, 'coldturkey', '{T0}', 'coldturkey/a.json', 'aa', 'ct-1', 'ok', '2026-09-13', '2026-09-15',
+                '[]', NULL, '{{"origin": "local_db"}}'),
+               (2, 'vault_scan', '{T0}', NULL, NULL, 'v-1', 'partial', NULL, NULL, '["w"]', NULL, '{{}}'),
+               (3, 'screentime', '{T0}', 'screentime/b.png', 'bb', 's-1', 'failed', NULL, NULL, '[]', 'bad', '{{}}');
+        INSERT INTO measurements (id, import_id, source_id, device, provenance, item_key, item_title, period_start,
+                                  period_end, minutes, status, detail)
+        VALUES (7, 1, 2, 'desktop', 'manual_export', 'google.com', 'google.com', '2026-09-14', '2026-09-14', 1.5,
+                'ok', '{{}}'),
+               (8, 1, 3, 'account', 'page_extraction', 'vid1', 'A video', '2026-09-14', '2026-09-14', NULL,
+                'duration_missing', '{{}}');
+        INSERT INTO category_measurements (import_id, category, period_start, period_end, minutes)
+        VALUES (1, 'Social', '2026-09-13', '2026-09-19', 12.0);
+        INSERT INTO vault_captures VALUES ('cap-1', '{T0}', 'x', 'x', 1, 'https://x.com/a', 'T', '01-Inbox/a.md',
+                                           'sha', '{T0}');
+        INSERT INTO vault_observations (import_id, capture_id, scanned_at, outcome, rel_path, edited, copies)
+        VALUES (2, 'cap-1', '{T0}', 'kept', 'notes/a.md', 1, 1);
+        INSERT INTO prompts_sent VALUES ('coldturkey', '2026-09-13', '2026-09-21', '{T0}'),
+                                        ('diagnostic_end', '2026-09-13', '2026-11-07', '{T0}');
+    """)
+    v1.commit()
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+
+
+def _all_rows(c):
+    return {t: [tuple(r) for r in c.execute(f"SELECT * FROM {t} ORDER BY 1, 2")]
+            for t in (*DR_BRAINROT_TABLES, *V1_ROWS, "meta") if t != "meta"} | {
+        "meta": [tuple(r) for r in c.execute("SELECT * FROM meta WHERE key != 'schema_version' ORDER BY 1")]}
+
+
+def test_v3_to_v4_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    assert all(before[t] for t in DR_BRAINROT_TABLES)                 # rows in every dr-brainrot table
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
+    assert _all_rows(v1) == before
+    assert v1.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+
+    fresh = sqlite3.connect(str(tmp_path / "fresh.db"))
+    fresh.row_factory = sqlite3.Row
+    db.init_db(fresh)
+    db.migrate(fresh)
+    assert _schema(fresh) == _schema(v1)
+    indexes = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"idx_imports_kind", "idx_imports_sha", "uq_measurements_fact", "idx_measurements_period"} <= indexes
+    # The natural key still holds after the rebuild.
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, item_key, period_start, "
+                   "period_end, minutes) VALUES (1, 2, 'desktop', 'manual_export', 'google.com', '2026-09-14', "
+                   "'2026-09-14', 2.0)")
+    # ...and so do the foreign keys, enforced again.
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, "
+                   "minutes) VALUES (999, 2, 'desktop', 'app_tracker', '2026-09-14', '2026-09-14', 1.0)")
+
+
+def test_v1_to_v4_reaches_the_same_schema_as_v3_to_v4(v1, monkeypatch, tmp_path):
+    straight = _v1_database(tmp_path / "straight.db")
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)              # leaves SCHEMA_VERSION at 4, for both databases
+    db.init_db(straight)
+    db.migrate(straight)
+    db.migrate(v1)
+    assert _schema(straight) == _schema(v1)
+
+
+def test_v4_accepts_the_new_values_and_still_rejects_garbage(v1):
+    db.init_db(v1)
+    db.migrate(v1)
+    good = [
+        f"INSERT INTO sources (id, kind, source_key, display_name, first_seen_at) VALUES "
+        f"(50, 'desktop_app', 'com.tinyspeck.slackmacgap', 'Slack', '{T0}')",
+        f"INSERT INTO imports (id, kind, received_at, parser_version, status) VALUES (50, 'qbserve', '{T0}', 'q', 'ok')",
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes) "
+        "VALUES (50, 50, 'desktop', 'app_tracker', '2026-09-14', '2026-09-14', 2.5)",
+        f"INSERT INTO prompts_sent VALUES ('qbserve_stale', '2026-09-18', '2026-09-18', '{T0}')",
+    ]
+    for sql in good:
+        v1.execute(sql)
+    bad = [
+        f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) VALUES ('garbage', 'k', 'k', '{T0}')",
+        f"INSERT INTO imports (kind, received_at, parser_version, status) VALUES ('garbage', '{T0}', 'q', 'ok')",
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes) "
+        "VALUES (50, 50, 'desktop', 'garbage', '2026-09-15', '2026-09-15', 2.5)",
+        f"INSERT INTO prompts_sent VALUES ('garbage', '2026-09-18', '2026-09-18', '{T0}')",
+    ]
+    for sql in bad:
+        with pytest.raises(sqlite3.IntegrityError):
+            v1.execute(sql)
+
+
+def _broken_0004(tmp_path, tail: str):
+    broken = tmp_path / "migrations"
+    broken.mkdir()
+    for name in ("0002_dr_brainrot.sql", "0003_no_debt.sql"):
+        (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
+    good = (db.MIGRATIONS_DIR / "0004_desktop_apps.sql").read_text()
+    (broken / "0004_desktop_apps.sql").write_text(good + "\n" + tail + "\n")
+    return broken
+
+
+def _assert_still_v3(v1, before):
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "3"
+    assert _all_rows(v1) == before
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    with pytest.raises(sqlite3.IntegrityError):              # the old, narrower CHECK is still in place
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) "
+                   f"VALUES ('desktop_app', 'a', 'a', '{T0}')")
+
+
+def test_failed_0004_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0004(tmp_path, "CREATE TABLE sources (x);"))
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    _assert_still_v3(v1, before)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+    assert _all_rows(v1) == before
+
+
+def test_0004_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    orphan = ("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, "
+              "minutes) VALUES (999, 2, 'desktop', 'app_tracker', '2026-09-14', '2026-09-14', 1.0);")
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0004(tmp_path, orphan))
+    with pytest.raises(db.MigrationError, match="foreign key"):
+        db.migrate(v1)
+    _assert_still_v3(v1, before)
+
+
+# --- 0005: the tool source label (DR5.5), sources rebuilt to widen label CHECK -------
+
+def _v4_with_dr_brainrot_rows(v1, monkeypatch):
+    """A v4 database with rows in every dr-brainrot table, plus dr-brainrot's own dashboard hosts."""
+    _v3_with_dr_brainrot_rows(v1, monkeypatch)
+    db.migrate(v1)                                   # SCHEMA_VERSION is 4 here
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+    v1.executescript(f"""
+        INSERT INTO sources (id, kind, source_key, display_name, label, labelled_at, first_seen_at, prompted_at)
+        VALUES (4, 'web_domain', '127.0.0.1', '127.0.0.1', NULL, NULL, '{T0}', '{T0}'),
+               (5, 'web_domain', 'localhost', 'localhost', 'wasteful', '{T0}', '{T0}', NULL),
+               (6, 'desktop_app', 'localhost', 'An app keyed localhost', NULL, NULL, '{T0}', NULL),
+               (7, 'web_domain', 'amazon.pl', 'amazon.pl', NULL, NULL, '{T0}', NULL);
+        INSERT INTO measurements (id, import_id, source_id, device, provenance, item_key, item_title, period_start,
+                                  period_end, minutes, status, detail)
+        VALUES (9, 1, 4, 'desktop', 'manual_export', '127.0.0.1', '127.0.0.1', '2026-09-14', '2026-09-14', 3.0,
+                'ok', '{{}}');
+    """)
+    v1.commit()
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 5)
+
+
+def _without_dashboard_label(rows):
+    """Every row, with the migration's one deliberate change (sources 4 and 5) masked."""
+    out = dict(rows)
+    out["sources"] = [r for r in rows["sources"] if r[0] not in (4, 5)]
+    return out
+
+
+def test_v4_to_v5_keeps_every_row_and_foreign_key_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    assert all(before[t] for t in DR_BRAINROT_TABLES)
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+    after = _all_rows(v1)
+    assert _without_dashboard_label(after) == _without_dashboard_label(before)
+    assert len(after["sources"]) == len(before["sources"])
+    assert v1.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+
+    fresh = sqlite3.connect(str(tmp_path / "fresh.db"))
+    fresh.row_factory = sqlite3.Row
+    db.init_db(fresh)
+    db.migrate(fresh)
+    assert _schema(fresh) == _schema(v1)
+    # Unique (kind, source_key) survives the rebuild...
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) "
+                   f"VALUES ('web_domain', 'amazon.pl', 'dup', '{T0}')")
+    # ...and so do the foreign keys into sources, enforced again.
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, "
+                   "minutes) VALUES (1, 999, 'desktop', 'manual_export', '2026-09-15', '2026-09-15', 1.0)")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("DELETE FROM sources WHERE id = 4")     # still referenced by measurement 9
+
+
+def test_0005_labels_only_the_dashboard_host_tool(v1, monkeypatch):
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
+    before = {r["id"]: tuple(r) for r in v1.execute("SELECT * FROM sources")}
+    db.migrate(v1)
+    after = {r["id"]: r for r in v1.execute("SELECT * FROM sources")}
+    assert {i for i, r in after.items() if r["label"] == "tool"} == {4, 5}
+    for i in (4, 5):
+        stamp = after[i]["labelled_at"]
+        assert clock.parse(stamp).utcoffset().total_seconds() == 0          # a real UTC instant, clock's shape
+        assert stamp.endswith("+00:00") and stamp != T0
+        # Nothing else about the row changed.
+        assert tuple(after[i])[:4] == before[i][:4] and tuple(after[i])[6:] == before[i][6:]
+    for i in (1, 2, 3, 6, 7):                                             # an app keyed localhost is not the host
+        assert tuple(after[i]) == before[i]
+
+
+def test_v1_to_v5_reaches_the_same_schema_as_v4_to_v5(v1, monkeypatch, tmp_path):
+    straight = _v1_database(tmp_path / "straight.db")
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
+    db.init_db(straight)
+    db.migrate(straight)
+    db.migrate(v1)
+    assert _schema(straight) == _schema(v1)
+
+
+def test_v5_accepts_tool_on_sources_and_rejects_it_on_item_labels(v1):
+    db.init_db(v1)
+    db.migrate(v1)
+    v1.execute(f"INSERT INTO sources (kind, source_key, display_name, label, first_seen_at) "
+               f"VALUES ('web_domain', 'amazon.pl', 'amazon.pl', 'tool', '{T0}')")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, label, first_seen_at) "
+                   f"VALUES ('web_domain', 'b.pl', 'b.pl', 'neutral', '{T0}')")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO item_labels VALUES ('youtube:vid9', 'tool', '{T0}', 'capture')")
+    v1.execute(f"INSERT INTO item_labels VALUES ('youtube:vid9', 'wasteful', '{T0}', 'capture')")
+
+
+def _broken_0005(tmp_path, tail: str):
+    broken = tmp_path / "migrations"
+    broken.mkdir()
+    for name in ("0002_dr_brainrot.sql", "0003_no_debt.sql", "0004_desktop_apps.sql"):
+        (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
+    good = (db.MIGRATIONS_DIR / "0005_tool_label.sql").read_text()
+    (broken / "0005_tool_label.sql").write_text(good + "\n" + tail + "\n")
+    return broken
+
+
+def _assert_still_v4(v1, before):
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "4"
+    assert _all_rows(v1) == before                            # the dashboard host label rolled back too
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    with pytest.raises(sqlite3.IntegrityError):              # the old, binary CHECK is still in place
+        v1.execute("UPDATE sources SET label = 'tool' WHERE id = 7")
+
+
+def test_failed_0005_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0005(tmp_path, "CREATE TABLE sources (x);"))
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    _assert_still_v4(v1, before)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+    assert _without_dashboard_label(_all_rows(v1)) == _without_dashboard_label(before)
+
+
+def test_0005_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    orphan = "DELETE FROM sources WHERE id = 4;"      # measurement 9 still points at it
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0005(tmp_path, orphan))
+    with pytest.raises(db.MigrationError, match="foreign key"):
+        db.migrate(v1)
+    _assert_still_v4(v1, before)
+
+
+# --- 0006: the weekly insights summary (DR5.8), a new table only ------------
+
+def _v5_with_dr_brainrot_rows(v1, monkeypatch):
+    """A v5 database with rows in every dr-brainrot table (the 0005 fixture, migrated)."""
+    _v4_with_dr_brainrot_rows(v1, monkeypatch)
+    db.migrate(v1)                                   # SCHEMA_VERSION is 5 here
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
+
+
+def test_v5_to_v6_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
+    """0006 is additive: one new table, nothing rebuilt, nothing else touched."""
+    _v5_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    assert all(before[t] for t in DR_BRAINROT_TABLES)
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name='insights'").fetchone() is None
+
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
+    assert _all_rows(v1) == before                   # not one existing row changed
+    assert v1.execute("SELECT COUNT(*) FROM insights").fetchone()[0] == 0
+    assert v1.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+
+    fresh = sqlite3.connect(str(tmp_path / "fresh6.db"))
+    fresh.row_factory = sqlite3.Row
+    db.init_db(fresh)
+    db.migrate(fresh)
+    assert _schema(fresh) == _schema(v1)
+
+
+def test_v1_to_v6_reaches_the_same_schema_as_v5_to_v6(v1, monkeypatch, tmp_path):
+    straight = _v1_database(tmp_path / "straight6.db")
+    _v5_with_dr_brainrot_rows(v1, monkeypatch)
+    db.init_db(straight)
+    db.migrate(straight)
+    db.migrate(v1)
+    assert _schema(straight) == _schema(v1)
+
+
+def test_v6_constrains_insight_status(v1):
+    db.init_db(v1)
+    db.migrate(v1)
+    v1.execute(f"INSERT INTO insights (created_at, week_start, status) VALUES ('{T0}', '{T0}', 'ok')")
+    v1.execute(f"INSERT INTO insights (created_at, week_start, status) VALUES ('{T0}', '{T0}', 'failed')")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO insights (created_at, week_start, status) VALUES ('{T0}', '{T0}', 'maybe')")
+    with pytest.raises(sqlite3.IntegrityError):     # status is NOT NULL
+        v1.execute(f"INSERT INTO insights (created_at, week_start) VALUES ('{T0}', '{T0}')")
+
+
+def _broken_0006(tmp_path, tail: str):
+    broken = tmp_path / "migrations6"
+    broken.mkdir()
+    for name in ("0002_dr_brainrot.sql", "0003_no_debt.sql", "0004_desktop_apps.sql", "0005_tool_label.sql"):
+        (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
+    good = (db.MIGRATIONS_DIR / "0006_insights.sql").read_text()
+    (broken / "0006_insights.sql").write_text(good + "\n" + tail + "\n")
+    return broken
+
+
+def test_failed_0006_rolls_back_whole(v1, monkeypatch, tmp_path):
+    """A step that fails part-way leaves the database at v5, table and all, and retries whole."""
+    _v5_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _all_rows(v1)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0006(tmp_path, "CREATE TABLE sources (x);"))
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "5"
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name='insights'").fetchone() is None
+    assert _all_rows(v1) == before
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "6"
+    assert _all_rows(v1) == before
+    assert v1.execute("SELECT COUNT(*) FROM insights").fetchone()[0] == 0
+
+
+# --- 0008: audiobooks from Audible (DR5.28), three tables rebuilt to widen CHECKs ----
+
+def _v7_with_dr_brainrot_rows(v1, monkeypatch):
+    """A v7 database with rows in every dr-brainrot table, the phone browser's included."""
+    _v5_with_dr_brainrot_rows(v1, monkeypatch)
+    db.migrate(v1)                                   # SCHEMA_VERSION is 6 here
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 7)
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "7"
+    v1.executescript(f"""
+        INSERT INTO sources (id, kind, source_key, display_name, label, labelled_at, first_seen_at, prompted_at)
+        VALUES (8, 'iphone_app', 'audible', 'Audible', 'tool', '{T0}', '{T0}', NULL);
+        INSERT INTO imports (id, kind, received_at, raw_path, raw_sha256, parser_version, status, period_start,
+                             period_end, warnings, error, meta)
+        VALUES (4, 'brave_sync', '{T0}', 'brave_sync/c.json', 'cc', 'b-1', 'ok', '2026-09-13', '2026-09-19',
+                '[]', NULL, '{{}}');
+        INSERT INTO measurements (id, import_id, source_id, device, provenance, item_key, item_title, period_start,
+                                  period_end, minutes, status, detail)
+        VALUES (10, 4, 7, 'iphone', 'browser_sync', '', NULL, '2026-09-13', '2026-09-19', 4.5, 'ok', '{{}}'),
+               (11, 3, 8, 'iphone', 'screenshot_ocr', '', NULL, '2026-09-13', '2026-09-19', 2.0, 'ok', '{{}}');
+        INSERT INTO insights (created_at, week_start, status) VALUES ('{T0}', '2026-09-13T16:00:00+00:00', 'ok');
+    """)
+    v1.commit()
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 8)
+
+
+def _rows_v7(c):
+    return _all_rows(c) | {"insights": [tuple(r) for r in c.execute("SELECT * FROM insights ORDER BY 1")]}
+
+
+def test_v7_to_v8_keeps_every_row_and_matches_a_fresh_schema(v1, monkeypatch, tmp_path):
+    _v7_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _rows_v7(v1)
+    assert all(before[t] for t in (*DR_BRAINROT_TABLES, "insights"))
+    db.migrate(v1)
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "8"
+    assert _rows_v7(v1) == before                    # not one row changed, ids included
+    assert v1.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    assert v1.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+
+    fresh = sqlite3.connect(str(tmp_path / "fresh8.db"))
+    fresh.row_factory = sqlite3.Row
+    db.init_db(fresh)
+    db.migrate(fresh)
+    assert _schema(fresh) == _schema(v1)
+    indexes = {r[0] for r in v1.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"idx_imports_kind", "idx_imports_sha", "uq_measurements_fact", "idx_measurements_period"} <= indexes
+    # The natural key, the unique source identity and the foreign keys all survive.
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, item_key, period_start, "
+                   "period_end, minutes) VALUES (1, 2, 'desktop', 'manual_export', 'google.com', '2026-09-14', "
+                   "'2026-09-14', 2.0)")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) "
+                   f"VALUES ('iphone_app', 'audible', 'dup', '{T0}')")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, "
+                   "minutes) VALUES (999, 2, 'account', 'audible_stats', '2026-09-14', '2026-09-14', 1.0)")
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("DELETE FROM sources WHERE id = 8")     # still referenced by measurement 11
+    with pytest.raises(sqlite3.IntegrityError):
+        v1.execute("DELETE FROM imports WHERE id = 2")     # still referenced by a vault observation
+
+
+def test_v1_to_v8_reaches_the_same_schema_as_v7_to_v8(v1, monkeypatch, tmp_path):
+    straight = _v1_database(tmp_path / "straight8.db")
+    _v7_with_dr_brainrot_rows(v1, monkeypatch)              # leaves SCHEMA_VERSION at 8, for both databases
+    db.init_db(straight)
+    db.migrate(straight)
+    db.migrate(v1)
+    assert _schema(straight) == _schema(v1)
+
+
+def test_v8_accepts_the_new_values_and_still_rejects_garbage(v1):
+    db.init_db(v1)
+    db.migrate(v1)
+    good = [
+        f"INSERT INTO sources (id, kind, source_key, display_name, label, labelled_at, first_seen_at) VALUES "
+        f"(60, 'audiobook', 'B0TEST0001', 'Test Book One', 'worthwhile', '{T0}', '{T0}')",
+        f"INSERT INTO imports (id, kind, received_at, parser_version, status) VALUES (60, 'audible', '{T0}', 'a', 'ok')",
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes) "
+        "VALUES (60, 60, 'account', 'audible_stats', '2026-09-14', '2026-09-14', 56.53)",
+    ]
+    for sql in good:
+        v1.execute(sql)
+    bad = [
+        f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) VALUES ('ebook', 'k', 'k', '{T0}')",
+        f"INSERT INTO imports (kind, received_at, parser_version, status) VALUES ('kindle', '{T0}', 'a', 'ok')",
+        # The import kind is not a provenance, and the provenance is not an import kind.
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes) "
+        "VALUES (60, 60, 'account', 'audible', '2026-09-15', '2026-09-15', 2.5)",
+        f"INSERT INTO imports (kind, received_at, parser_version, status) VALUES ('audible_stats', '{T0}', 'a', 'ok')",
+        # The rebuilt CHECKs still hold their old rules: NULL is not zero.
+        "INSERT INTO measurements (import_id, source_id, device, provenance, period_start, period_end, minutes, "
+        "status) VALUES (60, 60, 'account', 'audible_stats', '2026-09-16', '2026-09-16', 0, 'unreadable')",
+    ]
+    for sql in bad:
+        with pytest.raises(sqlite3.IntegrityError):
+            v1.execute(sql)
+
+
+def _broken_0008(tmp_path, tail: str):
+    broken = tmp_path / "migrations8"
+    broken.mkdir()
+    for name in ("0002_dr_brainrot.sql", "0003_no_debt.sql", "0004_desktop_apps.sql", "0005_tool_label.sql",
+                 "0006_insights.sql", "0007_phone_browser.sql"):
+        (broken / name).write_text((db.MIGRATIONS_DIR / name).read_text())
+    good = (db.MIGRATIONS_DIR / "0008_audiobooks.sql").read_text()
+    (broken / "0008_audiobooks.sql").write_text(good + "\n" + tail + "\n")
+    return broken
+
+
+def _assert_still_v7(v1, before):
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "7"
+    assert _rows_v7(v1) == before
+    assert v1.execute("SELECT name FROM sqlite_master WHERE name LIKE '%\\_new' ESCAPE '\\'").fetchall() == []
+    assert v1.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    with pytest.raises(sqlite3.IntegrityError):              # the old, narrower CHECK is still in place
+        v1.execute(f"INSERT INTO sources (kind, source_key, display_name, first_seen_at) "
+                   f"VALUES ('audiobook', 'B0TEST0001', 'a', '{T0}')")
+
+
+def test_failed_0008_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v7_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _rows_v7(v1)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0008(tmp_path, "CREATE TABLE sources (x);"))
+    with pytest.raises(sqlite3.Error):
+        db.migrate(v1)
+    _assert_still_v7(v1, before)
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", db.ROOT / "migrations")
+    db.migrate(v1)                                   # retried whole, succeeds
+    assert v1.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "8"
+    assert _rows_v7(v1) == before
+
+
+def test_0008_leaving_a_foreign_key_violation_rolls_back_whole(v1, monkeypatch, tmp_path):
+    _v7_with_dr_brainrot_rows(v1, monkeypatch)
+    before = _rows_v7(v1)
+    orphan = "DELETE FROM sources WHERE id = 4;"      # measurement 9 still points at it
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", _broken_0008(tmp_path, orphan))
+    with pytest.raises(db.MigrationError, match="foreign key"):
+        db.migrate(v1)
+    _assert_still_v7(v1, before)

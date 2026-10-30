@@ -1,0 +1,7 @@
+{#- The Labels destination has two views: the backlog worth deciding, and every
+    source. One is a worklist, the other a reference, so they are tabs rather
+    than two entries in the primary nav. -#}
+<nav class="tabs" aria-label="Labels views">
+  <a href="{{ url_for('labels_queue') }}"{% if request.endpoint in ('labels_queue', 'labels_bulk') %} aria-current="page"{% endif %}>Label queue{% if unlabelled and unlabelled.count %} <span class="tab-count">{{ unlabelled.count }}</span>{% endif %}</a>
+  <a href="{{ url_for('labels_page') }}"{% if request.endpoint in ('labels_page', 'set_label') %} aria-current="page"{% endif %}>All sources</a>
+</nav>

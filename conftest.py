@@ -14,7 +14,10 @@ So the guard lives here instead, autouse for every test in the repository:
 * name resolution, socket connects and both httpx transports raise instead of
   reaching the network — loud, and in microseconds;
 * reading the real `.env` raises, so no test can pick up live credentials by
-  accident. Tests build `Settings` with `config.test_settings()`.
+  accident. Tests build `Settings` with `config.test_settings()`;
+* the Audible client library is replaced by a stub that fails the test on
+  first use, and reading the real Audible sign-in or store file raises
+  (DR5.28). A test that needs the library installs its own fake module.
 
 `socket.socket` itself is deliberately *not* blocked: asyncio builds a
 self-pipe with `socket.socketpair()` on every event loop, and `triage.send()`
@@ -26,6 +29,7 @@ from __future__ import annotations
 import pathlib
 import socket
 import sys
+import types
 
 import pytest
 
@@ -34,6 +38,24 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import config  # noqa: E402
 
 REAL_ENV_PATH = config.ENV_PATH
+#: Written by `audible_login.py` when he signed in. Never read by a test.
+REAL_AUDIBLE_FILES = (config.ROOT / "data" / "audible_auth.json", config.ROOT / "data" / "audible_store.json")
+
+
+class _NoRealAudible(types.ModuleType):
+    """Stands in for the `audible` package. Any use fails the test outright.
+
+    `pytest.fail` raises a BaseException, so no `except Exception` in the code
+    under test can turn reaching the real client into a quiet "sign-in failed".
+    Dunder lookups stay ordinary misses, so module scans (inspect, warnings)
+    pass by it untouched.
+    """
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        pytest.fail("A test reached the real Audible client. Pass sources.audible.sync(client=...) "
+                    "a fake, or install a fake `audible` module.", pytrace=False)
 
 
 @pytest.fixture(autouse=True)
@@ -58,17 +80,36 @@ def no_live_calls(monkeypatch):
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", blocked_network)
 
     real_read_text = pathlib.Path.read_text
+    guarded = {REAL_ENV_PATH.resolve(), *(p.resolve() for p in REAL_AUDIBLE_FILES)}
 
     def guarded_read_text(self, *args, **kwargs):
         try:
-            is_real_env = self.resolve() == REAL_ENV_PATH.resolve()
+            is_real = self.resolve() in guarded
         except OSError:  # pragma: no cover — unresolvable path is not .env
-            is_real_env = False
-        if is_real_env:
+            is_real = False
+        if is_real:
             raise AssertionError(
-                f"A test read the real {REAL_ENV_PATH}. Use config.test_settings()."
+                f"A test read the real {self}. Use config.test_settings(), and tmp_path for Audible."
             )
         return real_read_text(self, *args, **kwargs)
 
     monkeypatch.setattr(pathlib.Path, "read_text", guarded_read_text)
+
+    # Apple Vision is a local service, not the network, but it is still a live
+    # dependency: slow, machine-specific, and fed personal screenshots in
+    # production. Two test modules guarded it themselves; any other module
+    # (the end-to-end test, a handler test) calling screentime ingest without
+    # an injected `ocr=` would have reached the real framework. Guard it here
+    # for every test. The local-only real-OCR check keeps the originals it
+    # captured at import time, before this fixture runs.
+    from sources import ocr_vision
+
+    def blocked_vision(*args, **kwargs):
+        raise AssertionError("A test reached Apple Vision. Inject recorded OCR observations instead.")
+
+    monkeypatch.setattr(ocr_vision, "recognize", blocked_vision)
+    monkeypatch.setattr(ocr_vision, "recognize_region", blocked_vision)
+
+    # The Audible client talks to Amazon with his registered device (DR5.28).
+    monkeypatch.setitem(sys.modules, "audible", _NoRealAudible("audible"))
     yield

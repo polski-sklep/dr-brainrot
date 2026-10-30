@@ -1,0 +1,1553 @@
+/* ==========================================================================
+   dr-brainrot dashboard — design system.
+
+   A restrained analytical interface: neutral surfaces, one accent, semantic
+   colour reserved for genuine states. Light theme, desktop-primary, usable
+   down to a narrow window. Every token below has a functional role; nothing
+   here is decorative.
+
+   Two rules this file exists to protect, both from dashboard/app.py:
+
+   1. Provenance is never flattened. Provenance chips are metadata and stay
+      visually quiet; their tier is carried by dot shape and text weight, not
+      by colour, so they can never out-shout an actual warning.
+   2. No targets, scores or streaks. There is no "good" colour. Green appears
+      only for import pipeline health (did the data arrive), never for the
+      user's own consumption. The wasteful/worthwhile split uses a neutral
+      lightness ramp, not hue, so the chart makes no judgement. One component
+      reverses this at Jacob's request, and only that one: the brain beside
+      the summary, whose mould is coloured (DR5.20, DR5.21, the end of this file).
+   ========================================================================== */
+
+:root {
+  /* -- Surfaces -------------------------------------------------------- */
+  --bg:            #F5F7FA;   /* page. Lets white panels read as raised.   */
+  --surface:       #FFFFFF;   /* panels, tables, header.                   */
+  --surface-sunk:  #EFF3F8;   /* table headers, toolbars, inset blocks.    */
+  --surface-hover: #F2F6FC;   /* row hover only. Never a resting state.    */
+
+  /* -- Lines ----------------------------------------------------------- */
+  --hairline:      #E4E8EE;   /* row separators. Decorative weight only.   */
+  --border:        #D3D9E2;   /* panel + control edges. Structural.        */
+  --border-strong: #B4BAC3;   /* table head underline, focused controls.   */
+
+  /* -- Text (all AA or better on --surface) ---------------------------- */
+  --text:          #16181D;   /* 16.4:1. Data, headings, primary values.   */
+  --text-secondary:#555B66;   /*  7.4:1. Labels, table headers, captions.  */
+  --text-muted:    #656B75;   /*  5.4:1 on white, 4.8:1 on --surface-sunk. */
+
+  /* -- Accent: navigation, links, focus, selection. Nothing else. ------ */
+  --accent:        #1D5FD1;   /*  5.6:1 on white.                          */
+  --accent-weak:   #EAF0FC;   /* active nav / selected segment ground.     */
+  --accent-border: #A9C4F0;
+  --info-bg:       #EFF5FE;   /* explainer panels. Says "read me", not "act". */
+  --info-border:   #C6DAF6;
+
+  /* -- Label colours. A user decision, not a verdict by dr-brainrot: the hue names
+        which label you chose, and the word is always printed beside it. They
+        are deliberately lighter and flatter than the semantic colours above,
+        and they only ever appear inside a chip — never on a figure. -------- */
+  --lbl-wasteful-bg:     #FDECEC;  --lbl-wasteful-bd:   #F0C7C7;  --lbl-wasteful-fg:   #A32F2F;  /* 6.1:1 */
+  --lbl-worthwhile-bg:   #EAF6EE;  --lbl-worthwhile-bd: #BFE0CB;  --lbl-worthwhile-fg: #1F7A47;  /* 4.8:1 */
+  --lbl-tool-bg:         #EDF3FB;  --lbl-tool-bd:       #C8DAF0;  --lbl-tool-fg:       #41637F;  /* 5.7:1 */
+
+  /* -- Semantic. Reserved; see the header note. ------------------------ */
+  --warn:          #8F5F00;   /* 5.1:1 on --warn-bg, 5.5:1 on white.       */
+  --warn-bg:       #FFF8C5;
+  --warn-border:   #E2C566;
+  --danger:        #B42318;   /* a genuine failure, nothing else.          */
+  --danger-bg:     #FEEBE9;
+  --danger-border: #F1A9A0;
+  /* -- A win. Distinct from --ok on purpose: --ok says a file arrived,
+        this says you spent less time than last week. They are both green
+        and they mean different things, so they are different greens and
+        they never appear in the same component. --------------------------- */
+  --win:           #17794F;   /* 5.9:1 on --win-bg                         */
+  --win-bg:        #F0F9F3;
+  --win-bg-solid:  #BFE6CE;
+  --win-border:    #BCE0CA;
+
+  --ok:            #1A6B4C;   /* import arrived. Never a verdict on use.   */
+  --ok-bg:         #E7F3EE;
+  --ok-border:     #A8CFBE;
+
+  /* -- Chart: a neutral lightness ramp, deliberately hue-free. The light
+        series clears 3:1 against the page so the bar is perceivable, and
+        3.3:1 against the dark series so the split is readable. ------------ */
+  /* The bars are the label hues at one matched weight: identical saturation
+     and lightness (HSL 38%/62%), so neither shouts over the other and both
+     sit in the same family as the chips. Hue separates them; an 18-point
+     luminance gap and the fixed stacking order back it up. Each fill carries
+     its label's text colour as a stroke, which is what holds the edge against
+     the page — the same tint-plus-border shape every chip on the page uses. */
+  --series-wasteful:        #F6CFCF;   /* the wasteful chip's tint, a shade  */
+  --series-wasteful-edge:   #A32F2F;   /* stronger, with the chip's own red   */
+  --series-undecided:       #FCEFBC;   /* the undecided chip's tint: a band   */
+  --series-undecided-edge:  #8F5F00;   /* you are meant to want to remove      */
+  --series-worthwhile:      #CBE8D6;   /* likewise for worthwhile: the bars   */
+  --series-worthwhile-edge: #1F7A47;   /* are chips, drawn tall               */
+  --axis:              #C6CBD2;
+
+  /* -- Type ------------------------------------------------------------ */
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --fs-title: 20px; --fs-section: 16px; --fs-sub: 13px;
+  --fs-body: 14px;  --fs-table: 13px;   --fs-meta: 12px; --fs-micro: 11px;
+  --fs-metric: 26px;
+
+  /* -- Space (4px base) ------------------------------------------------ */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px;
+  --s6: 24px; --s8: 32px; --s10: 40px;
+
+  /* -- Shape ----------------------------------------------------------- */
+  --r-control: 5px; --r-panel: 8px; --r-badge: 4px;
+  --shadow-pop: 0 4px 12px rgba(16, 20, 28, .10);   /* floating only.     */
+
+  /* -- Measure: prose is capped, data is not. -------------------------- */
+  --measure: 78ch;
+  /* Data runs edge to edge. Prose does not: --measure still caps every note,
+     lede and legend, so the two-width rule survives the cap coming off. */
+  --page-max: 100%;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: var(--fs-body)/1.5 var(--font);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s6) var(--s6) var(--s10);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  border-radius: var(--r-control);
+}
+
+/* ==========================================================================
+   Application header: identity and navigation, then a secondary status row.
+   ========================================================================== */
+
+header.site {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+header.site nav {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 0 var(--s6);
+  height: 46px;
+}
+
+/* Dr. Brainrot. The spiral is the project's own motif — it sits at the centre
+   of the podcast queue's logo this tool grew out of — and it is what brain rot looks like:
+   inward, and going nowhere. It is drawn in the accent, at 19px, once. */
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: var(--s5);
+  color: var(--text);
+  text-decoration: none;
+  flex: none;
+}
+.wordmark:hover { text-decoration: none; }
+.wordmark .mark { flex: none; }
+.wordmark-text {
+  font-size: var(--fs-body);
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+.wordmark-dr {
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-right: 3px;
+}
+
+header.site nav a {
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  padding: var(--s1) var(--s3);
+  border-radius: var(--r-control);
+  line-height: 1.7;
+}
+header.site nav a:hover { background: var(--surface-sunk); color: var(--text); text-decoration: none; }
+header.site nav a[aria-current="page"] { color: var(--accent); background: var(--accent-weak); font-weight: 600; }
+
+/* The diagnostic countdown: always present, always subordinate to the nav. */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s2) var(--s6);
+  border-top: 1px solid var(--hairline);
+}
+.statusbar .countdown { flex: 1 1 auto; min-width: 0; }
+.sync { flex: none; }
+.sync button { font-size: var(--fs-meta); min-height: 26px; padding: 3px 10px; }
+
+.countdown {
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.countdown strong { color: var(--text); font-weight: 600; }
+.countdown-pending { color: var(--text-muted); }
+.countdown-pending strong { color: var(--warn); }
+
+/* The one moment the app is allowed to be loud: the diagnostic is over. */
+.countdown-ended {
+  background: var(--text);
+  color: #FFFFFF;
+  border-top: none;
+  max-width: none;
+  font-size: var(--fs-body);
+  /* Full-bleed band, but its text still lines up with the nav above it. */
+  padding: var(--s3) max(var(--s6), calc((100% - var(--page-max)) / 2));
+}
+.countdown-ended strong { color: #FFFFFF; font-size: var(--fs-section); }
+.countdown-ended span {
+  display: block;
+  font-size: var(--fs-meta);
+  color: #C9CDD4;
+  margin-top: 2px;
+}
+
+/* ==========================================================================
+   Page furniture
+   ========================================================================== */
+
+h1 {
+  font-size: var(--fs-title);
+  font-weight: 650;
+  letter-spacing: -.01em;
+  margin: 0 0 var(--s2);
+}
+
+h2 {
+  font-size: var(--fs-section);
+  font-weight: 650;
+  letter-spacing: -.005em;
+  margin: 0 0 var(--s3);
+  padding: 0 0 var(--s2) var(--s3);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+h2::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 2px;
+  width: 3px; height: 1em;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+h3 {
+  font-size: var(--fs-sub);
+  font-weight: 650;
+  color: var(--text-secondary);
+  margin: var(--s5) 0 var(--s2);
+}
+
+section { margin-top: var(--s8); }
+section:first-of-type { margin-top: var(--s5); }
+
+/* Explanatory prose is capped; data is not. */
+.note, .lede, .rule p, .legend { max-width: var(--measure); }
+
+.note {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  margin: var(--s2) 0 0;
+}
+.muted { color: var(--text-muted); }
+.absent { color: var(--text-muted); font-style: italic; }
+.error { color: var(--danger); }
+
+.lede { font-size: var(--fs-body); color: var(--text-secondary); margin: 0 0 var(--s4); }
+
+/* The content-only scope line and the labelling rule. Neutral by design. */
+.scope {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-body);
+}
+.scope strong { font-weight: 600; }
+
+.rule {
+  max-width: calc(var(--measure) + var(--s4) * 2 + 4px);
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-panel);
+  padding: var(--s3) var(--s4);
+  margin: 0 0 var(--s3);
+}
+.rule p { margin: 0; font-size: var(--fs-body); color: var(--text-secondary); }
+.rule strong { color: var(--text); font-weight: 600; }
+
+ul.tight { margin: 0; padding-left: var(--s4); }
+ul.tight li { margin: 1px 0; }
+
+.cols { display: flex; gap: var(--s6); align-items: flex-start; flex-wrap: wrap; }
+.cols > div { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+
+/* ==========================================================================
+   Panels and the summary metric strip
+   ========================================================================== */
+
+/* Related metrics share one panel with internal dividers — not one card each. */
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--r-panel);
+  overflow: hidden;
+}
+.metric {
+  flex: 1 1 150px;
+  min-width: 0;
+  padding: var(--s3) var(--s4);
+  border-left: 1px solid var(--hairline);
+}
+.metric:first-child { border-left: none; }
+.metric-label {
+  display: block;
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+.metric-value {
+  display: block;
+  font-size: var(--fs-metric);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.metric-value .absent { font-size: var(--fs-body); font-weight: 400; }
+.metric-note {
+  display: block;
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+/* Excluded-from-the-count figures read as an aside, not as a headline. */
+.metric-aside { background: var(--surface-sunk); }
+.metric-aside .metric-value { color: var(--text-secondary); }
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  overflow-x: auto;
+}
+/* A compact table is a summary, not a grid: its frame stops where it does. */
+.table-wrap:has(> table.compact) { width: max-content; max-width: 100%; }
+
+table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: var(--fs-table); }
+table.compact { width: auto; min-width: 380px; }
+
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--hairline);
+  line-height: 1.4;
+}
+
+thead th {
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-sunk);
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+
+/* Long column headers wrap rather than forcing the column wide. */
+/* A flexible column squeezes every other column to its minimum, so a header
+   allowed to wrap needs a floor wide enough to wrap sensibly — at 11ch
+   "Tool (not content, excluded)" broke into four lines. */
+thead th.th-wrap { white-space: normal; min-width: 20ch; max-width: 24ch; }
+
+/* Minutes on tool-labelled sources are excluded from every count, so they
+   are printed at a lower weight than the figures that do count. */
+td.tool-min { color: var(--text-muted); font-weight: 450; }
+
+/* The chip wraps a <strong> so the label reads as emphasis to a screen
+   reader without doubling the visual weight. */
+.state strong { font-weight: inherit; }
+
+/* The ungated share: a ratio, not a headline. */
+td.reflex { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+
+/* A term with a plain-English explanation on hover. The dotted underline is
+   the affordance: without it the tooltip is a secret. */
+.hint {
+  border-bottom: 1px dotted var(--border-strong);
+  cursor: help;
+}
+thead th .hint { border-bottom-color: var(--accent-border); }
+
+/* ==========================================================================
+   The three answers
+   ========================================================================== */
+
+/* One figure, then the parts it is made of. The parts are a list, not more
+   cards: they are subordinate to the headline, not four rivals to it. */
+/* This week so far against the same days last week (DR5.29). A part-week
+   figure, so it is a quiet inset under the headline, never a second hero: the
+   lead says "so far" before any number does. A fall takes the good-week green
+   edge, quietly; a rise is only reported, never red. */
+.pace {
+  max-width: var(--measure);
+  margin-top: var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-panel);
+}
+.pace-down { border-left-color: var(--win); background: var(--win-bg); }
+.pace-text { margin: 0; font-size: var(--fs-body); color: var(--text); }
+.pace-text strong { font-weight: 650; font-variant-numeric: tabular-nums; }
+.pace-lead { font-weight: 650; }
+.pace-basis { margin: 2px 0 0; font-size: var(--fs-meta); color: var(--text-secondary); }
+
+.headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s5) var(--s8);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--r-panel);
+  padding: var(--s4) var(--s5);
+}
+.headline-figure { flex: 0 0 auto; }
+.headline-label { display: block; font-size: var(--fs-meta); color: var(--text-secondary); }
+.headline-value {
+  display: block;
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0;
+}
+.headline-delta { display: block; font-size: var(--fs-meta); color: var(--text-secondary); }
+/* Direction is a fact about two numbers, not a verdict, so it is not amber or
+   green — it is the accent, the same weight in both directions. */
+.dir-up, .dir-down { font-weight: 650; color: var(--text); }
+
+.headline-parts {
+  flex: 1 1 320px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-table);
+  color: var(--text-secondary);
+}
+.headline-parts li { padding: 3px 0; }
+.headline-parts strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  margin-right: var(--s1);
+}
+.headline-parts .part-undecided strong { color: var(--warn); }
+td.part-undecided { color: var(--warn); }
+.headline-parts .part-quiet { color: var(--text-muted); border-top: 1px solid var(--hairline); margin-top: var(--s1); padding-top: var(--s2); }
+
+/* An undecided row is the only row on the page that asks for something. */
+tr.undecided-row td { background: var(--warn-bg); }
+tr.undecided-row:hover td { background: #FDF3BF; }
+a.decide { font-size: var(--fs-micro); font-weight: 600; margin-left: var(--s1); }
+/* A source's name, linked to its own page (a site, a channel, X). It keeps the
+   text colour, so a table of names doesn't turn into a wall of blue; the small
+   arrow says it opens elsewhere, and hover takes the accent. The arrow is
+   decoration (empty alt text): the link's title says "in a new tab". */
+.source-link { color: inherit; }
+.source-link::after {
+  content: "\2197";
+  content: "\2197" / "";
+  margin-left: .3em;
+  font-size: .8em;
+  color: var(--text-muted);
+}
+.source-link:hover, .source-link:focus-visible { color: var(--accent); text-underline-offset: 2px; }
+.source-link:hover::after, .source-link:focus-visible::after { color: var(--accent); }
+
+.all-in { font-size: var(--fs-table); color: var(--ok); font-weight: 550; margin: 0; }
+
+.blind-list { font-size: var(--fs-table); color: var(--text-secondary); max-width: var(--measure); }
+.blind-list li { margin: var(--s1) 0; }
+
+tbody tr:hover td, tbody tr:hover th { background: var(--surface-hover); }
+
+/* Row-header cells (the label column of a key/value table). */
+tbody th { font-weight: 450; color: var(--text-secondary); }
+
+/* A table states its own total: stronger than a row, quieter than a headline. */
+tfoot th, tfoot td {
+  border-top: 1px solid var(--border-strong);
+  border-bottom: none;
+  font-weight: 650;
+  color: var(--text);
+  background: var(--surface-sunk);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+td.num { font-weight: 500; color: var(--text); }
+
+/* Long free text must not break the grid. The clamp goes on an inner block,
+   not the cell: a max-width on a <td> is advisory under table-layout: auto,
+   so one 101-character video title was widening the whole Item column. */
+.clamp { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Every full-width table names the one column that can use spare width — a
+   title, a reason, a warning — so widening the window widens that and leaves
+   every other column where it was.
+
+   `width: 100%` on a cell feeds back into the table's own preferred width, so
+   inside a scrolling wrapper it inflates the table instead of absorbing slack.
+   It is therefore applied only above the width where these tables already fit;
+   below that the columns size naturally and the wrapper scrolls, which is the
+   behaviour a ten-column table needs on a small screen anyway. */
+@media (min-width: 1500px) {
+  .col-flex { width: 100%; }
+  /* Only once a column is absorbing slack can its clamp follow the column
+     rather than a fixed cap. Below the breakpoint the cap is what stops the
+     longest title from widening the column in the first place. */
+  .cell-item .clamp { max-width: 100%; }
+}
+td.cell-item { min-width: 240px; }
+.cell-item .clamp { max-width: 300px; }
+.cell-source .clamp { max-width: 170px; }
+.cell-status .clamp { max-width: 150px; }
+
+/* The lower-confidence marker stays beside the number it qualifies — that is
+   a rule from app.py, not a style choice — but it drops under the figure
+   instead of widening the column by its own length on every row. */
+.cell-minutes { white-space: normal; }
+.cell-minutes .lowconf { display: inline-block; margin: 2px 0 0; }
+.cell-nowrap { white-space: nowrap; }
+/* Status keeps its exclusion note on one clamped line, so a covered row is
+   the same height as every other row. The full reason stays in `title`. */
+.cell-status { white-space: nowrap; }
+
+.cell-day { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+
+/* Excluded rows are struck from the count, so they recede. */
+tr.covered td { background: var(--surface-sunk); color: var(--text-muted); }
+tr.covered:hover td { background: var(--surface-hover); }
+
+.excluded, .unmeasured { color: var(--text-muted); font-size: var(--fs-meta); }
+.sub {
+  display: block;
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* ==========================================================================
+   Chips, tier 1: provenance and metadata. Quiet. Shape carries the tier.
+   ========================================================================== */
+
+.prov {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.prov::before {
+  content: "";
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--dot, transparent);
+  border: 1px solid var(--dot-edge, var(--border-strong));
+}
+
+/* Weight falls with the directness of the evidence. */
+.prov-api { --dot: #16181D; --dot-edge: #16181D; color: #3F444D; font-weight: 600; }
+.prov-page { --dot: #656B75; --dot-edge: #656B75; color: #555B66; font-weight: 550; }
+.prov-export { --dot: transparent; --dot-edge: #656B75; color: #555B66; font-weight: 500; }
+.prov-apptracker { --dot: #C3C8D0; --dot-edge: #8A9099; color: #656B75; font-weight: 450; }
+.prov-screenshot { --dot: transparent; --dot-edge: #AEB4BD; color: #656B75; font-style: italic; }
+/* Phone sync: the browser's own history, measured in total but apportioned.
+   Its dot is split down the middle, which is what the figure is. */
+.prov-browsersync { --dot: #C3C8D0; --dot-edge: #6E747E; color: #555B66; font-weight: 450; font-style: normal; }
+/* Audiobook listening stats: Audible's own daily total, measured; only its
+   split across books is estimated. A filled mid-grey dot, a step firmer than
+   phone sync, because the total comes from the service itself. */
+.prov-audiblestats { --dot: #8A9099; --dot-edge: #555B66; color: #555B66; font-weight: 500; font-style: normal; }
+.prov-vault { --dot: #E1E4E8; --dot-edge: #C6CBD2; color: var(--text-muted); }
+.prov-label { --dot: #E1E4E8; --dot-edge: #C6CBD2; color: var(--text-muted); }
+.prov-unknown { --dot: transparent; --dot-edge: var(--border-strong); color: var(--text-muted); }
+
+/* ==========================================================================
+   Chips, tier 2: state. Filled tint + border, so they always win the page.
+   ========================================================================== */
+
+.state {
+  display: inline-block;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  line-height: 1.6;
+  padding: 0 5px;
+  border-radius: var(--r-badge);
+  border: 1px solid var(--border);
+  background: var(--surface-sunk);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.state-wasteful { background: var(--lbl-wasteful-bg); border-color: var(--lbl-wasteful-bd); color: var(--lbl-wasteful-fg); }
+.state-worthwhile { background: var(--lbl-worthwhile-bg); border-color: var(--lbl-worthwhile-bd); color: var(--lbl-worthwhile-fg); }
+.state-tool { background: var(--lbl-tool-bg); border-color: var(--lbl-tool-bd); color: var(--lbl-tool-fg); font-weight: 500; }
+.state-unlabelled { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
+
+/* Two caveats, two weights. "lower confidence" doubts the number; "split
+   estimated" doubts only how a measured number was divided, which is the
+   weaker claim and gets the quieter chip. */
+.estimated {
+  display: inline-block;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface-sunk);
+  border: 1px solid var(--border);
+  border-radius: var(--r-badge);
+  padding: 0 5px;
+  margin-left: 5px;
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* A caution about the number itself, not about where it came from. */
+.lowconf {
+  display: inline-block;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-badge);
+  padding: 0 5px;
+  margin-left: 5px;
+  white-space: nowrap;
+}
+
+/* Import pipeline health. Green here means "the data arrived", nothing more. */
+.import-ok strong, .import-api { color: var(--ok); font-weight: 600; }
+.import-partial strong, .import-incomplete strong, .import-missing strong { color: var(--warn); font-weight: 600; }
+/* Neither of these is a problem: a week nobody has been asked for yet, and a
+   week still running that is covered as far as it has gone. Amber here is
+   what made the page look like it was owed something. */
+.import-not_due strong, .import-so_far strong { color: var(--text-secondary); font-weight: 600; }
+.import-failed strong { color: var(--danger); font-weight: 600; }
+.import-ok, .import-partial, .import-incomplete, .import-missing, .import-failed,
+.import-not_due, .import-so_far { font-size: var(--fs-meta); }
+
+/* ==========================================================================
+   Controls
+   ========================================================================== */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  padding: var(--s3) var(--s4);
+  margin: 0 0 var(--s3);
+}
+.filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  margin: 0;
+}
+/* Pushes what follows to the far edge of any flex row. */
+.spacer { flex: 1 1 auto; }
+.filters a { font-size: var(--fs-meta); padding-bottom: 6px; }
+
+select, input[type="date"], input[type="text"] {
+  font: 500 var(--fs-table)/1.4 var(--font);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  padding: 5px 8px;
+  min-height: 28px;
+}
+select:hover, input:hover { border-color: var(--border-strong); }
+
+button {
+  font: 600 var(--fs-table)/1.4 var(--font);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  padding: 5px 10px;
+  min-height: 28px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--surface-sunk); border-color: var(--border-strong); }
+button:disabled { cursor: default; }
+
+.filters button[type="submit"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #FFFFFF;
+}
+.filters button[type="submit"]:hover { background: #1A53BA; border-color: #1A53BA; }
+
+/* Segmented label control: the current state is the selected segment. */
+.segmented { display: inline-flex; }
+.segmented button {
+  border-radius: 0;
+  margin-left: -1px;
+  padding: 3px 9px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-height: 24px;
+  font-size: var(--fs-micro);
+}
+.segmented button:first-of-type { border-radius: var(--r-control) 0 0 var(--r-control); margin-left: 0; }
+.segmented button:last-of-type { border-radius: 0 var(--r-control) var(--r-control) 0; }
+.segmented button:disabled {
+  background: var(--accent-weak);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 650;
+  position: relative;
+  z-index: 1;
+}
+.segmented button:focus-visible { position: relative; z-index: 2; }
+
+.weeknav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  margin: 0 0 var(--s3);
+  font-variant-numeric: tabular-nums;
+}
+.weeknav .sep { color: var(--border-strong); }
+.weeknav em { color: var(--text-muted); font-style: normal; font-weight: 500; }
+/* The one place the page says everything arrived. --ok is exactly this:
+   a fact about the pipeline, never a verdict on the week's figures. */
+.weeknav em.all-in { color: var(--ok); font-weight: 600; }
+
+.count {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+  margin: 0 0 var(--s2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Labels page
+   ========================================================================== */
+
+.label-row td { vertical-align: middle; }
+/* Kind is the narrowest column and the flexible Source column beside it would
+   otherwise squeeze "Mac app" onto two lines. It cannot carry a class: the
+   tests pin that cell as a bare `<td>X</td>`, so hold it open by position. */
+#label-table th:first-child, #label-table td:first-child { white-space: nowrap; }
+.label-current { white-space: nowrap; }
+.not-toggleable { color: var(--text-muted); font-size: var(--fs-micro); display: block; max-width: 52ch; }
+.note-inline { display: block; font-size: var(--fs-micro); color: var(--text-muted); margin-top: 2px; white-space: normal; max-width: 44ch; }
+
+/* ==========================================================================
+   Chart
+   ========================================================================== */
+
+svg.split { display: block; max-width: 100%; height: auto; }
+svg.split text { font-size: 11px; fill: var(--text-muted); font-family: var(--font); }
+svg.split .bar-total { fill: var(--text); font-weight: 600; font-size: 11px; font-variant-numeric: tabular-nums; }
+svg.split .axis { stroke: var(--axis); stroke-width: 1; }
+
+.bar-wasteful {
+  fill: var(--series-wasteful);
+  background: var(--series-wasteful);
+  stroke: var(--series-wasteful-edge);
+  stroke-width: 1;
+}
+.bar-worthwhile {
+  fill: var(--series-worthwhile);
+  background: var(--series-worthwhile);
+  stroke: var(--series-worthwhile-edge);
+  stroke-width: 1.5;
+}
+.bar-undecided {
+  fill: var(--series-undecided);
+  background: var(--series-undecided);
+  stroke: var(--series-undecided-edge);
+  stroke-width: 1.5;
+}
+.swatch.bar-undecided { border: 1px solid var(--series-undecided-edge); }
+.swatch.bar-wasteful { border: 1px solid var(--series-wasteful-edge); }
+.swatch.bar-worthwhile { border: 1px solid var(--series-worthwhile-edge); }
+
+/* The frame stops where the bars do: an eight-week chart fills it, a
+   two-week chart does not pretend to. */
+/* A two-week chart is 150px wide and its table is 700px; stacking them left
+   a screen of nothing beside both. Side by side they read as one unit. */
+.chart-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s5) var(--s6);
+  margin-bottom: var(--s2);
+}
+.chart-col { flex: 0 1 auto; min-width: 0; }
+/* The chart's explanation sits beside it, not under it, where it filled the
+   width the chart and table leave over. */
+.chart-row > .chart-note { flex: 1 1 300px; max-width: var(--measure); margin: 0; }
+.chart-col .legend { margin: var(--s2) 0 0; }
+
+.chart-frame {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  padding: var(--s3) var(--s4) var(--s2);
+  overflow-x: auto;
+  width: max-content;
+  max-width: 100%;
+  min-width: 260px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  margin: var(--s2) 0 var(--s3);
+}
+.swatch {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+
+/* ==========================================================================
+   Responsive. Desktop first; narrower windows keep every figure.
+   ========================================================================== */
+
+@media (max-width: 1100px) {
+  main { padding: var(--s4) var(--s4) var(--s8); }
+  header.site nav, .countdown { padding-left: var(--s4); padding-right: var(--s4); }
+  .cell-item { max-width: 220px; }
+}
+
+@media (max-width: 760px) {
+  header.site nav { height: auto; flex-wrap: wrap; padding-top: var(--s2); padding-bottom: var(--s2); }
+  header.site nav strong { width: 100%; margin: 0 0 var(--s1); }
+  .countdown { font-size: var(--fs-micro); }
+  .metric { flex-basis: 50%; border-left: none; border-top: 1px solid var(--hairline); }
+  .metric:first-child, .metric:nth-child(2) { border-top: none; }
+  .filters { gap: var(--s2); }
+  .filters label { flex: 1 1 140px; }
+  .cell-item { max-width: 160px; }
+}
+
+@media print {
+  body { background: #FFFFFF; }
+  .filters, .weeknav { display: none; }
+}
+
+/* ==========================================================================
+   Flash, tabs, and the bulk action bar
+   ========================================================================== */
+
+/* The outcome of an action the user just took. It states what happened in
+   words; the tint only says how much attention it wants. */
+.flash {
+  margin: 0 0 var(--s4);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-control);
+  font-size: var(--fs-table);
+  max-width: var(--measure);
+}
+.flash-ok { background: var(--ok-bg); border-color: var(--ok-border); border-left-color: var(--ok); color: var(--ok); }
+.flash-warn { background: var(--warn-bg); border-color: var(--warn-border); border-left-color: var(--warn); color: var(--warn); }
+
+/* Two views of one destination. Subordinate to the primary nav: no fill, a
+   rule underneath, and the active tab marked by weight as well as colour. */
+.tabs {
+  display: flex;
+  gap: var(--s4);
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 var(--s4);
+}
+.tabs a {
+  padding: var(--s2) 2px;
+  margin-bottom: -1px;
+  font-size: var(--fs-table);
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+}
+.tabs a:hover { color: var(--text); text-decoration: none; }
+.tabs a[aria-current="page"] { color: var(--accent); font-weight: 650; border-bottom-color: var(--accent); }
+.tab-count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  margin-left: var(--s1);
+  border-radius: var(--r-badge);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* The bulk action belongs to the selection above it, so it sits directly
+   under the table rather than floating over it. */
+.bulkbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s2);
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  /* The list runs to a hundred rows; the action that applies to the selection
+     has to stay reachable without scrolling back to the top. */
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-shadow: var(--shadow-pop);
+}
+.bulkbar-label { font-size: var(--fs-meta); color: var(--text-secondary); }
+.bulkbar .segmented button { min-height: 28px; padding: 4px 10px; font-size: var(--fs-table); }
+.bulkbar .count { margin: 0; }
+
+/* ==========================================================================
+   Generated prose — the one thing on this dashboard that is not a counted
+   fact. It must never be mistakeable for one, so it is the only surface that
+   is a paragraph rather than a figure, it carries a chip saying what wrote
+   it, and it always states what it was written from.
+   ========================================================================== */
+
+/* Prose does not want to be 1,870px wide, so the panel stops where its text
+   does. Above 1100px the provenance line moves into a second column instead
+   of sitting under the paragraph, which uses the width rather than leaving a
+   field of empty box beside it. */
+.generated {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-panel);
+  padding: var(--s3) var(--s4);
+  max-width: calc(var(--measure) + var(--s4) * 2 + 4px);
+}
+@media (min-width: 1100px) {
+  .generated {
+    max-width: calc(var(--measure) + 300px + var(--s6) + var(--s4) * 2 + 4px);
+    display: grid;
+    grid-template-columns: minmax(0, var(--measure)) 300px;
+    grid-template-areas: "head head" "body meta" "warn meta";
+    column-gap: var(--s6);
+    align-content: start;
+  }
+  .generated-head { grid-area: head; }
+  .generated-body { grid-area: body; }
+  .generated-warn { grid-area: warn; }
+  .generated-meta {
+    grid-area: meta;
+    margin: 0;
+    border-top: none;
+    border-left: 1px solid var(--hairline);
+    padding: 0 0 0 var(--s4);
+  }
+}
+.generated-stale { border-left-color: var(--warn); }
+
+.generated-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-bottom: var(--s2);
+}
+.generated-refresh { flex: none; }
+.generated-refresh button { font-size: var(--fs-meta); min-height: 26px; padding: 3px 10px; }
+
+/* Prose, not data: longer line height and the prose measure, so it reads as
+   something written rather than something tabulated. */
+/* The figures inside generated prose. 650 rather than a full bold: there are
+   nine of them in a typical paragraph, and at 700 the emphasis stops meaning
+   anything and starts looking like alarm. */
+.generated-body strong { font-weight: 650; color: var(--text); }
+
+.generated-body {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  color: var(--text);
+}
+.generated-warn {
+  margin: var(--s2) 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-meta);
+  color: var(--warn);
+}
+.generated-meta {
+  margin: var(--s3) 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--s2);
+}
+
+/* Who wrote it. Quiet: the point is that it is stated, not that it shouts. */
+.state-generated { background: var(--info-bg); border-color: var(--info-border); color: #2F5E96; }
+.state-computed { background: var(--surface-sunk); border-color: var(--border); color: var(--text-secondary); }
+
+/* A refused or failed action, on its own page. Red is reserved for this and
+   for a genuinely failed import — it is the rarest colour in the system, and
+   the words carry the meaning with or without it. */
+.notice {
+  max-width: var(--measure);
+  margin: 0 0 var(--s4);
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-panel);
+}
+.notice-danger { background: var(--danger-bg); border-color: var(--danger-border); border-left-color: var(--danger); }
+.notice-body { margin: 0; font-size: var(--fs-body); color: var(--text); }
+.notice-danger .notice-body { color: var(--danger); font-weight: 500; }
+.notice-note { margin: var(--s2) 0 0; font-size: var(--fs-meta); color: var(--text-secondary); }
+
+/* The same refusal, in the one row htmx swapped. It has to read as "this row
+   did not change" rather than as an ordinary row, so it carries the notice's
+   tint and left edge at table scale. The hover rule is restated because the
+   generic row hover would otherwise wash the tint out. */
+tr.refused-row td {
+  background: var(--danger-bg);
+  border-left: 3px solid var(--danger);
+  color: var(--danger);
+  font-size: var(--fs-meta);
+  font-weight: 500;
+}
+tbody tr.refused-row:hover td { background: var(--danger-bg); }
+tr.refused-row a { color: var(--danger); text-decoration: underline; }
+
+th.col-check, td.col-check { width: 1%; white-space: nowrap; padding-right: 0; }
+td.col-check { vertical-align: middle; }
+input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
+
+/* ---------------------------------------------------------------------------
+   The week against the week before (DR5.17). Wins are stated in words, not in
+   green: --ok means an import arrived and is never a verdict on use. The
+   verdict is the one line here that carries weight; everything else is quiet.
+   --------------------------------------------------------------------------- */
+/* ==========================================================================
+   Week against week. This is the one section that is allowed to feel like
+   something: a fall is the point of the whole diagnostic, and a page that
+   reports it in the same grey as everything else is asking the reader to
+   supply the feeling themselves.
+
+   It stays honest about how it does that. The figures are the backend's, the
+   bars are in true proportion rather than flattered by a scale, and the
+   like-for-like caveat is still on the page — moved below the result rather
+   than between the reader and it.
+   ========================================================================== */
+
+.progress-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s5) var(--s8);
+  padding: var(--s4) var(--s5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  border-left: 3px solid var(--border-strong);
+}
+/* A fall gets the win colour; a rise gets nothing but a neutral edge. The
+   asymmetry is deliberate — this page encourages, it never scolds. */
+.progress-down { background: var(--win-bg); border-color: var(--win-border); border-left-color: var(--win); }
+.progress-up, .progress-level, .progress-None { border-left-color: var(--border-strong); }
+
+.progress-score { flex: 0 0 auto; display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.progress-dir { font-size: 30px; line-height: 1; font-weight: 700; color: var(--text-muted); }
+.progress-down .progress-dir { color: var(--win); }
+.progress-amount {
+  font-size: 40px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -.025em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.progress-down .progress-amount { color: var(--win); }
+.progress-amount-label { flex: 1 1 8ch; font-size: var(--fs-meta); color: var(--text-secondary); }
+
+/* The two weeks, in true proportion. Flex grow carries the ratio. */
+.progress-bars { flex: 1 1 260px; min-width: 0; display: grid; gap: 6px; }
+.progress-bar-row { display: flex; align-items: center; gap: var(--s3); }
+.progress-bar-label { flex: 0 0 8.5ch; font-size: var(--fs-micro); color: var(--text-muted); text-align: right; }
+.progress-track { flex: 1 1 auto; display: flex; height: 14px; border-radius: 3px; overflow: hidden; background: transparent; }
+.progress-fill { display: block; min-width: 3px; border-radius: 3px; }
+.progress-fill-before { background: var(--series-wasteful); border: 1px solid var(--series-wasteful-edge); }
+.progress-fill-after { background: var(--series-wasteful); border: 1px solid var(--series-wasteful-edge); }
+.progress-down .progress-fill-after { background: var(--win-bg-solid); border-color: var(--win); }
+.progress-rest { display: block; }
+.progress-bar-value {
+  flex: 0 0 7ch;
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* The count sits with the number it qualifies. The hero's figure exists only
+   because these were set aside, so the reader learns that where the figure is,
+   not four hundred pixels later. */
+.progress-setaside-count { font-weight: 600; }
+
+.progress-verdict {
+  margin: var(--s2) 0 var(--s4);
+  max-width: var(--measure);
+  font-size: var(--fs-table);
+  color: var(--text-secondary);
+}
+
+.progress-cols {
+  display: grid;
+  gap: var(--s4) var(--s6);
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 900px) {
+  .progress-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.progress-col h3 { margin-top: 0; }
+.progress-col-wins h3 { color: var(--win); }
+.progress-list { margin: 0; padding: 0; list-style: none; }
+.progress-list li {
+  margin: 0 0 var(--s2);
+  padding-left: 26px;
+  position: relative;
+  max-width: var(--measure);
+  line-height: 1.55;
+  font-size: var(--fs-table);
+}
+.progress-list li::before {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-weight: 700;
+}
+/* A tick for something that went down, an arrow for something to aim at.
+   Both are marks, not badges: no pills, no counts, no streaks. */
+.win-list li::before { content: "✓"; color: var(--win); }
+.tip-list li::before { content: "→"; color: var(--accent); }
+
+.progress-aside {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+p.progress-aside { margin-top: var(--s5); margin-bottom: var(--s1); }
+ul.progress-aside { margin-bottom: 0; }
+
+/* Readings to settle: amber, because an unsettled reading is exactly the
+   uncertainty amber is reserved for. */
+.eye-list { list-style: none; margin: 0; padding: 0; }
+.eye-row {
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  border-radius: var(--r-panel);
+  padding: var(--s2) var(--s3);
+  margin-bottom: var(--s2);
+  max-width: calc(var(--measure) + var(--s6));
+}
+.eye-what { margin-bottom: var(--s2); }
+.eye-forms { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.eye-forms form { margin: 0; display: flex; gap: var(--s1); align-items: center; }
+.eye-other input { width: 5em; }
+
+/* ==========================================================================
+   The brain against your peak week (#rot). Appended at the END of
+   dashboard.css: .lead > section and .lead + section have the same
+   specificity as section:first-of-type (0,1,1), so source order decides.
+
+   Added at Jacob's explicit request (DECISIONS DR5.20): the wordmark's brain,
+   large, with the latest finished week's brain rot grown on it as mould,
+   scaled to his own peak week, like for like. It reverses §1's "no good/bad
+   colour for consumption" for this one component and keeps everything else:
+   no score, no named levels, no red, the figures always printed beside it,
+   and a peak that is his own benchmark, never a target.
+   ========================================================================== */
+
+/* -- The lead row: the summary and the brain -------------------------------- */
+/* Both stay bare, un-nested <section>s in a plain wrapper, so every section()
+   regex in the tests is untouched. Wrapping them makes #progress main's first
+   <section>, which section:first-of-type would pull up to 20px: the last rule
+   gives it back its 32px. */
+.lead { margin-top: var(--s5); }
+.lead > section { margin-top: 0; }
+.lead > section + section { margin-top: var(--s8); }
+.lead + section { margin-top: var(--s8); }
+
+/* Beside the summary from 1440px. In the lead row the summary keeps its
+   below-1100px shape, provenance under the paragraph: beside the 300px
+   provenance column the brain's figures dropped under the drawing, leaving a
+   tall empty field beside a short summary. This way the two panels end level
+   and any spare width falls at the page edge. Below 1440 the brain stacks
+   under the summary. */
+@media (min-width: 1440px) {
+  .lead {
+    display: grid;
+    grid-template-columns: minmax(0, calc(var(--measure) + var(--s4) * 2 + 4px)) minmax(0, 1fr);
+    column-gap: var(--s6);
+    align-items: start;
+  }
+  .lead > section + section { margin-top: 0; }
+  .lead > section:only-child { grid-column: 1 / -1; }
+  .lead .generated { display: block; }
+  .lead .generated-meta {
+    margin: var(--s3) 0 0;
+    border-left: none;
+    border-top: 1px solid var(--hairline);
+    padding: var(--s2) 0 0;
+  }
+}
+
+/* -- The plate: the brain and the figures it draws, side by side, the figures
+      dropping under the brain when the column is narrow. Framed, never lifted;
+      it hugs its content. ---------------------------------------------------- */
+/* A grid: the brain, its figures beside it, and what it means underneath both;
+   from 1800px, where the figures leave room beside the brain, underneath the
+   figures instead, so the panel is only as tall as the brain. */
+.rot-plate {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "fig read" "foot foot";
+  align-items: start;
+  gap: var(--s4) var(--s6);
+  padding: var(--s4) var(--s5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-panel);
+}
+.rot-figure { grid-area: fig; margin: 0; }
+@media (min-width: 1800px) {
+  .rot-plate { grid-template-areas: "fig read" "fig foot"; grid-template-rows: auto 1fr; }
+}
+@media (max-width: 760px) {
+  .rot-plate { grid-template-columns: minmax(0, 1fr); grid-template-areas: "fig" "read" "foot"; }
+}
+/* The figures take the rest of the column: squeezed to 34ch they made the
+   panel twice as tall as the summary beside it. */
+.rot-read { grid-area: read; max-width: 64ch; min-width: 0; font-size: var(--fs-table); }
+
+/* The share of your peak week leads, at the progress panel's amount size; the
+   two like-for-like figures sit under it as a small specimen label. */
+.rot-share { margin: 0 0 var(--s3); color: var(--text-secondary); }
+.rot-share strong { font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; }
+.rot-pct {
+  display: block;
+  font-size: 40px;
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.rot-readings { margin: 0 0 var(--s3); border-top: 1px solid var(--hairline); }
+.rot-readings > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s4);
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.rot-readings dt { color: var(--text-secondary); }
+.rot-readings dd {
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+}
+/* The benchmark is context, not this week: the quieter of the two. Chained
+   steps are all context, so every one of them is quiet, and stacked. */
+.rot-readings > div + div dd { font-weight: 600; color: var(--text-secondary); }
+/* Chained weeks side by side, newest first, not a tall column of them. */
+.rot-steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); column-gap: var(--s4); }
+.rot-steps > div { display: block; }
+.rot-steps dd { white-space: nowrap; font-size: var(--fs-body); }
+.rot-steps .rot-sub { display: block; }
+.rot-steps dd { margin-top: 2px; font-weight: 600; color: var(--text-secondary); }
+.rot-sub { font-size: var(--fs-meta); font-weight: 400; color: var(--text-muted); }
+.rot-line { margin: 0 0 var(--s2); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* What the drawing means, said once, beside it. */
+.rot-key { margin: 0 0 var(--s2); color: var(--text); }
+.rot-read > :last-child { margin-bottom: 0; }
+.rot-foot {
+  grid-area: foot;
+  min-width: 0;
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hairline);
+  font-size: var(--fs-table);
+}
+.rot-foot > :last-child { margin-bottom: 0; }
+#rot > .note { margin-top: var(--s2); max-width: var(--measure); }
+
+/* -- The brain -------------------------------------------------------------- */
+:root {
+  /* -- The brain: the wordmark's own colours, so the large brain is the mark. */
+  --rot-tissue:   #F4CFD3;   /* its surface. = the wordmark fill.                  */
+  --rot-outline:  #A85964;   /* outline, midline and the mark's four folds (at 75%,
+                                as the mark draws them). 4.9:1 on --surface.       */
+  /* -- Its detail (the large brain only), all in the mark's pink family. Light
+        comes from the upper left; depth is tone, not line, so the mould on top
+        always reads first. */
+  --rot-dome-lit:   #FBE3E6;   /* the lit crown of each hemisphere.                */
+  --rot-dome-shade: #EEC1C7;   /* where it turns away from the light.              */
+  --rot-shade:      #C9808C;   /* the soft shade each lobe and groove rolls into.  */
+  --rot-glow:       #FFFFFF;   /* the pool of light on each upper shoulder, crests. */
+  --rot-lip:        #FDF0F1;   /* the lit lip beside every groove.                 */
+  --rot-sulcus:     #D6939E;   /* a groove.                                        */
+  --rot-fine:       #E3AAB3;   /* the finest grooves, a shade lighter.             */
+  --rot-blank-groove: #CDD2DA; /* a blank brain's grooves: drawn, never lit.       */
+  /* -- Mould: the one place on the page where a colour means brain rot. It
+        starts as the mark's own flat specks; later colonies are born a shade
+        paler than the speck, in the same green, and soften toward a pale mint
+        as they ripen, so a heavy week reads as a soft mat, not a dark mass.
+        Three tiers, each a lit side, a body and a shaded edge. */
+  --rot-speck:    #46A46A;   /* the mark's speck: the first step, flat.           */
+  --rot-t1-0: #98D7B0; --rot-t1-1: #6CBD8B; --rot-t1-2: #58B07B;   /* seedling: born this week */
+  --rot-t2-0: #B8E5CB; --rot-t2-1: #73BF93; --rot-t2-2: #54B07A;   /* young puff */
+  --rot-t3-0: #CCEBDA; --rot-t3-1: #92C9AC; --rot-t3-2: #72B692;   /* ripe puff */
+  --rot-ink:      #4D8F6C;   /* one soft outline round touching colonies.         */
+  --rot-fuzz:     #E9F7ED;   /* the pale fuzz round grown puffs, thicker with age. */
+  --rot-shine:    #FFFFFF;
+  --rot-mote:     #F1FAF3;
+  /* Undecided patches: the chart's undecided tint (--series-undecided) with
+     soft stripes of this a shade deeper, and its dashed edge: still open, so
+     never a solid disc. */
+  --rot-open-line: #F3DC8E;
+  /* -- Mushrooms, from 85% of your peak week: the mould fruiting. Caramel
+        caps lit from the upper left, cream spots and stems, a cocoa outline as
+        fine as the mould's ink. Warm browns and creams (hue 25-42), never red:
+        red means danger on this page. */
+  --rot-cap-lit:    #F6D6A4;   /* the cap's lit crown.                             */
+  --rot-cap:        #DEA462;   /* caramel.                                         */
+  --rot-cap-shade:  #B97A3A;   /* where the cap turns under.                       */
+  --rot-cocoa:      #774827;   /* their outline. 7.7:1 on --surface.               */
+  --rot-gill:       #E2BF8B;   /* the gills, just showing under the cap.           */
+  --rot-spot:       #FFF6E4;
+  --rot-stem-lit:   #FFFBF2;
+  --rot-stem:       #F6E8CE;
+  --rot-stem-shade: #DCC39C;
+  /* Motion. How many slow breaths each colony takes after the grow-in, then
+     it stays still. A count, not `infinite`: SVG motion is repainted on the
+     main thread every frame, so a loop would cost a share of a core for as long
+     as the Overview is open and visible. The motes drift twice, then stop. */
+  --rot-breaths:  3;
+}
+
+/* Large, and larger where the column allows: 260px up to 400px. Strokes are in
+   brain units, so the large brain keeps the mark's chunky outline
+   (.58 ~ 13px at 400px, about half the mark's own ratio, which would be a rope
+   at this size). */
+.rot-brain { display: block; width: clamp(240px, 19vw, 400px); height: auto; }
+.rot-tissue { fill: var(--rot-tissue); }
+.rot-dome-0 { stop-color: var(--rot-dome-lit); }
+.rot-dome-1 { stop-color: var(--rot-tissue); }
+.rot-dome-2 { stop-color: var(--rot-dome-shade); }
+.rot-rim { fill: none; stroke: var(--rot-shade); stroke-linejoin: round; opacity: .028; }
+.rot-glow-0 { stop-color: var(--rot-glow); stop-opacity: .7; }
+.rot-glow-1 { stop-color: var(--rot-glow); stop-opacity: 0; }
+/* Each groove sits in a soft valley: the tissue darkens a little as it rolls
+   down into it, which is what makes the ridges between look round. Then a pale
+   lip on its lit side, then the groove. */
+.rot-valley { fill: var(--rot-shade); stroke: var(--rot-shade); stroke-width: 1.05; stroke-linejoin: round; opacity: .03; }
+.rot-valley-2 { stroke-width: .72; }
+.rot-valley-3 { stroke-width: .44; }
+.rot-lip { fill: var(--rot-lip); opacity: .7; }
+.rot-fine { fill: var(--rot-fine); }
+.rot-sulcus { fill: var(--rot-sulcus); }
+.rot-fold { fill: var(--rot-outline); opacity: .75; }
+.rot-crest { fill: var(--rot-glow); opacity: .55; }
+.rot-outline { fill: none; stroke: var(--rot-outline); stroke-width: .58; stroke-linejoin: round; }
+
+.rot-fuzz { fill: var(--rot-fuzz); stroke: var(--rot-fuzz); stroke-linejoin: round; }
+/* The ink is drawn under the bodies, so only its outer half shows (.085, about
+   1.8px at 400px): one soft outline round each clump of touching colonies. */
+.rot-ink { fill: var(--rot-ink); stroke: var(--rot-ink); stroke-width: .17; stroke-linejoin: round; }
+.rot-t1-0 { stop-color: var(--rot-t1-0); } .rot-t1-1 { stop-color: var(--rot-t1-1); } .rot-t1-2 { stop-color: var(--rot-t1-2); }
+.rot-t2-0 { stop-color: var(--rot-t2-0); } .rot-t2-1 { stop-color: var(--rot-t2-1); } .rot-t2-2 { stop-color: var(--rot-t2-2); }
+.rot-t3-0 { stop-color: var(--rot-t3-0); } .rot-t3-1 { stop-color: var(--rot-t3-1); } .rot-t3-2 { stop-color: var(--rot-t3-2); }
+/* The mark's specks, with a hairline of tissue round them, so a groove stops
+   short of a speck instead of running into it. */
+.rot-speck { fill: var(--rot-speck); stroke: var(--rot-tissue); stroke-width: .24; paint-order: stroke; }
+/* One soft highlight per puff; a ripe puff's is fainter, so the heaviest weeks
+   read as a soft mat, not a bowl of sweets. */
+.rot-shine { fill: none; stroke: var(--rot-shine); stroke-linecap: round; opacity: .5; }
+.rot-shine-ripe { opacity: .28; }
+.rot-open-bg { fill: var(--series-undecided); }
+.rot-open-ln { fill: var(--rot-open-line); }
+/* Undecided, apart: round where mould is a cloud, striped where it is shaded,
+   edged in short round dashes, and never animated. */
+.rot-undecided { stroke: var(--series-undecided-edge); stroke-width: .13; stroke-linecap: round; stroke-dasharray: .14 .25; }
+.rot-mote { fill: var(--rot-mote); stroke: var(--rot-ink); stroke-width: .05; opacity: 0; }
+/* Mushrooms: one cocoa outline as fine as the mould's visible ink, round
+   joins; the mound at each foot is ripe mould, edged in the mould's own ink. */
+.rot-shrooms path { stroke: var(--rot-cocoa); stroke-width: .085; stroke-linejoin: round; }
+.rot-shrooms .rot-gills { fill: var(--rot-gill); }
+.rot-shrooms .rot-stem-shade { fill: var(--rot-cocoa); stroke: none; opacity: .16; }
+.rot-shrooms .rot-spots { fill: var(--rot-spot); stroke: none; }
+.rot-shrooms .rot-cap-shine { fill: none; stroke: var(--rot-shine); stroke-linecap: round; opacity: .55; }
+.rot-shrooms .rot-mound { stroke: var(--rot-ink); stroke-width: .07; }
+.rot-cap-0 { stop-color: var(--rot-cap-lit); } .rot-cap-1 { stop-color: var(--rot-cap); } .rot-cap-2 { stop-color: var(--rot-cap-shade); }
+.rot-stem-0 { stop-color: var(--rot-stem-lit); } .rot-stem-1 { stop-color: var(--rot-stem); } .rot-stem-2 { stop-color: var(--rot-stem-shade); }
+
+/* Nothing to draw is not a clean brain: absence is not zero. Grey tissue, the
+   same grooves flat and grey with no light, and a dashed grey outline (5.4:1),
+   whatever the reason; the text says which. */
+.rot-blank .rot-tissue { fill: var(--surface-sunk); }
+.rot-blank .rot-fine { fill: var(--hairline); }
+.rot-blank .rot-sulcus { fill: var(--rot-blank-groove); }
+.rot-blank .rot-fold { fill: var(--border-strong); opacity: 1; }
+.rot-blank .rot-outline { stroke: var(--text-muted); stroke-width: .38; stroke-dasharray: .9 .6; }
+
+/* -- Motion: opt-in, on screen only. Under prefers-reduced-motion, and in
+      print, nothing below applies and the still drawing is the finished one
+      (the motes stay at opacity 0). Only transform and opacity move, each on
+      its own element: the outer .rot-b grows in once, the inner .rot-br
+      breathes. The brain itself and undecided time never move. */
+.rot-b, .rot-br, .rot-mote, .rot-mound { transform-box: fill-box; transform-origin: center; }
+/* A mushroom comes up from its foot: the bottom middle of its box. */
+.rot-sprout { transform-box: fill-box; transform-origin: 50% 100%; }
+@media screen and (prefers-reduced-motion: no-preference) {
+  /* Grows in from the icon's specks outward, in seat order, with one soft
+     overshoot; then each colony breathes, slowly, on its own phase. */
+  .rot-b { animation: rot-grow .8s cubic-bezier(.34, 1.4, .64, 1) calc(120ms + var(--i) * 50ms) both; }
+  /* A positive stagger, never a negative delay: with a finite count a
+     negative delay would spend later colonies' breaths before the page shows. */
+  .rot-br { animation: rot-breathe 9s ease-in-out calc(1s + var(--i) * .7s) var(--rot-breaths); }
+  .rot-mote { animation: rot-drift 11s ease-out calc(2.4s + var(--i) * 2.7s) 2; }
+  /* Once the mould is in (its last colony lands by 2.1s), the mushrooms come
+     up one by one in the order they arrived, each through its mound: a
+     stretch, a squash, one small wobble, then still. Hidden until their turn. */
+  .rot-mound { animation: rot-grow .5s cubic-bezier(.34, 1.4, .64, 1) calc(2.15s + var(--i) * .3s) both; }
+  .rot-sprout { animation: rot-sprout 1.5s ease-in-out calc(2.2s + var(--i) * .3s) both; }
+}
+@keyframes rot-grow {
+  from { transform: scale(0); }
+  to   { transform: scale(1); }
+}
+@keyframes rot-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035, 1.025); }
+}
+/* One list shape in every frame (rotate, then scale), so it interpolates as
+   written. */
+@keyframes rot-sprout {
+  0%   { transform: rotate(0deg) scale(.3, 0); }
+  28%  { transform: rotate(0deg) scale(.9, 1.12); }
+  40%  { transform: rotate(0deg) scale(1.06, .95); }
+  52%  { transform: rotate(-5deg) scale(1, 1); }
+  70%  { transform: rotate(3.5deg) scale(1, 1); }
+  85%  { transform: rotate(-1.2deg) scale(1, 1); }
+  100% { transform: rotate(0deg) scale(1, 1); }
+}
+@keyframes rot-drift {
+  0%   { opacity: 0;   transform: translate(0, 0) scale(.4); }
+  10%  { opacity: .95; transform: translate(0, -.25px) scale(1); }
+  40%  { opacity: 0;   transform: translate(.15px, -1.3px) scale(.85); }
+  100% { opacity: 0;   transform: translate(.15px, -1.3px) scale(.85); }
+}
+
+/* A fixed length, not a percentage: inside the `flex: none` figure a
+   percentage width is cyclic and the box falls back to 300px around it. */
+@media (max-width: 760px) {
+  .rot-brain { width: 240px; max-width: 100%; }
+}
+
+/* -- The tail: what it was, beside what isn't counted, readings to settle and
+      blind spots. Stacked, the three right-hand sections were narrow strips
+      with the rest of the width empty, and the table stretched its figures to
+      the far edge. The sections stay bare, un-nested <section>s for the tests. */
+.tail { margin-top: var(--s8); }
+.tail section:first-child { margin-top: 0; }
+/* Each table fills its half, so its figures sit beside their names. */
+.tail .table-wrap:has(> table.compact), .tail table.compact { width: 100%; }
+@media (min-width: 1280px) {
+  .tail {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    column-gap: var(--s8);
+    align-items: start;
+  }
+}
+@media (max-width: 1279px) {
+  .tail-side { margin-top: var(--s8); }
+}

@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+{% from "_macros.html" import badge, caveat, hint, source_link %}
+{% from "_rot.html" import rot_section %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+
+<h1>Overview</h1>
+<p class="scope" id="scope-line"><strong>Brain-rot content only: tools are excluded.</strong></p>
+<p class="note">You label what counts as brain rot; this page adds it up.{% if window_start %} Figures start {{ window_start }}.{% endif %}</p>
+
+{#- The lead row: the summary and, beside it from 1440px, the brain against
+    your peak week. Two sibling sections in a plain wrapper: never nested. -#}
+<div class="lead">
+{% if insight %}
+<section id="insight">
+  {#- The heading names the week the summary describes, which is the last
+      complete one. The strip above defaults to the CURRENT week, and two
+      different weeks side by side with nothing saying so is the confusion
+      DR5.7 was written to end. -#}
+  <h2>Summary of the week ending {{ insight.based_on_through }}</h2>
+  <div class="generated{% if insight_stale_reason %} generated-stale{% endif %}">
+    <div class="generated-head">
+      {% if insight.model %}
+      <span class="state state-generated">written by a model</span>
+      {% else %}
+      <span class="state state-computed">computed on this Mac</span>
+      {% endif %}
+      {# In the order insight_staleness checks them (DR5.26). #}
+      {% if insight_stale_reason == "newer_week" %}<span class="state state-unlabelled">out of date: a newer week has finished</span>
+      {% elif insight_stale_reason == "new_data" %}<span class="state state-unlabelled">out of date: new data has arrived</span>
+      {% elif insight_stale_reason == "relabelled" %}<span class="state state-unlabelled">out of date: you've relabelled since</span>{% endif %}
+      <span class="spacer"></span>
+      <form method="post" action="{{ url_for('refresh_insight') }}" class="generated-refresh">
+        <button type="submit" title="Write a new summary from the figures as they stand now">Rewrite</button>
+      </form>
+    </div>
+
+    <p class="generated-body">{{ insight.summary|emphasise }}</p>
+
+    {% if insight.fallback_reason %}
+    <p class="generated-warn">No model wrote this. {{ insight.fallback_reason }}</p>
+    {% endif %}
+
+    <p class="generated-meta">
+      Written {{ insight.created_at|local_dt }} from figures up to {{ insight.based_on_through }}. It doesn't
+      update itself; press <strong>Rewrite</strong> for a fresh one.
+      {% if insight.model %}Only weekly totals per group were sent; no names leave this Mac.{% else %}Nothing left this Mac.{% endif %}
+    </p>
+  </div>
+</section>
+{% endif %}
+{{ rot_section(rot) }}
+</div>
+
+{# ================================================================= DR5.17
+   The latest finished week against the one before — like for like, or not
+   at all. The heading names its week: it is often not the week the strip
+   above shows, and two weeks side by side with nothing saying so is DR5.7's
+   confusion again. Wins speak in words, not in green: green means an import
+   arrived, and nothing else on this page. #}
+{% if progress %}
+<section id="progress">
+  <h2>Week of Sun {{ progress.week_sunday }} – Sat {{ progress.week_saturday }}, against the week before</h2>
+
+  {%- set comparable = progress.previous_start and progress.before_min is not none and progress.after_min is not none %}
+  {% if comparable %}
+  <div class="progress-hero progress-{{ progress.direction }}">
+    <div class="progress-score">
+      <span class="progress-dir" aria-hidden="true">{% if progress.direction == "down" %}↓{% elif progress.direction == "up" %}↑{% else %}→{% endif %}</span>
+      <span class="progress-amount">
+        {%- if progress.direction == "down" %}{{ (progress.before_min - progress.after_min)|min }}
+        {%- elif progress.direction == "up" %}{{ (progress.after_min - progress.before_min)|min }}
+        {%- else %}{{ progress.after_min|min }}{% endif %}</span>
+      <span class="progress-amount-label">
+        {%- if progress.direction == "down" %}back, against the week before
+        {%- elif progress.direction == "up" %}more than the week before
+        {%- else %}the same as the week before{% endif %}</span>
+    </div>
+
+    {#- Two bars in true proportion. Flex grow carries the ratio, so nothing
+        on this page is arithmetic the backend has not already done. -#}
+    <div class="progress-bars">
+      <div class="progress-bar-row">
+        <span class="progress-bar-label">week before</span>
+        <span class="progress-track"><span class="progress-fill progress-fill-before" style="flex-grow: {{ progress.before_min }}"></span><span class="progress-rest" style="flex-grow: {{ (progress.after_min - progress.before_min) if progress.after_min > progress.before_min else 0 }}"></span></span>
+        <span class="progress-bar-value">{{ progress.before_min|min }}</span>
+      </div>
+      <div class="progress-bar-row">
+        <span class="progress-bar-label">this week</span>
+        <span class="progress-track"><span class="progress-fill progress-fill-after" style="flex-grow: {{ progress.after_min }}"></span><span class="progress-rest" style="flex-grow: {{ (progress.before_min - progress.after_min) if progress.before_min > progress.after_min else 0 }}"></span></span>
+        <span class="progress-bar-value">{{ progress.after_min|min }}</span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  <p class="progress-verdict">{{ progress.verdict }}{% if progress.set_aside %} <a class="progress-setaside-count" href="#progress-set-aside">{{ progress_set_aside(progress) }} left out</a>, so only what both weeks measured is compared.{% endif %}</p>
+
+  <div class="progress-cols">
+    {% if progress.previous_start %}
+    <div class="progress-col progress-col-wins">
+      <h3>Better than the week before</h3>
+      {% if progress.wins %}
+      <ul class="progress-list win-list">{% for w in progress.wins %}<li>{{ w.text }}</li>{% endfor %}</ul>
+      {% else %}
+      <p class="absent">Nothing measured the same way in both weeks improved.</p>
+      {% endif %}
+      {#- The caveat stays, but below the win rather than between the reader and
+          it; in this column, not under both, where the taller tips column left
+          a gap above it. -#}
+      {% if progress.set_aside %}
+      <p class="progress-aside" id="progress-set-aside">Left out of the comparison:</p>
+      <ul class="tight progress-aside">{% for s in progress.set_aside %}<li>{{ s }}</li>{% endfor %}</ul>
+      {% endif %}
+    </div>
+    {% endif %}
+    <div class="progress-col progress-col-tips">
+      <h3>Try next week</h3>
+      {% if progress.tips %}
+      <ul class="progress-list tip-list">{% for t in progress.tips %}<li>{{ t.text }}</li>{% endfor %}</ul>
+      {% else %}
+      <p class="absent">Nothing stands out enough to suggest.</p>
+      {% endif %}
+    </div>
+  </div>
+
+</section>
+{% endif %}
+
+{# ================================================================= 1 of 3
+   Is it going down? One figure, last week beside it, and the undecided time
+   named as the thing to act on rather than folded into the headline.       #}
+<section id="week-summary">
+  <h2>Week of Sun {{ week.sunday }} – Sat {{ week.saturday }}{% if week.is_current %} (in progress){% elif everything_in %} (complete){% endif %}</h2>
+  <p class="weeknav">
+    {% if everything_in and not week.is_current %}<em class="all-in">every source is in</em>{% endif %}
+    {% if week.prev_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.prev_sunday) }}">← previous</a>{% endif %}
+    {% if week.next_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.next_sunday) }}">next →</a>{% endif %}
+    {% if not week.is_current %}<span class="sep">·</span> <a href="{{ url_for('overview', week=week.current_sunday) }}">current week</a>{% endif %}
+    {% if week.sunday != week.last_complete_sunday %}<span class="sep">·</span> <a href="{{ url_for('overview') }}">last complete week</a>{% endif %}
+  </p>
+
+  {%- set prev = chart.bars|selectattr("split.week_start", "lessthan", week.week_start)|map(attribute="split")|list|last if chart.bars else none %}
+  <div class="headline">
+    <div class="headline-figure">
+      <span class="headline-label">Counted against the allowance</span>
+      <span class="headline-value">{% if week_split %}{{ week_split.charged_min|min }}{% else %}<span class="absent">outside the window</span>{% endif %}</span>
+      {% if week_split and prev %}
+      <span class="headline-delta">
+        {%- if week.is_current and pace %}last week: {{ prev.charged_min|min }} <span class="muted">(same days so far just below)</span>
+        {%- elif week.is_current %}last week: {{ prev.charged_min|min }} <span class="muted">(this week isn't over yet)</span>
+        {%- elif week_split.charged_min > prev.charged_min %}<span class="dir-up">up</span> {{ (week_split.charged_min - prev.charged_min)|min }} on last week <span class="muted">({{ prev.charged_min|min }})</span>
+        {%- elif week_split.charged_min < prev.charged_min %}<span class="dir-down">down</span> {{ (prev.charged_min - week_split.charged_min)|min }} on last week <span class="muted">({{ prev.charged_min|min }})</span>
+        {%- else %}the same as last week{% endif %}
+      </span>
+      {% elif week_split %}<span class="headline-delta muted">no earlier week to compare with</span>{% endif %}
+    </div>
+
+    <ul class="headline-parts">
+      <li><strong>{% if week_split %}{{ week_split.wasteful_min|min }}{% else %}—{% endif %}</strong>
+          you called wasteful</li>
+      <li class="part-undecided"><strong>{% if week_split %}{{ week_split.unclassified_min|min }}{% else %}—{% endif %}</strong>
+          still undecided{% if unlabelled and unlabelled.count %} —
+          <a href="{{ url_for('labels_queue') }}">decide {{ unlabelled.count }} source{{ "" if unlabelled.count == 1 else "s" }}</a>{% endif %}</li>
+      <li><strong>{{ reflex_min|min }}</strong>
+          opened straight away, not queued first</li>
+      <li class="part-quiet">{% if week_split %}{{ week_split.overage_min }} min over{% else %}—{% endif %} an allowance of
+          {% if week_split %}{{ week_split.allowance_min }} min{% else %}—{% endif %}</li>
+    </ul>
+  </div>
+  {#- This week so far against the same days last week (DR5.29): only on the
+      current week, and only once a day of it has finished. A part-week, so a
+      quiet inset under the headline, never a second hero. -#}
+  {%- if pace and week.is_current %}{% set pp = pace_parts(pace) %}
+  <div class="pace{% if pace.direction == 'down' %} pace-down{% endif %}">
+    <p class="pace-text">{% if pp.lead %}<span class="pace-lead">{{ pp.lead }}</span> {% endif %}{{ pp.rest|emphasise }}</p>
+    <p class="pace-basis">
+      {%- if pp.counted %}Counted on {{ pp.counted }}.{% endif %}
+      {%- if pp.left_out %} Left out: {% for x in pp.left_out %}{{ x.text }}{% if x.sync %} — <a href="{{ YOUTUBE_HISTORY_URL }}" target="_blank" rel="noopener noreferrer">open your YouTube history</a> and press Sync in the extension to include it{% endif %}{{ "." if loop.last else "; " }}{% endfor %}{% endif %}
+      {%- if pp.joins_later %} {{ pp.joins_later[:1]|upper }}{{ pp.joins_later[1:] }} are added once the week is in.{% endif %}</p>
+  </div>
+  {%- endif %}
+  <p class="note">Undecided time counts as wasteful until you label it.</p>
+</section>
+
+{# ------------------------------------------------------------------ 2 #}
+<section id="label-split">
+  <h2>Where the week went, week by week</h2>
+  {% if not chart.bars %}
+  <p class="absent">No diagnostic weeks yet.</p>
+  {% else %}
+  {% if chart.empty %}<p class="absent">No measured minutes in these weeks.</p>{% endif %}
+  <div class="chart-row">
+  <div class="chart-col">
+  <div class="chart-frame">
+  <svg class="split" width="{{ chart.width }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Wasteful and worthwhile content minutes per week">
+    <line x1="0" x2="{{ chart.width }}" y1="{{ chart.base }}" y2="{{ chart.base }}" class="axis"/>
+    {% for b in chart.bars %}
+    <g>
+      <title>Week of {{ b.sunday }}: wasteful {{ b.split.wasteful_min|min }}, undecided {{ b.split.unclassified_min|min }}, worthwhile {{ b.split.worthwhile_min|min }}</title>
+      {% if b.waste_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.waste_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.waste_h) }}" class="bar-wasteful"/>{% endif %}
+      {% if b.undec_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.undec_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.undec_h) }}" class="bar-undecided"/>{% endif %}
+      {% if b.worth_h > 0 %}<rect x="{{ b.x }}" y="{{ '%.1f'|format(b.worth_y) }}" width="{{ chart.bar_w }}" height="{{ '%.1f'|format(b.worth_h) }}" class="bar-worthwhile"/>{% endif %}
+      <text x="{{ b.cx }}" y="{{ '%.1f'|format(b.total_y) }}" text-anchor="middle" class="bar-total">{{ (b.split.charged_min + b.split.worthwhile_min)|min }}</text>
+      <text x="{{ b.cx }}" y="{{ chart.base + 16 }}" text-anchor="middle">{{ b.sunday[5:] }}</text>
+      {% if b.current %}<text x="{{ b.cx }}" y="{{ chart.base + 30 }}" text-anchor="middle" class="muted">in progress</text>{% endif %}
+    </g>
+    {% endfor %}
+  </svg>
+  </div>
+  <p class="legend"><span class="swatch bar-wasteful"></span> wasteful <span class="swatch bar-undecided"></span> undecided <span class="swatch bar-worthwhile"></span> worthwhile <span class="sep">·</span> each week is named by its Sunday</p>
+  </div>
+  <div class="table-wrap">
+  <table class="compact">
+    <thead><tr><th>Week of</th><th class="num">Wasteful</th><th class="num">Undecided</th><th class="num">Worthwhile</th><th class="num th-wrap" title="A part of the wasteful and worthwhile minutes beside it, not a separate total">Of those, read from screenshots</th><th class="num th-wrap">Tool (not content, not in the bars)</th></tr></thead>
+    <tbody>{% for b in chart.bars %}<tr><td class="cell-day">{{ b.sunday }}{% if b.current %} <span class="muted">(in progress)</span>{% endif %}</td><td class="num">{{ b.split.wasteful_min|min }}</td><td class="num part-undecided">{{ b.split.unclassified_min|min }}</td><td class="num">{{ b.split.worthwhile_min|min }}</td><td class="num">{{ b.split.screenshot_ocr_min|min }}{% if b.split.screenshot_ocr_min %}{{ caveat(PROV_SCREENSHOT) }}{% endif %}</td><td class="num tool-min">{{ b.split.tool_min|min }}</td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+  <p class="note chart-note">One bar per week. Undecided counts as wasteful until you label it. <em>Read from screenshots</em> is part of those minutes, not extra: they came from Screen Time screenshots, so they're a little less exact. Tool time isn't content and isn't in the bars.</p>
+  </div>
+  {% endif %}
+</section>
+
+{# ================================================================= 2 of 3
+   What was it? Named sources, biggest first. "Desktop web 49 min" names the
+   pipe the evidence came down; "Brave 163 min" names the thing you did.   #}
+<div class="tail">
+<div class="tail-main">
+<section id="top-sources">
+  <h2>What it was</h2>
+  {% if not top_sources %}
+  <p class="absent">Nothing measured in this week yet.</p>
+  {% else %}
+  <div class="table-wrap">
+  <table class="compact">
+    <thead><tr>
+      <th class="col-flex">Source</th><th class="num">Minutes</th><th>Label</th>
+      <th>{{ hint("Reflex", "Minutes opened straight away instead of queued first.") }}</th>
+    </tr></thead>
+    <tbody>
+    {% for r in top_sources %}
+      <tr{% if r.label is none %} class="undecided-row"{% endif %}>
+        <td class="col-flex"><span class="clamp" title="{{ r.display_name }}">{{ source_link(r.display_name, source_url(r.kind, r.source_key)) }}</span><span class="sub">{{ GROUP_NAMES.get(r.group, r.group) }}</span></td>
+        <td class="num">{{ r.minutes|min }}</td>
+        <td class="cell-nowrap">
+          {% if r.label is none %}<span class="state state-unlabelled">undecided</span> <a class="decide" href="{{ url_for('labels_page') }}#source-{{ r.source_id }}">decide</a>
+          {% else %}<span class="state state-{{ r.label }}">{{ r.label }}</span>{% endif %}
+        </td>
+        <td class="cell-nowrap muted">{% if r.reflex_min %}{{ r.reflex_min|min }}{% else %}—{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Your {{ top_sources|length }} biggest of {{ all_sources_count }} source{{ "" if all_sources_count == 1 else "s" }} this week. Tools aren't listed.</p>
+  {% endif %}
+</section>
+
+</div>
+<div class="tail-side">
+{# ================================================================= 3 of 3
+   What isn't counted yet? Absence, stated compactly and without alarm.    #}
+<section id="coverage">
+  <h2>What isn't counted yet</h2>
+  {%- set awaiting = totals|rejectattr("import_status", "equalto", "ok")|rejectattr("import_status", "none")|list %}
+  {% if not awaiting %}
+  <p class="all-in">Everything expected for this week has arrived.</p>
+  {% else %}
+  <div class="table-wrap">
+  <table class="compact">
+    <tbody>
+    {% for t in awaiting %}
+      <tr class="import-{{ t.import_status }}">
+        <th>{{ GROUP_NAMES.get(t.group, t.group) }} <span class="muted">{{ t.device }}</span></th>
+        <td class="cell-nowrap">
+          {% if t.import_status == "not_due" %}<strong>not due yet</strong><span class="sub">asked for on Sunday {{ week.due_on }}</span>
+          {% elif t.import_status == "missing" %}<strong>missing</strong><span class="sub">nothing has arrived for this week yet</span>
+          {% elif t.import_status == "so_far" %}<strong>partial</strong><span class="sub">covers part of the week so far</span>
+          {% elif t.import_status == "incomplete" %}<strong>incomplete</strong><span class="sub">nothing covering the whole week yet</span>
+          {% elif t.import_status == "partial" %}<strong>partial</strong><span class="sub">arrived, with warnings</span>
+          {% else %}{{ t.import_status }}{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Still on the way: added when it arrives, and never counted as zero meanwhile.</p>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------- generated prose #}
+{# Readings OCR could not settle. The route and the data existed since DR5.6;
+   the form never did, so a reading like Facebook's 2h 27m-or-2h 37m could not
+   be settled from the page at all. Each is left out of every figure and every
+   comparison until it is. #}
+{% if needs_your_eye %}
+<section id="needs-your-eye">
+  <h2>Readings to settle</h2>
+  <p class="note">These screenshots couldn't be read for sure, so they're left out until you say what they showed.</p>
+  <ul class="eye-list">
+  {% for r in needs_your_eye %}
+    <li class="eye-row">
+      <div class="eye-what"><strong>{{ r.source }}</strong>, {{ r.day }} to {{ r.period_end }}{% if r.options_min %}: read as {% for m in r.options_min %}{{ m|min }}{% if not loop.last %} or {% endif %}{% endfor %}, so nothing was recorded{% else %}: couldn't be read, so nothing was recorded{% endif %}.</div>
+      <div class="eye-forms">
+        {% for m in r.options_min %}
+        <form method="post" action="{{ url_for('fix_measurement', measurement_id=r.measurement_id) }}">
+          <button type="submit" name="minutes" value="{{ m }}">It was {{ m|min }}</button>
+        </form>
+        {% endfor %}
+        <form method="post" action="{{ url_for('fix_measurement', measurement_id=r.measurement_id) }}" class="eye-other">
+          <label>{% if r.options_min %}Or{% else %}It was{% endif %} <input type="number" name="minutes" min="0" step="1" inputmode="numeric" required aria-label="Minutes for {{ r.source }}"> min</label>
+          <button type="submit">Save</button>
+        </form>
+      </div>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section id="blind-spots">
+  <h2>Blind spots: what isn't measured</h2>
+  <ul class="tight blind-list">{% for s in blind_spots %}<li>{{ s }}</li>{% endfor %}</ul>
+</section>
+</div>
+</div>
+
+{% endblock %}

@@ -1,9 +1,9 @@
-# POP — unattended build instructions
+# dr-brainrot — unattended build instructions
 
 This file is the build prompt, persisted so a scheduled run (which starts with
 no memory of the originating conversation) can re-read it at run time.
 
-**Read `pop-build-brief.md` in full before doing anything else. It is the
+**Read `podcast-queue-build-brief.md` in full before doing anything else. It is the
 complete specification for this build.**
 
 ## Status
@@ -17,7 +17,7 @@ complete specification for this build.**
 - **Phases 1–5 — TO DO.** This is the work of the scheduled run.
 
 Existing files: `.gitignore`, `.env.example`, `.env`, `auth_spotify.py`,
-`check_env.py`, `pop-build-brief.md`, `data/`.
+`check_env.py`, `podcast-queue-build-brief.md`, `data/`.
 
 ## Operating rules
 

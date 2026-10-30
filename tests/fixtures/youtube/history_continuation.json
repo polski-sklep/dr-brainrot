@@ -1,0 +1,1797 @@
+{
+ "responseContext": {
+  "maxAgeSeconds": 0
+ },
+ "trackingParams": "redacted",
+ "onResponseReceivedActions": [
+  {
+   "clickTrackingParams": "redacted",
+   "appendContinuationItemsAction": {
+    "continuationItems": [
+     {
+      "itemSectionRenderer": {
+       "contents": [
+        {
+         "lockupViewModel": {
+          "contentImage": {
+           "thumbnailViewModel": {
+            "image": {
+             "sources": [
+              {
+               "url": "https://i.ytimg.com/vi/fxVideo0014/hqdefault.jpg",
+               "width": 168,
+               "height": 94
+              }
+             ]
+            },
+            "overlays": [
+             {
+              "thumbnailBottomOverlayViewModel": {
+               "progressBar": {
+                "thumbnailOverlayProgressBarViewModel": {
+                 "startPercent": 100
+                }
+               },
+               "badges": [
+                {
+                 "thumbnailBadgeViewModel": {
+                  "text": "10:00",
+                  "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                  "animationActivationTargetId": "fxVideo0014",
+                  "animationActivationEntityKey": "redacted",
+                  "lottieData": {
+                   "url": "https://example.invalid/redacted",
+                   "settings": {
+                    "loop": true,
+                    "autoplay": true
+                   }
+                  },
+                  "animatedText": "Now playing",
+                  "animationActivationEntitySelectorType": "THUMBNAIL_BADGE_ANIMATION_ENTITY_SELECTOR_TYPE_PLAYER_STATE",
+                  "rendererContext": {
+                   "accessibilityContext": {
+                    "label": "redacted"
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             },
+             {
+              "animatedThumbnailOverlayViewModel": {
+               "thumbnail": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/fxVideo0014/hqdefault.jpg",
+                  "width": 320,
+                  "height": 180
+                 }
+                ]
+               }
+              }
+             },
+             {
+              "thumbnailHoverOverlayToggleActionsViewModel": {
+               "buttons": [
+                {
+                 "toggleButtonViewModel": {
+                  "defaultButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "WATCH_LATER",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/browse/edit_playlist"
+                       }
+                      },
+                      "playlistEditEndpoint": {
+                       "playlistId": "WL",
+                       "actions": [
+                        {
+                         "addedVideoId": "fxVideo0014",
+                         "action": "ACTION_ADD_VIDEO"
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Watch later",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "toggledButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "CHECK",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/browse/edit_playlist"
+                       }
+                      },
+                      "playlistEditEndpoint": {
+                       "playlistId": "WL",
+                       "actions": [
+                        {
+                         "action": "ACTION_REMOVE_VIDEO_BY_VIDEO_ID",
+                         "removedVideoId": "fxVideo0014"
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Added",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "isToggled": false,
+                  "trackingParams": "redacted"
+                 }
+                },
+                {
+                 "toggleButtonViewModel": {
+                  "defaultButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "ADD_TO_QUEUE_TAIL",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true
+                       }
+                      },
+                      "signalServiceEndpoint": {
+                       "signal": "CLIENT_SIGNAL",
+                       "actions": [
+                        {
+                         "clickTrackingParams": "redacted",
+                         "addToPlaylistCommand": {
+                          "openMiniplayer": true,
+                          "videoId": "fxVideo0014",
+                          "listType": "PLAYLIST_EDIT_LIST_TYPE_QUEUE",
+                          "onCreateListCommand": {
+                           "clickTrackingParams": "redacted",
+                           "commandMetadata": {
+                            "webCommandMetadata": {
+                             "sendPost": true,
+                             "apiUrl": "/youtubei/v1/playlist/create"
+                            }
+                           },
+                           "createPlaylistServiceEndpoint": {
+                            "videoIds": [
+                             "fxVideo0014"
+                            ],
+                            "params": "redacted"
+                           }
+                          },
+                          "videoIds": [
+                           "fxVideo0014"
+                          ],
+                          "videoCommand": {
+                           "clickTrackingParams": "redacted",
+                           "commandMetadata": {
+                            "webCommandMetadata": {
+                             "url": "/watch?v=fxVideo0014",
+                             "webPageType": "WEB_PAGE_TYPE_WATCH",
+                             "rootVe": 3832
+                            }
+                           },
+                           "watchEndpoint": {
+                            "videoId": "fxVideo0014",
+                            "watchEndpointSupportedOnesieConfig": {
+                             "html5PlaybackOnesieConfig": {
+                              "commonConfig": {
+                               "url": "https://example.invalid/redacted"
+                              }
+                             }
+                            }
+                           }
+                          }
+                         }
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Add to queue",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "toggledButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "CHECK",
+                    "accessibilityText": "Added",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "isToggled": false,
+                  "trackingParams": "redacted"
+                 }
+                }
+               ]
+              }
+             }
+            ]
+           }
+          },
+          "metadata": {
+           "lockupMetadataViewModel": {
+            "title": {
+             "content": "Fixture video 14"
+            },
+            "image": {
+             "avatarStackViewModel": {
+              "avatars": [
+               {
+                "avatarViewModel": {
+                 "image": {
+                  "sources": [
+                   {
+                    "url": "https://example.invalid/redacted",
+                    "width": 68,
+                    "height": 68
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "avatarViewModel": {
+                 "image": {
+                  "sources": [
+                   {
+                    "url": "https://example.invalid/redacted"
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "avatarClusterSize": "AVATAR_SIZE_S",
+              "layoutType": "AVATAR_STACK_LAYOUT_CLUSTER",
+              "rendererContext": {
+               "accessibilityContext": {
+                "label": "Collaboration channels"
+               },
+               "commandContext": {
+                "onTap": {
+                 "innertubeCommand": {
+                  "clickTrackingParams": "redacted",
+                  "commandMetadata": {
+                   "interactionLoggingCommandMetadata": {
+                    "screenVisualElement": {
+                     "uiType": 269990
+                    }
+                   }
+                  },
+                  "showDialogCommand": {
+                   "panelLoadingStrategy": {
+                    "inlineContent": {
+                     "dialogViewModel": {
+                      "header": {
+                       "dialogHeaderViewModel": {
+                        "headline": {
+                         "content": "Collaborators"
+                        }
+                       }
+                      },
+                      "customContent": {
+                       "listViewModel": {
+                        "listItems": [
+                         {
+                          "listItemViewModel": {
+                           "title": {
+                            "content": "Fixture collaborator 14",
+                            "styleRuns": [
+                             {
+                              "fontColor": 4279440147
+                             },
+                             {
+                              "weightLabel": "FONT_WEIGHT_BOLD"
+                             },
+                             {
+                              "startIndex": 7,
+                              "styleRunExtensions": {
+                               "styleRunColorMapExtension": {
+                                "colorMap": [
+                                 {
+                                  "key": "USER_INTERFACE_THEME_DARK",
+                                  "value": 4289374890
+                                 },
+                                 {
+                                  "key": "USER_INTERFACE_THEME_LIGHT",
+                                  "value": 4284506208
+                                 }
+                                ]
+                               }
+                              }
+                             }
+                            ],
+                            "attachmentRuns": [
+                             {
+                              "startIndex": 7,
+                              "length": 0,
+                              "element": {
+                               "type": {
+                                "imageType": {
+                                 "image": {
+                                  "sources": [
+                                   {
+                                    "clientResource": {
+                                     "imageName": "CHECK_CIRCLE_FILLED"
+                                    },
+                                    "width": 14,
+                                    "height": 14
+                                   }
+                                  ]
+                                 }
+                                }
+                               },
+                               "properties": {
+                                "layoutProperties": {
+                                 "height": {
+                                  "value": 14,
+                                  "unit": "DIMENSION_UNIT_POINT"
+                                 },
+                                 "width": {
+                                  "value": 14,
+                                  "unit": "DIMENSION_UNIT_POINT"
+                                 },
+                                 "margin": {
+                                  "left": {
+                                   "value": 4,
+                                   "unit": "DIMENSION_UNIT_POINT"
+                                  }
+                                 }
+                                }
+                               }
+                              },
+                              "alignment": "ALIGNMENT_VERTICAL_CENTER"
+                             }
+                            ]
+                           },
+                           "subtitle": {
+                            "content": "redacted"
+                           },
+                           "trailingImage": {
+                            "sources": [
+                             {
+                              "clientResource": {
+                               "imageName": "redacted"
+                              }
+                             }
+                            ]
+                           },
+                           "leadingAccessory": {
+                            "avatarViewModel": {
+                             "image": {
+                              "sources": [
+                               {
+                                "url": "https://example.invalid/redacted"
+                               }
+                              ],
+                              "processor": {
+                               "borderImageProcessor": {
+                                "circular": true
+                               }
+                              }
+                             },
+                             "accessibilityText": "redacted",
+                             "avatarImageSize": "AVATAR_SIZE_M"
+                            }
+                           },
+                           "rendererContext": {
+                            "accessibilityContext": {
+                             "label": "redacted"
+                            },
+                            "commandContext": {
+                             "onTap": {
+                              "innertubeCommand": {
+                               "clickTrackingParams": "redacted",
+                               "commandMetadata": {
+                                "webCommandMetadata": {
+                                 "url": "/channel/UCfixtureChannel00000009",
+                                 "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                                 "rootVe": 3611,
+                                 "apiUrl": "/youtubei/v1/browse"
+                                }
+                               },
+                               "browseEndpoint": {
+                                "browseId": "UCfixtureChannel00000009"
+                               }
+                              }
+                             }
+                            }
+                           }
+                          }
+                         },
+                         {
+                          "listItemViewModel": {
+                           "title": {
+                            "content": "Fixture collaborator 14",
+                            "styleRuns": [
+                             {
+                              "fontColor": 4279440147
+                             },
+                             {
+                              "weightLabel": "FONT_WEIGHT_BOLD"
+                             }
+                            ]
+                           },
+                           "subtitle": {
+                            "content": "redacted"
+                           },
+                           "trailingImage": {
+                            "sources": [
+                             {
+                              "clientResource": {
+                               "imageName": "redacted"
+                              }
+                             }
+                            ]
+                           },
+                           "leadingAccessory": {
+                            "avatarViewModel": {
+                             "image": {
+                              "sources": [
+                               {
+                                "url": "https://example.invalid/redacted"
+                               }
+                              ],
+                              "processor": {
+                               "borderImageProcessor": {
+                                "circular": true
+                               }
+                              }
+                             },
+                             "accessibilityText": "redacted",
+                             "avatarImageSize": "AVATAR_SIZE_M"
+                            }
+                           },
+                           "rendererContext": {
+                            "accessibilityContext": {
+                             "label": "redacted"
+                            },
+                            "commandContext": {
+                             "onTap": {
+                              "innertubeCommand": {
+                               "clickTrackingParams": "redacted",
+                               "commandMetadata": {
+                                "webCommandMetadata": {
+                                 "url": "/channel/UCfixtureChannel00000010",
+                                 "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                                 "rootVe": 3611,
+                                 "apiUrl": "/youtubei/v1/browse"
+                                }
+                               },
+                               "browseEndpoint": {
+                                "browseId": "UCfixtureChannel00000010"
+                               }
+                              }
+                             }
+                            }
+                           }
+                          }
+                         }
+                        ]
+                       }
+                      }
+                     }
+                    },
+                    "screenVe": 269990
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            },
+            "metadata": {
+             "contentMetadataViewModel": {
+              "metadataRows": [
+               {
+                "metadataParts": [
+                 {
+                  "text": {
+                   "content": "Fixture channel 14",
+                   "styleRuns": [
+                    {
+                     "startIndex": 0,
+                     "length": 18
+                    },
+                    {
+                     "startIndex": 7,
+                     "length": 1,
+                     "styleRunExtensions": {
+                      "styleRunColorMapExtension": {
+                       "colorMap": [
+                        {
+                         "key": "USER_INTERFACE_THEME_DARK",
+                         "value": 4289374890
+                        },
+                        {
+                         "key": "USER_INTERFACE_THEME_LIGHT",
+                         "value": 4284506208
+                        }
+                       ]
+                      }
+                     }
+                    }
+                   ],
+                   "attachmentRuns": [
+                    {
+                     "startIndex": 7,
+                     "element": {
+                      "type": {
+                       "imageType": {
+                        "image": {
+                         "sources": [
+                          {
+                           "clientResource": {
+                            "imageName": "CHECK_CIRCLE_FILLED"
+                           },
+                           "width": 14,
+                           "height": 14
+                          }
+                         ]
+                        }
+                       }
+                      },
+                      "properties": {
+                       "layoutProperties": {
+                        "height": {
+                         "value": 14,
+                         "unit": "DIMENSION_UNIT_POINT"
+                        },
+                        "width": {
+                         "value": 14,
+                         "unit": "DIMENSION_UNIT_POINT"
+                        },
+                        "margin": {
+                         "left": {
+                          "value": 4,
+                          "unit": "DIMENSION_UNIT_POINT"
+                         }
+                        }
+                       }
+                      }
+                     },
+                     "alignment": "ALIGNMENT_VERTICAL_CENTER"
+                    }
+                   ]
+                  }
+                 },
+                 {
+                  "text": {
+                   "content": "1K views"
+                  }
+                 }
+                ],
+                "lockupContentMetadataRowExtension": {
+                 "contentType": "METADATA_ROW_CONTENT_TYPE_BYLINE"
+                }
+               }
+              ],
+              "delimiter": " • "
+             }
+            }
+           }
+          },
+          "contentId": "fxVideo0014",
+          "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+          "rendererContext": {
+           "accessibilityContext": {
+            "label": "redacted"
+           },
+           "commandContext": {
+            "onTap": {
+             "innertubeCommand": {
+              "clickTrackingParams": "redacted",
+              "commandMetadata": {
+               "webCommandMetadata": {
+                "url": "/watch?v=fxVideo0014",
+                "webPageType": "WEB_PAGE_TYPE_WATCH",
+                "rootVe": 3832
+               }
+              },
+              "watchEndpoint": {
+               "videoId": "fxVideo0014",
+               "watchEndpointSupportedOnesieConfig": {
+                "html5PlaybackOnesieConfig": {
+                 "commonConfig": {
+                  "url": "https://example.invalid/redacted"
+                 }
+                }
+               }
+              }
+             }
+            }
+           }
+          }
+         }
+        },
+        {
+         "lockupViewModel": {
+          "contentImage": {
+           "thumbnailViewModel": {
+            "image": {
+             "sources": [
+              {
+               "url": "https://i.ytimg.com/vi/fxVideo0015/hqdefault.jpg",
+               "width": 168,
+               "height": 94
+              }
+             ]
+            },
+            "overlays": [
+             {
+              "thumbnailBottomOverlayViewModel": {
+               "progressBar": {
+                "thumbnailOverlayProgressBarViewModel": {
+                 "startPercent": 100
+                }
+               },
+               "badges": [
+                {
+                 "thumbnailBadgeViewModel": {
+                  "text": "10:00",
+                  "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                  "animationActivationTargetId": "fxVideo0015",
+                  "animationActivationEntityKey": "redacted",
+                  "lottieData": {
+                   "url": "https://example.invalid/redacted",
+                   "settings": {
+                    "loop": true,
+                    "autoplay": true
+                   }
+                  },
+                  "animatedText": "Now playing",
+                  "animationActivationEntitySelectorType": "THUMBNAIL_BADGE_ANIMATION_ENTITY_SELECTOR_TYPE_PLAYER_STATE",
+                  "rendererContext": {
+                   "accessibilityContext": {
+                    "label": "redacted"
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             },
+             {
+              "animatedThumbnailOverlayViewModel": {
+               "thumbnail": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/fxVideo0015/hqdefault.jpg",
+                  "width": 320,
+                  "height": 180
+                 }
+                ]
+               }
+              }
+             },
+             {
+              "thumbnailHoverOverlayToggleActionsViewModel": {
+               "buttons": [
+                {
+                 "toggleButtonViewModel": {
+                  "defaultButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "WATCH_LATER",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/browse/edit_playlist"
+                       }
+                      },
+                      "playlistEditEndpoint": {
+                       "playlistId": "WL",
+                       "actions": [
+                        {
+                         "addedVideoId": "fxVideo0015",
+                         "action": "ACTION_ADD_VIDEO"
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Watch later",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "toggledButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "CHECK",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/browse/edit_playlist"
+                       }
+                      },
+                      "playlistEditEndpoint": {
+                       "playlistId": "WL",
+                       "actions": [
+                        {
+                         "action": "ACTION_REMOVE_VIDEO_BY_VIDEO_ID",
+                         "removedVideoId": "fxVideo0015"
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Added",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "isToggled": false,
+                  "trackingParams": "redacted"
+                 }
+                },
+                {
+                 "toggleButtonViewModel": {
+                  "defaultButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "ADD_TO_QUEUE_TAIL",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true
+                       }
+                      },
+                      "signalServiceEndpoint": {
+                       "signal": "CLIENT_SIGNAL",
+                       "actions": [
+                        {
+                         "clickTrackingParams": "redacted",
+                         "addToPlaylistCommand": {
+                          "openMiniplayer": true,
+                          "videoId": "fxVideo0015",
+                          "listType": "PLAYLIST_EDIT_LIST_TYPE_QUEUE",
+                          "onCreateListCommand": {
+                           "clickTrackingParams": "redacted",
+                           "commandMetadata": {
+                            "webCommandMetadata": {
+                             "sendPost": true,
+                             "apiUrl": "/youtubei/v1/playlist/create"
+                            }
+                           },
+                           "createPlaylistServiceEndpoint": {
+                            "videoIds": [
+                             "fxVideo0015"
+                            ],
+                            "params": "redacted"
+                           }
+                          },
+                          "videoIds": [
+                           "fxVideo0015"
+                          ],
+                          "videoCommand": {
+                           "clickTrackingParams": "redacted",
+                           "commandMetadata": {
+                            "webCommandMetadata": {
+                             "url": "/watch?v=fxVideo0015",
+                             "webPageType": "WEB_PAGE_TYPE_WATCH",
+                             "rootVe": 3832
+                            }
+                           },
+                           "watchEndpoint": {
+                            "videoId": "fxVideo0015",
+                            "watchEndpointSupportedOnesieConfig": {
+                             "html5PlaybackOnesieConfig": {
+                              "commonConfig": {
+                               "url": "https://example.invalid/redacted"
+                              }
+                             }
+                            }
+                           }
+                          }
+                         }
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Add to queue",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "toggledButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "CHECK",
+                    "accessibilityText": "Added",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "isToggled": false,
+                  "trackingParams": "redacted"
+                 }
+                }
+               ]
+              }
+             }
+            ]
+           }
+          },
+          "metadata": {
+           "lockupMetadataViewModel": {
+            "title": {
+             "content": "Fixture video 15"
+            },
+            "image": {
+             "decoratedAvatarViewModel": {
+              "avatar": {
+               "avatarViewModel": {
+                "image": {
+                 "sources": [
+                  {
+                   "url": "https://example.invalid/redacted",
+                   "width": 68,
+                   "height": 68
+                  }
+                 ]
+                },
+                "avatarImageSize": "AVATAR_SIZE_M"
+               }
+              },
+              "a11yLabel": "redacted",
+              "rendererContext": {
+               "commandContext": {
+                "onTap": {
+                 "innertubeCommand": {
+                  "clickTrackingParams": "redacted",
+                  "commandMetadata": {
+                   "webCommandMetadata": {
+                    "url": "/@fixturechannel",
+                    "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                    "rootVe": 3611,
+                    "apiUrl": "/youtubei/v1/browse"
+                   }
+                  },
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000011",
+                   "canonicalBaseUrl": "/@fixturechannel"
+                  }
+                 }
+                }
+               }
+              }
+             }
+            },
+            "metadata": {
+             "contentMetadataViewModel": {
+              "metadataRows": [
+               {
+                "metadataParts": [
+                 {
+                  "text": {
+                   "content": "Fixture channel 15",
+                   "styleRuns": [
+                    {
+                     "startIndex": 4,
+                     "styleRunExtensions": {
+                      "styleRunColorMapExtension": {
+                       "colorMap": [
+                        {
+                         "key": "USER_INTERFACE_THEME_DARK",
+                         "value": 4289374890
+                        },
+                        {
+                         "key": "USER_INTERFACE_THEME_LIGHT",
+                         "value": 4284506208
+                        }
+                       ]
+                      }
+                     }
+                    }
+                   ],
+                   "attachmentRuns": [
+                    {
+                     "startIndex": 4,
+                     "length": 0,
+                     "element": {
+                      "type": {
+                       "imageType": {
+                        "image": {
+                         "sources": [
+                          {
+                           "clientResource": {
+                            "imageName": "CHECK_CIRCLE_FILLED"
+                           },
+                           "width": 14,
+                           "height": 14
+                          }
+                         ]
+                        }
+                       }
+                      },
+                      "properties": {
+                       "layoutProperties": {
+                        "height": {
+                         "value": 14,
+                         "unit": "DIMENSION_UNIT_POINT"
+                        },
+                        "width": {
+                         "value": 14,
+                         "unit": "DIMENSION_UNIT_POINT"
+                        },
+                        "margin": {
+                         "left": {
+                          "value": 4,
+                          "unit": "DIMENSION_UNIT_POINT"
+                         }
+                        }
+                       }
+                      }
+                     },
+                     "alignment": "ALIGNMENT_VERTICAL_CENTER"
+                    }
+                   ]
+                  }
+                 },
+                 {
+                  "text": {
+                   "content": "1K views"
+                  }
+                 }
+                ],
+                "lockupContentMetadataRowExtension": {
+                 "contentType": "METADATA_ROW_CONTENT_TYPE_BYLINE"
+                }
+               }
+              ],
+              "delimiter": " • "
+             }
+            }
+           }
+          },
+          "contentId": "fxVideo0015",
+          "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+          "rendererContext": {
+           "accessibilityContext": {
+            "label": "redacted"
+           },
+           "commandContext": {
+            "onTap": {
+             "innertubeCommand": {
+              "clickTrackingParams": "redacted",
+              "commandMetadata": {
+               "webCommandMetadata": {
+                "url": "/watch?v=fxVideo0015",
+                "webPageType": "WEB_PAGE_TYPE_WATCH",
+                "rootVe": 3832
+               }
+              },
+              "watchEndpoint": {
+               "videoId": "fxVideo0015",
+               "watchEndpointSupportedOnesieConfig": {
+                "html5PlaybackOnesieConfig": {
+                 "commonConfig": {
+                  "url": "https://example.invalid/redacted"
+                 }
+                }
+               }
+              }
+             }
+            }
+           }
+          }
+         }
+        }
+       ],
+       "trackingParams": "redacted",
+       "header": {
+        "itemSectionHeaderRenderer": {
+         "title": {
+          "simpleText": "Aug 25"
+         }
+        }
+       }
+      }
+     },
+     {
+      "itemSectionRenderer": {
+       "contents": [
+        {
+         "lockupViewModel": {
+          "contentImage": {
+           "thumbnailViewModel": {
+            "image": {
+             "sources": [
+              {
+               "url": "https://i.ytimg.com/vi/fxVideo0015/hqdefault.jpg",
+               "width": 168,
+               "height": 94
+              }
+             ]
+            },
+            "overlays": [
+             {
+              "thumbnailBottomOverlayViewModel": {
+               "progressBar": {
+                "thumbnailOverlayProgressBarViewModel": {
+                 "startPercent": 100
+                }
+               },
+               "badges": [
+                {
+                 "thumbnailBadgeViewModel": {
+                  "text": "10:00",
+                  "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                  "animationActivationTargetId": "fxVideo0015",
+                  "animationActivationEntityKey": "redacted",
+                  "lottieData": {
+                   "url": "https://example.invalid/redacted",
+                   "settings": {
+                    "loop": true,
+                    "autoplay": true
+                   }
+                  },
+                  "animatedText": "Now playing",
+                  "animationActivationEntitySelectorType": "THUMBNAIL_BADGE_ANIMATION_ENTITY_SELECTOR_TYPE_PLAYER_STATE",
+                  "rendererContext": {
+                   "accessibilityContext": {
+                    "label": "redacted"
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             },
+             {
+              "animatedThumbnailOverlayViewModel": {
+               "thumbnail": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/fxVideo0015/hqdefault.jpg",
+                  "width": 320,
+                  "height": 180
+                 }
+                ]
+               }
+              }
+             },
+             {
+              "thumbnailHoverOverlayToggleActionsViewModel": {
+               "buttons": [
+                {
+                 "toggleButtonViewModel": {
+                  "defaultButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "WATCH_LATER",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/browse/edit_playlist"
+                       }
+                      },
+                      "playlistEditEndpoint": {
+                       "playlistId": "WL",
+                       "actions": [
+                        {
+                         "addedVideoId": "fxVideo0015",
+                         "action": "ACTION_ADD_VIDEO"
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Watch later",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "toggledButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "CHECK",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/browse/edit_playlist"
+                       }
+                      },
+                      "playlistEditEndpoint": {
+                       "playlistId": "WL",
+                       "actions": [
+                        {
+                         "action": "ACTION_REMOVE_VIDEO_BY_VIDEO_ID",
+                         "removedVideoId": "fxVideo0015"
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Added",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "isToggled": false,
+                  "trackingParams": "redacted"
+                 }
+                },
+                {
+                 "toggleButtonViewModel": {
+                  "defaultButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "ADD_TO_QUEUE_TAIL",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true
+                       }
+                      },
+                      "signalServiceEndpoint": {
+                       "signal": "CLIENT_SIGNAL",
+                       "actions": [
+                        {
+                         "clickTrackingParams": "redacted",
+                         "addToPlaylistCommand": {
+                          "openMiniplayer": true,
+                          "videoId": "fxVideo0015",
+                          "listType": "PLAYLIST_EDIT_LIST_TYPE_QUEUE",
+                          "onCreateListCommand": {
+                           "clickTrackingParams": "redacted",
+                           "commandMetadata": {
+                            "webCommandMetadata": {
+                             "sendPost": true,
+                             "apiUrl": "/youtubei/v1/playlist/create"
+                            }
+                           },
+                           "createPlaylistServiceEndpoint": {
+                            "videoIds": [
+                             "fxVideo0015"
+                            ],
+                            "params": "redacted"
+                           }
+                          },
+                          "videoIds": [
+                           "fxVideo0015"
+                          ],
+                          "videoCommand": {
+                           "clickTrackingParams": "redacted",
+                           "commandMetadata": {
+                            "webCommandMetadata": {
+                             "url": "/watch?v=fxVideo0015",
+                             "webPageType": "WEB_PAGE_TYPE_WATCH",
+                             "rootVe": 3832
+                            }
+                           },
+                           "watchEndpoint": {
+                            "videoId": "fxVideo0015",
+                            "watchEndpointSupportedOnesieConfig": {
+                             "html5PlaybackOnesieConfig": {
+                              "commonConfig": {
+                               "url": "https://example.invalid/redacted"
+                              }
+                             }
+                            }
+                           }
+                          }
+                         }
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Add to queue",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "toggledButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "CHECK",
+                    "accessibilityText": "Added",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "isToggled": false,
+                  "trackingParams": "redacted"
+                 }
+                }
+               ]
+              }
+             }
+            ]
+           }
+          },
+          "metadata": {
+           "lockupMetadataViewModel": {
+            "title": {
+             "content": "Fixture video 15"
+            },
+            "image": {
+             "decoratedAvatarViewModel": {
+              "avatar": {
+               "avatarViewModel": {
+                "image": {
+                 "sources": [
+                  {
+                   "url": "https://example.invalid/redacted",
+                   "width": 68,
+                   "height": 68
+                  }
+                 ]
+                },
+                "avatarImageSize": "AVATAR_SIZE_M"
+               }
+              },
+              "a11yLabel": "redacted",
+              "rendererContext": {
+               "commandContext": {
+                "onTap": {
+                 "innertubeCommand": {
+                  "clickTrackingParams": "redacted",
+                  "commandMetadata": {
+                   "webCommandMetadata": {
+                    "url": "/@fixturechannel",
+                    "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                    "rootVe": 3611,
+                    "apiUrl": "/youtubei/v1/browse"
+                   }
+                  },
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000011",
+                   "canonicalBaseUrl": "/@fixturechannel"
+                  }
+                 }
+                }
+               }
+              }
+             }
+            },
+            "metadata": {
+             "contentMetadataViewModel": {
+              "metadataRows": [
+               {
+                "metadataParts": [
+                 {
+                  "text": {
+                   "content": "Fixture channel 15",
+                   "styleRuns": [
+                    {
+                     "startIndex": 4,
+                     "styleRunExtensions": {
+                      "styleRunColorMapExtension": {
+                       "colorMap": [
+                        {
+                         "key": "USER_INTERFACE_THEME_DARK",
+                         "value": 4289374890
+                        },
+                        {
+                         "key": "USER_INTERFACE_THEME_LIGHT",
+                         "value": 4284506208
+                        }
+                       ]
+                      }
+                     }
+                    }
+                   ],
+                   "attachmentRuns": [
+                    {
+                     "startIndex": 4,
+                     "length": 0,
+                     "element": {
+                      "type": {
+                       "imageType": {
+                        "image": {
+                         "sources": [
+                          {
+                           "clientResource": {
+                            "imageName": "CHECK_CIRCLE_FILLED"
+                           },
+                           "width": 14,
+                           "height": 14
+                          }
+                         ]
+                        }
+                       }
+                      },
+                      "properties": {
+                       "layoutProperties": {
+                        "height": {
+                         "value": 14,
+                         "unit": "DIMENSION_UNIT_POINT"
+                        },
+                        "width": {
+                         "value": 14,
+                         "unit": "DIMENSION_UNIT_POINT"
+                        },
+                        "margin": {
+                         "left": {
+                          "value": 4,
+                          "unit": "DIMENSION_UNIT_POINT"
+                         }
+                        }
+                       }
+                      }
+                     },
+                     "alignment": "ALIGNMENT_VERTICAL_CENTER"
+                    }
+                   ]
+                  }
+                 },
+                 {
+                  "text": {
+                   "content": "1K views"
+                  }
+                 }
+                ],
+                "lockupContentMetadataRowExtension": {
+                 "contentType": "METADATA_ROW_CONTENT_TYPE_BYLINE"
+                }
+               }
+              ],
+              "delimiter": " • "
+             }
+            }
+           }
+          },
+          "contentId": "fxVideo0015",
+          "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+          "rendererContext": {
+           "accessibilityContext": {
+            "label": "redacted"
+           },
+           "commandContext": {
+            "onTap": {
+             "innertubeCommand": {
+              "clickTrackingParams": "redacted",
+              "commandMetadata": {
+               "webCommandMetadata": {
+                "url": "/watch?v=fxVideo0015",
+                "webPageType": "WEB_PAGE_TYPE_WATCH",
+                "rootVe": 3832
+               }
+              },
+              "watchEndpoint": {
+               "videoId": "fxVideo0015",
+               "watchEndpointSupportedOnesieConfig": {
+                "html5PlaybackOnesieConfig": {
+                 "commonConfig": {
+                  "url": "https://example.invalid/redacted"
+                 }
+                }
+               }
+              }
+             }
+            }
+           }
+          }
+         }
+        },
+        {
+         "lockupViewModel": {
+          "contentImage": {
+           "thumbnailViewModel": {
+            "image": {
+             "sources": [
+              {
+               "url": "https://i.ytimg.com/vi/fxVideo0016/hqdefault.jpg",
+               "width": 168,
+               "height": 94
+              }
+             ]
+            },
+            "overlays": [
+             {
+              "thumbnailBottomOverlayViewModel": {
+               "progressBar": {
+                "thumbnailOverlayProgressBarViewModel": {
+                 "startPercent": 30
+                }
+               },
+               "badges": [
+                {
+                 "thumbnailBadgeViewModel": {
+                  "text": "10:00",
+                  "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                  "animationActivationTargetId": "fxVideo0016",
+                  "animationActivationEntityKey": "redacted",
+                  "lottieData": {
+                   "url": "https://example.invalid/redacted",
+                   "settings": {
+                    "loop": true,
+                    "autoplay": true
+                   }
+                  },
+                  "animatedText": "Now playing",
+                  "animationActivationEntitySelectorType": "THUMBNAIL_BADGE_ANIMATION_ENTITY_SELECTOR_TYPE_PLAYER_STATE",
+                  "rendererContext": {
+                   "accessibilityContext": {
+                    "label": "redacted"
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             },
+             {
+              "animatedThumbnailOverlayViewModel": {
+               "thumbnail": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/fxVideo0016/hqdefault.jpg",
+                  "width": 320,
+                  "height": 180
+                 }
+                ]
+               }
+              }
+             },
+             {
+              "thumbnailHoverOverlayToggleActionsViewModel": {
+               "buttons": [
+                {
+                 "toggleButtonViewModel": {
+                  "defaultButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "WATCH_LATER",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/browse/edit_playlist"
+                       }
+                      },
+                      "playlistEditEndpoint": {
+                       "playlistId": "WL",
+                       "actions": [
+                        {
+                         "addedVideoId": "fxVideo0016",
+                         "action": "ACTION_ADD_VIDEO"
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Watch later",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "toggledButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "CHECK",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true,
+                        "apiUrl": "/youtubei/v1/browse/edit_playlist"
+                       }
+                      },
+                      "playlistEditEndpoint": {
+                       "playlistId": "WL",
+                       "actions": [
+                        {
+                         "action": "ACTION_REMOVE_VIDEO_BY_VIDEO_ID",
+                         "removedVideoId": "fxVideo0016"
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Added",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "isToggled": false,
+                  "trackingParams": "redacted"
+                 }
+                },
+                {
+                 "toggleButtonViewModel": {
+                  "defaultButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "ADD_TO_QUEUE_TAIL",
+                    "onTap": {
+                     "innertubeCommand": {
+                      "clickTrackingParams": "redacted",
+                      "commandMetadata": {
+                       "webCommandMetadata": {
+                        "sendPost": true
+                       }
+                      },
+                      "signalServiceEndpoint": {
+                       "signal": "CLIENT_SIGNAL",
+                       "actions": [
+                        {
+                         "clickTrackingParams": "redacted",
+                         "addToPlaylistCommand": {
+                          "openMiniplayer": true,
+                          "videoId": "fxVideo0016",
+                          "listType": "PLAYLIST_EDIT_LIST_TYPE_QUEUE",
+                          "onCreateListCommand": {
+                           "clickTrackingParams": "redacted",
+                           "commandMetadata": {
+                            "webCommandMetadata": {
+                             "sendPost": true,
+                             "apiUrl": "/youtubei/v1/playlist/create"
+                            }
+                           },
+                           "createPlaylistServiceEndpoint": {
+                            "videoIds": [
+                             "fxVideo0016"
+                            ],
+                            "params": "redacted"
+                           }
+                          },
+                          "videoIds": [
+                           "fxVideo0016"
+                          ],
+                          "videoCommand": {
+                           "clickTrackingParams": "redacted",
+                           "commandMetadata": {
+                            "webCommandMetadata": {
+                             "url": "/watch?v=fxVideo0016",
+                             "webPageType": "WEB_PAGE_TYPE_WATCH",
+                             "rootVe": 3832
+                            }
+                           },
+                           "watchEndpoint": {
+                            "videoId": "fxVideo0016",
+                            "watchEndpointSupportedOnesieConfig": {
+                             "html5PlaybackOnesieConfig": {
+                              "commonConfig": {
+                               "url": "https://example.invalid/redacted"
+                              }
+                             }
+                            }
+                           }
+                          }
+                         }
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    "accessibilityText": "Add to queue",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "toggledButtonViewModel": {
+                   "buttonViewModel": {
+                    "iconName": "CHECK",
+                    "accessibilityText": "Added",
+                    "style": "BUTTON_VIEW_MODEL_STYLE_OVERLAY_DARK",
+                    "trackingParams": "redacted",
+                    "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                    "buttonSize": "BUTTON_VIEW_MODEL_SIZE_COMPACT",
+                    "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+                   }
+                  },
+                  "isToggled": false,
+                  "trackingParams": "redacted"
+                 }
+                }
+               ]
+              }
+             }
+            ]
+           }
+          },
+          "metadata": {
+           "lockupMetadataViewModel": {
+            "title": {
+             "content": "Fixture video 16"
+            },
+            "image": {
+             "decoratedAvatarViewModel": {
+              "avatar": {
+               "avatarViewModel": {
+                "image": {
+                 "sources": [
+                  {
+                   "url": "https://example.invalid/redacted",
+                   "width": 68,
+                   "height": 68
+                  }
+                 ]
+                },
+                "avatarImageSize": "AVATAR_SIZE_M"
+               }
+              },
+              "a11yLabel": "redacted",
+              "rendererContext": {
+               "commandContext": {
+                "onTap": {
+                 "innertubeCommand": {
+                  "clickTrackingParams": "redacted",
+                  "commandMetadata": {
+                   "webCommandMetadata": {
+                    "url": "/@fixturechannel",
+                    "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+                    "rootVe": 3611,
+                    "apiUrl": "/youtubei/v1/browse"
+                   }
+                  },
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000012",
+                   "canonicalBaseUrl": "/@fixturechannel"
+                  }
+                 }
+                }
+               }
+              }
+             }
+            },
+            "metadata": {
+             "contentMetadataViewModel": {
+              "metadataRows": [
+               {
+                "metadataParts": [
+                 {
+                  "text": {
+                   "content": "Fixture channel 16"
+                  }
+                 },
+                 {
+                  "text": {
+                   "content": "1K views"
+                  }
+                 }
+                ],
+                "lockupContentMetadataRowExtension": {
+                 "contentType": "METADATA_ROW_CONTENT_TYPE_BYLINE"
+                }
+               }
+              ],
+              "delimiter": " • "
+             }
+            }
+           }
+          },
+          "contentId": "fxVideo0016",
+          "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+          "rendererContext": {
+           "accessibilityContext": {
+            "label": "redacted"
+           },
+           "commandContext": {
+            "onTap": {
+             "innertubeCommand": {
+              "clickTrackingParams": "redacted",
+              "commandMetadata": {
+               "webCommandMetadata": {
+                "url": "/watch?v=fxVideo0016",
+                "webPageType": "WEB_PAGE_TYPE_WATCH",
+                "rootVe": 3832
+               }
+              },
+              "watchEndpoint": {
+               "videoId": "fxVideo0016",
+               "watchEndpointSupportedOnesieConfig": {
+                "html5PlaybackOnesieConfig": {
+                 "commonConfig": {
+                  "url": "https://example.invalid/redacted"
+                 }
+                }
+               }
+              }
+             }
+            }
+           }
+          }
+         }
+        }
+       ],
+       "trackingParams": "redacted",
+       "header": {
+        "itemSectionHeaderRenderer": {
+         "title": {
+          "simpleText": "Aug 24"
+         }
+        }
+       }
+      }
+     },
+     {
+      "continuationItemRenderer": {
+       "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+       "continuationEndpoint": {
+        "clickTrackingParams": "redacted",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "sendPost": true,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "continuationCommand": {
+         "token": "redacted",
+         "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+        }
+       }
+      }
+     }
+    ],
+    "targetId": "browse-feedFEhistory"
+   }
+  }
+ ]
+}

@@ -1,0 +1,19 @@
+{
+ "aggregated_daily_listening_stats": [
+  {
+   "aggregated_sum": 3000000.0,
+   "interval_identifier": "2026-09-14",
+   "unit": "Milliseconds"
+  },
+  {
+   "aggregated_sum": 1500000.0,
+   "interval_identifier": "2026-09-17",
+   "unit": "Milliseconds"
+  },
+  {
+   "aggregated_sum": 600000.0,
+   "interval_identifier": "2026-09-22",
+   "unit": "Milliseconds"
+  }
+ ]
+}

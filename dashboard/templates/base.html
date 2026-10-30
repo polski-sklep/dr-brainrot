@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Overview{% endblock %} · Dr. Brainrot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 4.6C9.6 3.3 6.4 4.1 5.4 6.3C3.5 6.9 2.9 9 4 10.6C3.1 12.2 3.8 14.4 5.6 15.1C6 17.3 8.3 18.6 10.3 17.9C11 18.9 13 18.9 13.7 17.9C15.7 18.6 18 17.3 18.4 15.1C20.2 14.4 20.9 12.2 20 10.6C21.1 9 20.5 6.9 18.6 6.3C17.6 4.1 14.4 3.3 12 4.6Z' fill='%23F4CFD3' stroke='%23A85964' stroke-width='1.4' stroke-linejoin='round'/%3E%3Ccircle cx='8.2' cy='9.1' r='1.32' fill='%2346A46A'/%3E%3Ccircle cx='15.4' cy='12.4' r='1.21' fill='%2346A46A'/%3E%3Ccircle cx='10.9' cy='14.9' r='1.03' fill='%2346A46A'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+<script src="{{ HTMX_URL }}" integrity="{{ HTMX_SRI }}" crossorigin="anonymous" defer></script>
+</head>
+<body>
+<header class="site">
+  <nav>
+    <a class="wordmark" href="{{ url_for('overview') }}">
+      <svg class="mark" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" focusable="false">
+        <path d="{{ BRAIN.outline }}" fill="#F4CFD3" stroke="#A85964" stroke-width="1.2" stroke-linejoin="round"/>
+        <path d="{{ BRAIN.folds }}" fill="none" stroke="#A85964" stroke-width=".85" stroke-linecap="round" opacity=".75"/>
+        <circle cx="8.2" cy="9.1" r="1.15" fill="#46A46A"/>
+        <circle cx="15.4" cy="12.4" r="1.05" fill="#46A46A"/>
+        <circle cx="10.9" cy="14.9" r="0.9" fill="#46A46A"/>
+      </svg>
+      <span class="wordmark-text"><span class="wordmark-dr">Dr.</span>Brainrot</span>
+    </a>
+    <a href="{{ url_for('overview') }}"{% if request.endpoint == 'overview' %} aria-current="page"{% endif %}>Overview</a>
+    <a href="{{ url_for('labels_page') }}"{% if request.endpoint in ('labels_page', 'set_label', 'labels_queue', 'labels_bulk') %} aria-current="page"{% endif %}>Labels</a>
+    <a href="{{ url_for('records_page') }}"{% if request.endpoint == 'records_page' %} aria-current="page"{% endif %}>Records</a>
+  </nav>
+  {% if countdown.state == "ended" %}
+  <div class="countdown countdown-ended" id="countdown">
+    <strong>Diagnostic ended — name the decision or shut it down.</strong>
+    <span>The {{ countdown.weeks }} weeks ran {{ countdown.start }} to {{ countdown.end }}.</span>
+  </div>
+  {% else %}
+  <div class="statusbar">
+    {% if countdown.state == "running" %}
+    <div class="countdown" id="countdown">
+      <strong>Diagnostic day {{ countdown.day }} of {{ countdown.total_days }}</strong>
+      · {{ countdown.days_left }} day{{ "" if countdown.days_left == 1 else "s" }} left
+      · ends {{ countdown.end }}
+      · week {{ countdown.week_number }} of {{ countdown.weeks }}
+    </div>
+    {% else %}
+    <div class="countdown countdown-pending" id="countdown">
+      <strong>Diagnostic not started yet.</strong> {{ countdown.reason }}
+    </div>
+    {% endif %}
+    <form method="post" action="{{ url_for('sync_now') }}" class="sync">
+      <button type="submit" title="Fetch everything that can be collected automatically, right now, instead of waiting for 09:30">Sync now</button>
+    </form>
+  </div>
+  {% endif %}
+</header>
+<main>
+{% for level, text in flash|default([]) %}<p class="flash flash-{{ level }}">{{ text }}</p>{% endfor %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>
